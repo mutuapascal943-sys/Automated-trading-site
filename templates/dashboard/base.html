@@ -1,0 +1,32 @@
+{% extends 'base.html' %}
+{% block content %}
+<div id="page-app" class="page active">
+  {% include 'includes/sidebar.html' %}
+  {% include 'includes/topbar.html' %}
+  <main class="content">
+    <div class="content-inner fade-in">
+      <div class="section-panel active" id="panel-dashboard">
+        {% include 'dashboard/dashboard_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-markets">
+        {% include 'dashboard/markets_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-bot">
+        {% include 'dashboard/bot_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-history">
+        {% include 'dashboard/history_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-analytics">
+        {% include 'dashboard/analytics_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-subscription">
+        {% include 'dashboard/subscription_panel.html' %}
+      </div>
+      <div class="section-panel" id="panel-settings">
+        {% include 'dashboard/settings_panel.html' %}
+      </div>
+    </div>
+  </main>
+</div>
+{% endblock %}

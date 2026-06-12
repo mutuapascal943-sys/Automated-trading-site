@@ -1,0 +1,559 @@
+(function(){
+  'use strict';
+
+  let trialSeconds = 23*3600 + 47*60 + 12;
+  let botRunning = false;
+  let botInterval = null;
+  let artAnimId = null;
+  let botChartAnimId = null;
+  let pairs = {};
+  let changes = {};
+  let histData = [];
+
+  const loadingSteps = [
+    'Connecting Broker...',
+    'Loading Market Data...',
+    'Initializing AI Engine...',
+    'Analyzing Markets...',
+    'Preparing Dashboard...'
+  ];
+
+  const scanLines = [
+    '> Scanning EUR/USD M15...',
+    '> Pattern recognition: Bullish engulfing detected',
+    '> EMA 50/200 crossover: Confirmed',
+    '> RSI(14): 58.4 — Neutral-Bullish',
+    '> MACD: Positive divergence',
+    '> Volume analysis: Above average',
+    '> Signal generated: BUY',
+    '> Confidence: 74% — STRONG signal',
+    '> TP1: Set | TP2: Set | TP3: Set',
+    '> Awaiting user authorization to execute...'
+  ];
+
+  const panelTitles = {
+    dashboard:'Dashboard', markets:'Markets', bot:'Trading Bot',
+    analytics:'Analytics', history:'History', subscription:'Subscription', settings:'Settings'
+  };
+
+  function initData(){
+    pairs = {
+      'EUR/USD':1.08432,'GBP/USD':1.27380,'USD/JPY':149.820,
+      'AUD/USD':0.65120,'USD/CAD':1.35840,'NZD/USD':0.60330,
+      'XAU/USD':2318.50,'BTC/USD':62450.0,
+      'Boom 1000 Index':1423.80,'Crash 1000 Index':987.40,
+      'Volatility 75 Index':8742.10,'Volatility 100 Index':5320.60
+    };
+    changes = {'EUR/USD':0.12,'GBP/USD':-0.08,'USD/JPY':0.31,'AUD/USD':-0.15,
+      'USD/CAD':0.07,'NZD/USD':-0.22,'XAU/USD':0.54,'BTC/USD':1.83,
+      'Boom 1000 Index':0.92,'Crash 1000 Index':-0.43,
+      'Volatility 75 Index':1.12,'Volatility 100 Index':0.67};
+    histData = [
+      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','+$84','Win','Exness'],
+      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','+$156','Win','Deriv'],
+      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','-$48','Loss','XM'],
+      ['2025-06-12','USD/JPY','SELL','149.620','148.980','+$64','Win','Exness'],
+      ['2025-06-12','BTC/USD','BUY','61240','63100','+$186','Win','Deriv'],
+      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','-$28','Loss','XM'],
+      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','+$76','Win','Exness'],
+      ['2025-06-10','NZD/USD','BUY','0.60180','—','—','Pending','Deriv']
+    ];
+  }
+
+  /* ── NAVIGATION ── */
+  function navigateToPanel(panelId){
+    document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
+    var panel = document.getElementById('panel-' + panelId);
+    if(panel){panel.classList.add('active');
+      panel.classList.remove('fade-in');
+      void panel.offsetWidth;
+      panel.classList.add('fade-in');
+    }
+    document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active')});
+    var navItem = document.querySelector('.nav-item[data-panel="' + panelId + '"]');
+    if(navItem){navItem.classList.add('active')}
+    var titleEl = document.getElementById('topbar-title');
+    if(titleEl){titleEl.textContent = panelTitles[panelId] || panelId}
+    if(panelId === 'bot'){setTimeout(initBotChart,100)}
+    if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
+    if(panelId === 'markets'){setTimeout(populateMarkets,50)}
+    if(panelId === 'dashboard' && !artAnimId){initArtCanvas()}
+    if(document.getElementById('sidebar') && window.innerWidth < 768){
+      document.getElementById('sidebar').classList.remove('open');
+    }
+    window.location.hash = panelId;
+  }
+
+  window.navigateToPanel = navigateToPanel;
+
+  function toggleSidebar(){
+    var sb = document.getElementById('sidebar');
+    if(sb){sb.classList.toggle('open')}
+  }
+  window.toggleSidebar = toggleSidebar;
+
+  function handleHashChange(){
+    var hash = window.location.hash.replace('#','');
+    if(hash && panelTitles[hash]){
+      navigateToPanel(hash);
+    }
+  }
+
+  /* ── MARKETS ── */
+  function populateMarkets(){
+    var grid = document.getElementById('markets-grid');
+    if(!grid || grid.children.length > 0) return;
+    grid.innerHTML = Object.keys(pairs).map(function(k){
+      var p = pairs[k] > 100 ? pairs[k].toFixed(2) : pairs[k].toFixed(5);
+      var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
+      var sign = (changes[k] || 0) >= 0 ? '+' : '';
+      return '<div class="market-card" onclick="navigateToBot(\'' + k + '\')">' +
+        '<div class="market-pair">' + k + '</div>' +
+        '<div class="market-price">' + p + '</div>' +
+        '<div class="market-change ' + cls + '">' + sign + (changes[k]||0) + '%</div></div>';
+    }).join('');
+  }
+
+  function navigateToBot(pair){
+    var sel = document.getElementById('bot-market');
+    if(sel){sel.value = pair; updateBotMarket()}
+    navigateToPanel('bot');
+  }
+  window.navigateToBot = navigateToBot;
+
+  function updateMarketCards(){
+    Object.keys(pairs).forEach(function(k){
+      var cards = document.querySelectorAll('.market-card');
+      for(var i=0;i<cards.length;i++){
+        var pairEl = cards[i].querySelector('.market-pair');
+        if(pairEl && pairEl.textContent === k){
+          var priceEl = cards[i].querySelector('.market-price');
+          if(priceEl){priceEl.textContent = pairs[k] > 100 ? pairs[k].toFixed(2) : pairs[k].toFixed(5)}
+        }
+      }
+    });
+  }
+
+  function updateBotMarket(){
+    var sel = document.getElementById('bot-market');
+    var pair = sel ? sel.value : 'EUR/USD';
+    var labelEl = document.getElementById('bot-pair-label');
+    if(labelEl){labelEl.textContent = pair}
+    var p = pairs[pair] || 1.0;
+    var priceEl = document.getElementById('bot-price');
+    if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
+    updateSignals(pair, p);
+    initBotChart();
+  }
+  window.updateBotMarket = updateBotMarket;
+
+  function updateSignals(pair, price){
+    var spread = price * 0.002;
+    function setText(id, val){
+      var el = document.getElementById(id);
+      if(el){el.textContent = val > 100 ? val.toFixed(2) : val.toFixed(5)}
+    }
+    setText('sig-entry', price);
+    setText('sig-sl', price - spread * 1.2);
+    setText('sig-tp1', price + spread);
+    setText('sig-tp2', price + spread * 2);
+    setText('sig-tp3', price + spread * 3.5);
+    setText('sup1', price - spread * 0.8);
+    setText('sup2', price - spread * 1.6);
+    setText('res1', price + spread * 0.9);
+    setText('res2', price + spread * 1.8);
+  }
+
+  /* ── PRICE TICKER ── */
+  function startPriceTicker(){
+    setInterval(function(){
+      Object.keys(pairs).forEach(function(k){
+        var delta = (Math.random() - 0.5) * pairs[k] * 0.0003;
+        pairs[k] = Math.max(0.001, pairs[k] + delta);
+      });
+      var sel = document.getElementById('bot-market');
+      if(sel){
+        var p = pairs[sel.value] || 1.0;
+        var priceEl = document.getElementById('bot-price');
+        if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
+      }
+      updateMarketCards();
+    }, 1800);
+  }
+
+  /* ── TRIAL TIMER ── */
+  function startTrialTimer(){
+    setInterval(function(){
+      if(trialSeconds > 0) trialSeconds--;
+      var h = Math.floor(trialSeconds / 3600);
+      var m = Math.floor((trialSeconds % 3600) / 60);
+      var s = trialSeconds % 60;
+      var el = document.getElementById('trial-timer');
+      if(el){
+        el.textContent = String(h).padStart(2,'0') + ':' +
+          String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+      }
+    }, 1000);
+  }
+
+  /* ── HISTORY ── */
+  function populateHistory(){
+    var tbody = document.getElementById('historyBody');
+    if(!tbody) return;
+    tbody.innerHTML = histData.map(function(r){
+      var color = r[2] === 'BUY' ? 'var(--teal)' : 'var(--red)';
+      var pnlColor = r[5].startsWith('+') ? 'var(--teal)' : (r[5] === '-' || r[5] === '—') ? 'var(--text2)' : 'var(--red)';
+      var badgeClass = r[6].toLowerCase();
+      return '<tr data-status="' + r[6] + '">' +
+        '<td class="mono" style="font-size:12px">' + r[0] + '</td>' +
+        '<td><strong>' + r[1] + '</strong></td>' +
+        '<td class="mono" style="color:' + color + '">' + r[2] + '</td>' +
+        '<td class="mono">' + r[3] + '</td>' +
+        '<td class="mono">' + r[4] + '</td>' +
+        '<td class="mono" style="color:' + pnlColor + '">' + r[5] + '</td>' +
+        '<td><span class="badge ' + badgeClass + '">' + r[6] + '</span></td>' +
+        '<td style="color:var(--text2);font-size:12px">' + r[7] + '</td></tr>';
+    }).join('');
+  }
+
+  function filterTable(q){
+    document.querySelectorAll('#historyBody tr').forEach(function(tr){
+      tr.style.display = tr.textContent.toLowerCase().includes(q.toLowerCase()) ? '' : 'none';
+    });
+  }
+  window.filterTable = filterTable;
+
+  function chipFilter(el, status){
+    document.querySelectorAll('.filter-chip').forEach(function(c){c.classList.remove('active')});
+    el.classList.add('active');
+    document.querySelectorAll('#historyBody tr').forEach(function(tr){
+      tr.style.display = (status === 'All' || tr.dataset.status === status) ? '' : 'none';
+    });
+  }
+  window.chipFilter = chipFilter;
+
+  /* ── BOT CONTROLS ── */
+  function startAnalysis(){
+    if(botRunning) return;
+    botRunning = true;
+    var ss = document.getElementById('scanStatus');
+    if(!ss) return;
+    ss.style.display = 'block';
+    ss.textContent = '';
+    var i = 0;
+    botInterval = setInterval(function(){
+      if(i < scanLines.length){
+        ss.textContent += scanLines[i] + '\n';
+        i++;
+      } else {
+        clearInterval(botInterval);
+      }
+    }, 400);
+  }
+  window.startAnalysis = startAnalysis;
+
+  function stopAnalysis(){
+    botRunning = false;
+    clearInterval(botInterval);
+    var ss = document.getElementById('scanStatus');
+    if(ss){
+      ss.textContent += '> Analysis stopped.\n';
+      setTimeout(function(){ss.style.display = 'none'}, 2000);
+    }
+  }
+  window.stopAnalysis = stopAnalysis;
+
+  function refreshSignals(){
+    var conf = Math.round(55 + Math.random() * 35);
+    var vol = Math.round(25 + Math.random() * 50);
+    var risk = Math.round(15 + Math.random() * 40);
+    var confVal = document.getElementById('conf-val');
+    var confBar = document.getElementById('conf-bar');
+    var volVal = document.getElementById('vol-val');
+    var volBar = document.getElementById('vol-bar');
+    var riskVal = document.getElementById('risk-val');
+    var riskBar = document.getElementById('risk-bar');
+    if(confVal) confVal.textContent = conf + '%';
+    if(confBar) confBar.style.width = conf + '%';
+    if(volVal) volVal.textContent = vol + '%';
+    if(volBar) volBar.style.width = vol + '%';
+    if(riskVal) riskVal.textContent = risk + '%';
+    if(riskBar) riskBar.style.width = risk + '%';
+    var trends = ['bullish','bearish','sideways'];
+    var labels = ['▲ BULLISH','▼ BEARISH','◆ SIDEWAYS'];
+    var t = Math.floor(Math.random() * 3);
+    var tb = document.getElementById('trend-badge');
+    if(tb){
+      tb.className = 'trend-badge ' + trends[t];
+      tb.textContent = labels[t];
+    }
+    var sel = document.getElementById('bot-market');
+    var pair = sel ? sel.value : 'EUR/USD';
+    var p = pairs[pair] || 1.0;
+    updateSignals(pair, p);
+  }
+  window.refreshSignals = refreshSignals;
+
+  function executeTrade(){
+    var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'Unknown';
+    var entry = document.getElementById('sig-entry') ? document.getElementById('sig-entry').textContent : '—';
+    if(confirm('⚠️ TRADE CONFIRMATION\n\nPair: ' + pair + '\nAction: BUY\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
+      showToast('Trade sent to broker. Ensure your broker API is connected for live execution.', 'success');
+    }
+  }
+  window.executeTrade = executeTrade;
+
+  /* ── CHARTS ── */
+  function initArtCanvas(){
+    var canvas = document.getElementById('artCanvas');
+    if(!canvas) return;
+    canvas.width = canvas.offsetWidth * (window.devicePixelRatio || 1) || 800;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+
+    var pairsArt = ['EUR/USD','GBP/USD','XAU/USD','BTC/USD'];
+    var series = {};
+    pairsArt.forEach(function(p){
+      series[p] = [];
+      for(var i=0;i<40;i++) series[p].push(50 + Math.sin(i*0.2 + Math.random()) * 15 + Math.random() * 5);
+    });
+    var colors = ['#00d4aa','#f5c27a','#e8a94a','#ff4d6d'];
+
+    function draw(){
+      ctx.clearRect(0,0,w,h);
+      var colW = w / pairsArt.length;
+      pairsArt.forEach(function(p, pi){
+        var ox = pi * colW, pts = series[p];
+        var max = Math.max.apply(null, pts), min = Math.min.apply(null, pts);
+        var scale = h / (max - min + 1);
+        ctx.globalAlpha = 0.12;
+        ctx.fillStyle = colors[pi];
+        ctx.beginPath();
+        ctx.moveTo(ox, h);
+        pts.forEach(function(v, i){ctx.lineTo(ox + i * (colW / pts.length), h - (v - min) * scale)});
+        ctx.lineTo(ox + colW, h);
+        ctx.closePath();
+        ctx.fill();
+        ctx.globalAlpha = 1;
+        ctx.strokeStyle = colors[pi];
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        pts.forEach(function(v, i){
+          var x = ox + i * (colW / pts.length);
+          var y = h - (v - min) * scale;
+          i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+        });
+        ctx.stroke();
+        ctx.fillStyle = 'rgba(255,255,255,0.5)';
+        ctx.font = '10px DM Mono';
+        ctx.fillText(p, ox + 6, 14);
+      });
+      pairsArt.forEach(function(p){
+        series[p].shift();
+        series[p].push(series[p][series[p].length-1] + (Math.random() - 0.48) * 3);
+      });
+      artAnimId = requestAnimationFrame(draw);
+    }
+    draw();
+  }
+
+  function initBotChart(){
+    var canvas = document.getElementById('botChart');
+    if(!canvas) return;
+    if(botChartAnimId){cancelAnimationFrame(botChartAnimId)}
+    canvas.width = canvas.offsetWidth || 600;
+    var ctx = canvas.getContext('2d');
+    var w = canvas.width, h = canvas.height;
+    var sel = document.getElementById('bot-market');
+    var base = sel && pairs[sel.value] ? pairs[sel.value] : 1.08;
+    var prices = [];
+    for(var i=0;i<60;i++) prices.push(base * (1 + (Math.sin(i*0.15+1) * 0.008) + (Math.random()-0.5)*0.004));
+
+    function draw(){
+      ctx.clearRect(0,0,w,h);
+      var cw = w / prices.length;
+      var max = Math.max.apply(null, prices);
+      var min = Math.min.apply(null, prices);
+      var range = max - min || 1;
+      var pad = 8;
+
+      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+      ctx.lineWidth = 1;
+      for(var i=0;i<5;i++){
+        var y = pad + (h - pad*2) * (i/4);
+        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
+      }
+
+      for(var i=0;i<prices.length-1;i++){
+        var x = i * cw + cw/2;
+        var o = prices[i], c = prices[i+1];
+        var hi = Math.max(o,c) + (Math.random()*0.0002);
+        var lo = Math.min(o,c) - (Math.random()*0.0002);
+        var bull = c >= o;
+        var scaleY = function(v){return pad + (h-pad*2) * (1 - (v-min)/range)};
+        ctx.strokeStyle = bull ? '#00d4aa' : '#ff4d6d';
+        ctx.fillStyle = bull ? 'rgba(0,212,170,0.75)' : 'rgba(255,77,109,0.75)';
+        ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.moveTo(x, scaleY(hi)); ctx.lineTo(x, scaleY(lo)); ctx.stroke();
+        var bh = Math.max(1.5, Math.abs(scaleY(o) - scaleY(c)));
+        ctx.fillRect(x - cw*0.35, Math.min(scaleY(o), scaleY(c)), cw*0.7, bh);
+      }
+
+      ctx.strokeStyle = 'rgba(245,194,122,0.5)';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      var ema = prices[0];
+      prices.forEach(function(v, i){
+        ema = ema * 0.9 + v * 0.1;
+        var x = i * cw + cw/2;
+        var y = pad + (h-pad*2) * (1 - (ema-min)/range);
+        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+
+      prices.shift();
+      var last = prices[prices.length-1];
+      prices.push(last * (1 + (Math.random()-0.49) * 0.002));
+
+      botChartAnimId = setTimeout(function(){requestAnimationFrame(draw)}, 1000);
+    }
+    draw();
+  }
+
+  function initAnalyticsCharts(){
+    var pnlCanvas = document.getElementById('pnlChart');
+    if(pnlCanvas){
+      pnlCanvas.width = pnlCanvas.offsetWidth || 400;
+      var ctx = pnlCanvas.getContext('2d');
+      var w = pnlCanvas.width, h = pnlCanvas.height;
+      var data = [];
+      var running = 0;
+      for(var i=0;i<30;i++){running += (Math.random()-0.4)*60; data.push(running)}
+      var max = Math.max.apply(null, data);
+      var min = Math.min.apply(null, data);
+      var range = max - min || 1;
+      ctx.clearRect(0,0,w,h);
+      ctx.strokeStyle = '#00d4aa';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      data.forEach(function(v, i){
+        var x = i * (w / (data.length-1));
+        var y = h - 8 - (h - 16) * (v - min) / range;
+        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
+      });
+      ctx.stroke();
+      ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
+      var g = ctx.createLinearGradient(0,0,0,h);
+      g.addColorStop(0, 'rgba(0,212,170,0.15)');
+      g.addColorStop(1, 'rgba(0,212,170,0)');
+      ctx.fillStyle = g;
+      ctx.fill();
+    }
+
+    var winCanvas = document.getElementById('winChart');
+    if(winCanvas){
+      winCanvas.width = winCanvas.offsetWidth || 400;
+      var ctx2 = winCanvas.getContext('2d');
+      var w2 = winCanvas.width, h2 = winCanvas.height;
+      ctx2.clearRect(0,0,w2,h2);
+      var cx = w2/2, cy = h2/2, r = Math.min(w2,h2)/2 - 16;
+      var winA = 0.684 * Math.PI * 2;
+      ctx2.lineWidth = 20;
+      ctx2.strokeStyle = 'rgba(255,255,255,0.05)';
+      ctx2.beginPath(); ctx2.arc(cx, cy, r, 0, Math.PI*2); ctx2.stroke();
+      ctx2.strokeStyle = '#00d4aa';
+      ctx2.beginPath(); ctx2.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + winA); ctx2.stroke();
+      ctx2.strokeStyle = '#ff4d6d';
+      ctx2.beginPath(); ctx2.arc(cx, cy, r, -Math.PI/2 + winA, -Math.PI/2 + Math.PI*2); ctx2.stroke();
+      ctx2.fillStyle = '#e8edf5';
+      ctx2.font = 'bold 22px Syne';
+      ctx2.textAlign = 'center';
+      ctx2.fillText('68.4%', cx, cy+4);
+      ctx2.fillStyle = 'rgba(255,255,255,0.4)';
+      ctx2.font = '11px DM Mono';
+      ctx2.fillText('WIN RATE', cx, cy+20);
+    }
+  }
+
+  /* ── SETTINGS ── */
+  function settingsTab(el, tab){
+    document.querySelectorAll('.settings-nav-item').forEach(function(n){n.classList.remove('active')});
+    el.classList.add('active');
+    document.querySelectorAll('.settings-section').forEach(function(s){s.style.display = 'none'});
+    var target = document.getElementById('settings-' + tab);
+    if(target){target.style.display = 'block'}
+  }
+  window.settingsTab = settingsTab;
+
+  /* ── TOAST NOTIFICATIONS ── */
+  function showToast(message, type){
+    type = type || 'info';
+    var container = document.getElementById('toast-container');
+    if(!container){
+      container = document.createElement('div');
+      container.className = 'toast-container';
+      container.id = 'toast-container';
+      document.body.appendChild(container);
+    }
+    var toast = document.createElement('div');
+    toast.className = 'toast ' + type;
+    toast.textContent = message;
+    container.appendChild(toast);
+    setTimeout(function(){
+      toast.style.opacity = '0';
+      toast.style.transition = 'opacity .3s ease';
+      setTimeout(function(){toast.remove()}, 300);
+    }, 4000);
+  }
+  window.showToast = showToast;
+
+  /* ── SMOOTH SCROLL OBSERVER ── */
+  function initScrollAnimations(){
+    if(typeof IntersectionObserver === 'undefined') return;
+    var observer = new IntersectionObserver(function(entries){
+      entries.forEach(function(entry){
+        if(entry.isIntersecting){
+          entry.target.classList.add('fade-in-up');
+          observer.unobserve(entry.target);
+        }
+      });
+    }, {threshold: 0.1});
+
+    document.querySelectorAll('.stat-card, .service-card, .plan-card, .market-card, .kpi-card').forEach(function(el){
+      if(!el.classList.contains('fade-in-up')){
+        el.style.opacity = '0';
+        observer.observe(el);
+      }
+    });
+  }
+
+  /* ── INIT ── */
+  function init(){
+    initData();
+
+    var appPage = document.getElementById('page-app');
+    if(!appPage || !appPage.classList.contains('active')) return;
+
+    navigateToPanel('dashboard');
+    startTrialTimer();
+    startPriceTicker();
+    populateHistory();
+    populateMarkets();
+    setTimeout(function(){initArtCanvas(); initBotChart(); initAnalyticsCharts()}, 100);
+
+    window.addEventListener('hashchange', handleHashChange);
+    window.addEventListener('resize', function(){
+      if(document.getElementById('page-app') && document.getElementById('page-app').classList.contains('active')){
+        initArtCanvas(); initBotChart(); initAnalyticsCharts();
+      }
+    });
+
+    setTimeout(initScrollAnimations, 500);
+  }
+
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', init);
+  } else {
+    init();
+  }
+})();

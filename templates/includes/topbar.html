@@ -1,0 +1,11 @@
+<header class="topbar">
+  <button class="hamburger" onclick="toggleSidebar()">☰</button>
+  <div class="topbar-title" id="topbar-title">{{ page_title|default:"Dashboard" }}</div>
+  <div class="topbar-pill"><div class="dot"></div> Live</div>
+  <div class="topbar-balance" id="topbar-balance">${{ balance|floatformat:2 }}</div>
+  <div class="topbar-notif" title="Notifications">🔔<div class="notif-badge"></div></div>
+  <form method="post" action="{% url 'logout' %}" style="display:inline">
+    {% csrf_token %}
+    <button type="submit" class="btn-logout">Logout</button>
+  </form>
+</header>

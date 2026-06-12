@@ -1,0 +1,99 @@
+<div class="bot-filters">
+  <div class="filter-group">
+    <div class="filter-label">Broker</div>
+    <select class="filter-select" id="bot-broker"><option>{{ user.broker|default:"Deriv" }}</option><option>Exness</option><option>XM</option></select>
+  </div>
+  <div class="filter-group">
+    <div class="filter-label">Market</div>
+    <select class="filter-select" id="bot-market" onchange="updateBotMarket()">
+      <option>EUR/USD</option><option>GBP/USD</option><option>USD/JPY</option>
+      <option>AUD/USD</option><option>USD/CAD</option><option>NZD/USD</option>
+      <option>XAU/USD</option><option>BTC/USD</option>
+      <option>Boom 1000 Index</option><option>Crash 1000 Index</option>
+      <option>Volatility 75 Index</option><option>Volatility 100 Index</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <div class="filter-label">Timeframe</div>
+    <select class="filter-select" id="bot-tf">
+      <option>M1</option><option>M5</option><option>M15</option>
+      <option>M30</option><option>H1</option><option>H4</option><option>D1</option>
+    </select>
+  </div>
+</div>
+
+<div class="bot-grid">
+  <div>
+    <div class="chart-panel">
+      <div class="chart-header">
+        <div>
+          <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
+          <div style="font-size:12px;color:var(--text3)" class="mono">LIVE</div>
+        </div>
+        <div class="chart-price" id="bot-price">1.08432</div>
+      </div>
+      <div class="chart-canvas-wrap">
+        <canvas id="botChart" height="260" style="width:100%;display:block"></canvas>
+      </div>
+    </div>
+
+    <div class="controls-card mt-2">
+      <div class="analysis-title">⚙ Bot Controls</div>
+      <div class="controls-grid">
+        <button class="btn-ctrl start" onclick="startAnalysis()">▶ START</button>
+        <button class="btn-ctrl stop" onclick="stopAnalysis()">■ STOP</button>
+        <button class="btn-ctrl refresh" onclick="refreshSignals()">↺ REFRESH</button>
+        <button class="btn-ctrl connect">⇌ CONNECT BROKER</button>
+        <button class="btn-ctrl execute" onclick="executeTrade()">⚡ EXECUTE TRADE</button>
+        <button class="btn-ctrl close">✕ CLOSE ALL</button>
+        <button class="btn-ctrl pause">⏸ PAUSE BOT</button>
+        <button class="btn-ctrl resume">▶ RESUME BOT</button>
+      </div>
+      <div class="scan-status" id="scanStatus"></div>
+      <div class="analysis-title mt-2">🛡 Risk Management</div>
+      <div class="risk-grid">
+        <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1"></div>
+        <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50"></div>
+        <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50"></div>
+        <div class="risk-field"><label>Daily profit target %</label><input type="number" value="5" min="1" max="100"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="signals-col">
+    <div class="analysis-card">
+      <div class="analysis-title">🧠 AI Analysis</div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+        <span style="font-size:12px;color:var(--text2)">Current Trend:</span>
+        <span class="trend-badge bullish" id="trend-badge">▲ BULLISH</span>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar-label"><span>Signal Confidence</span><span id="conf-val">74%</span></div>
+        <div class="score-bar"><div class="score-bar-fill" id="conf-bar" style="width:74%"></div></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar-label"><span>Market Volatility</span><span id="vol-val">42%</span></div>
+        <div class="score-bar"><div class="score-bar-fill teal" id="vol-bar" style="width:42%"></div></div>
+      </div>
+      <div class="score-bar-wrap">
+        <div class="score-bar-label"><span>Risk Score</span><span id="risk-val">28%</span></div>
+        <div class="score-bar"><div class="score-bar-fill red" id="risk-bar" style="width:28%"></div></div>
+      </div>
+      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">1.0812</span></div>
+      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">1.0784</span></div>
+      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">1.0876</span></div>
+      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">1.0910</span></div>
+    </div>
+
+    <div class="analysis-card">
+      <div class="analysis-title">⚡ Trade Signal</div>
+      <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">1.08432</span></div>
+      <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">1.08180</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">1.08690</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 2</span><span class="signal-val green" id="sig-tp2">1.08950</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 3</span><span class="signal-val green" id="sig-tp3">1.09240</span></div>
+      <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold">1:2.7</span></div>
+      <div class="signal-row"><span class="signal-key">Signal Strength</span><span class="signal-val green">STRONG</span></div>
+    </div>
+  </div>
+</div>

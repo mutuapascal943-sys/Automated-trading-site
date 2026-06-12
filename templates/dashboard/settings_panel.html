@@ -1,0 +1,71 @@
+<div class="section-title">Account <span>Settings</span></div>
+<div class="settings-grid">
+  <div class="settings-nav">
+    <button class="settings-nav-item active" onclick="settingsTab(this,'profile')">Profile</button>
+    <button class="settings-nav-item" onclick="settingsTab(this,'notifications')">Notifications</button>
+    <button class="settings-nav-item" onclick="settingsTab(this,'security')">Security</button>
+    <button class="settings-nav-item" onclick="settingsTab(this,'broker')">Broker API</button>
+  </div>
+  <div>
+    <div class="settings-section" id="settings-profile">
+      <div class="settings-title">Profile Settings</div>
+      <form method="post" action="{% url 'settings_profile' %}">
+        {% csrf_token %}
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Email</label>
+            <input type="email" name="email" value="{{ user.email }}" class="form-input" style="margin-top:6px">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Connected Broker</label>
+            <select name="broker" class="form-input" style="margin-top:6px">
+              <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
+              <option value="Exness" {% if user.broker == 'Exness' %}selected{% endif %}>Exness</option>
+              <option value="XM" {% if user.broker == 'XM' %}selected{% endif %}>XM</option>
+              <option value="FBS" {% if user.broker == 'FBS' %}selected{% endif %}>FBS</option>
+              <option value="IC Markets" {% if user.broker == 'IC Markets' %}selected{% endif %}>IC Markets</option>
+            </select>
+          </div>
+        </div>
+        <button type="submit" class="btn-gold" style="width:auto;padding:10px 24px;margin-top:12px">Save Changes</button>
+      </form>
+    </div>
+
+    <div class="settings-section" id="settings-notifications" style="display:none">
+      <div class="settings-title">Notification Settings</div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Push Notifications</div><div class="settings-row-sub">Signal alerts and trade updates</div></div>
+        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Email Notifications</div><div class="settings-row-sub">Daily summary and trade reports</div></div>
+        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+      </div>
+    </div>
+
+    <div class="settings-section" id="settings-security" style="display:none">
+      <div class="settings-title">Security Settings</div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Two-Factor Authentication</div>
+          <div class="settings-row-sub">
+            {% if user.two_factor_enabled %}
+              <span style="color:var(--teal)">✅ Enabled</span>
+            {% else %}
+              Protect your account with 2FA
+            {% endif %}
+          </div>
+        </div>
+        <a href="{% if user.two_factor_enabled %}{% url 'toggle_2fa' %}{% else %}{% url 'setup_2fa' %}{% endif %}" class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px;text-decoration:none">
+          {% if user.two_factor_enabled %}Disable{% else %}Enable{% endif %}
+        </a>
+      </div>
+      <div class="settings-row">
+        <div><div class="settings-row-label">Trade Confirmation</div><div class="settings-row-sub">Require confirmation before execution</div></div>
+        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+      </div>
+    </div>
+  </div>
+</div>

@@ -1,0 +1,6 @@
+django>=5.0
+django-otp>=1.5
+qrcode[pil]
+pyotp
+bcrypt>=4.1.1
+Pillow
