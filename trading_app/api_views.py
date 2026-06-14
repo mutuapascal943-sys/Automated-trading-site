@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
     Trade, TradingSignal, RAGDocument, RAGChunk,
-    LLMQuery, Subscription, EmailOTP, SecurityQuestion,
+    LLMQuery, Subscription, EmailOTP, SecurityQuestion, Notification,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
@@ -473,3 +473,35 @@ def api_password_reset_confirm(request):
             session.delete()
 
     return Response({'status': 'Password reset successful'})
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def list_notifications(request):
+    notifications = Notification.objects.filter(user=request.user)[:20]
+    unread_count = Notification.objects.filter(user=request.user, is_read=False).count()
+    data = [{
+        'id': n.id,
+        'title': n.title,
+        'message': n.message,
+        'type': n.notification_type,
+        'is_read': n.is_read,
+        'created_at': n.created_at.isoformat(),
+    } for n in notifications]
+    return Response({'notifications': data, 'unread_count': unread_count})
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def mark_notification_read(request, notification_id):
+    notification = get_object_or_404(Notification, id=notification_id, user=request.user)
+    notification.is_read = True
+    notification.save()
+    return Response({'status': 'ok'})
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def mark_all_notifications_read(request):
+    Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
+    return Response({'status': 'ok'})

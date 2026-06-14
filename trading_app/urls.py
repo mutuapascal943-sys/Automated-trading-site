@@ -43,5 +43,8 @@ urlpatterns = [
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
+    path('api/notifications/', api_views.list_notifications, name='api_notifications'),
+    path('api/notifications/<int:notification_id>/read/', api_views.mark_notification_read, name='api_notification_read'),
+    path('api/notifications/read-all/', api_views.mark_all_notifications_read, name='api_notifications_read_all'),
     path('api/', include(router.urls)),
 ]

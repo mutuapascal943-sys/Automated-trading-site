@@ -16,7 +16,7 @@ from .forms import (
     SetNewPasswordForm, SecurityQuestionForm, SecurityAnswerForm,
     ProfileForm, ProfilePictureForm,
 )
-from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion, RememberMeToken
+from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion, RememberMeToken, Notification
 from .decorators import two_factor_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
@@ -38,6 +38,7 @@ def register_view(request):
             user.email = form.cleaned_data['email']
             user.broker = form.cleaned_data['broker']
             user.save()
+            create_notification(user, 'Account Created', 'Welcome to Forex AI Pro! Please verify your email to get started.', 'account')
             login(request, user)
 
             otp_code = generate_otp()
@@ -107,6 +108,7 @@ def login_view(request):
                 return redirect('verify_2fa')
 
             CacheService.reset_rate_limit(f'login_{user.id}')
+            create_notification(user, 'New Login', f'New sign-in to your account from a web browser.', 'account')
             messages.success(request, f'Welcome back, {user.email}!')
             return redirect('dashboard')
     return render(request, 'registration/login.html', {'form': form})
@@ -219,6 +221,12 @@ def logout_view(request):
     return response
 
 
+def create_notification(user, title, message='', notification_type='system'):
+    Notification.objects.create(
+        user=user, title=title, message=message, notification_type=notification_type
+    )
+
+
 def auto_login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
@@ -249,6 +257,13 @@ def dashboard_view(request):
     show_welcome = not request.session.get('welcome_dismissed', False)
     if show_welcome:
         request.session['welcome_dismissed'] = True
+        create_notification(
+            user, 'Welcome to Forex AI Pro!',
+            'Your AI-powered trading assistant is ready. Start exploring the dashboard to access market analysis, signals, and more.',
+            'system'
+        )
+
+    unread_notifications = Notification.objects.filter(user=user, is_read=False).count()
 
     context = {
         'user_email': user.email,
@@ -260,6 +275,7 @@ def dashboard_view(request):
         'win_rate': win_rate,
         'total_trades': closed_trades + Trade.objects.filter(user=user, status='OPEN').count(),
         'show_welcome': show_welcome,
+        'unread_notifications': unread_notifications,
     }
     return render(request, 'dashboard/base.html', context)
 

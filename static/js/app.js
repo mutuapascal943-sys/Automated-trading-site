@@ -527,6 +527,132 @@
     });
   }
 
+  /* ── NOTIFICATIONS ── */
+  function toggleNotifications(){
+    var panel = document.getElementById('notifPanel');
+    if(!panel) return;
+    var isOpen = panel.classList.contains('open');
+    document.querySelectorAll('.notif-panel.open').forEach(function(p){p.classList.remove('open')});
+    if(!isOpen){
+      panel.classList.add('open');
+      loadNotifications();
+    }
+  }
+  window.toggleNotifications = toggleNotifications;
+
+  function loadNotifications(){
+    var list = document.getElementById('notifList');
+    if(!list) return;
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '/api/notifications/', true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.onload = function(){
+      if(xhr.status === 200){
+        var data = JSON.parse(xhr.responseText);
+        var badge = document.getElementById('notifBadge');
+        if(badge){
+          if(data.unread_count > 0){
+            badge.textContent = data.unread_count > 9 ? '9+' : data.unread_count;
+            badge.classList.add('has-unread');
+          } else {
+            badge.textContent = '';
+            badge.classList.remove('has-unread');
+          }
+        }
+        if(data.notifications.length === 0){
+          list.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
+          return;
+        }
+        var icons = {system:'📢', trade:'📊', signal:'⚡', account:'🔒'};
+        list.innerHTML = data.notifications.map(function(n){
+          var icon = icons[n.type] || '📢';
+          var timeAgo = '';
+          var d = new Date(n.created_at);
+          var diff = Math.floor((Date.now() - d.getTime()) / 1000);
+          if(diff < 60) timeAgo = 'just now';
+          else if(diff < 3600) timeAgo = Math.floor(diff/60) + 'm ago';
+          else if(diff < 86400) timeAgo = Math.floor(diff/3600) + 'h ago';
+          else timeAgo = Math.floor(diff/86400) + 'd ago';
+          return '<div class="notif-item' + (n.is_read ? '' : ' unread') + '" onclick="markAsRead(' + n.id + ')">' +
+            '<div class="notif-item-icon ' + n.type + '">' + icon + '</div>' +
+            '<div class="notif-item-content">' +
+            '<div class="notif-item-title">' + escapeHtml(n.title) + '</div>' +
+            (n.message ? '<div class="notif-item-msg">' + escapeHtml(n.message) + '</div>' : '') +
+            '<div class="notif-item-time">' + timeAgo + '</div></div></div>';
+        }).join('');
+      }
+    };
+    xhr.send();
+  }
+
+  function escapeHtml(text){
+    var d = document.createElement('div');
+    d.textContent = text;
+    return d.innerHTML;
+  }
+
+  function markAsRead(id){
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/notifications/' + id + '/read/', true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function(){
+      if(xhr.status === 200){loadNotifications()}
+    };
+    xhr.send();
+  }
+  window.markAsRead = markAsRead;
+
+  function markAllRead(){
+    var xhr = new XMLHttpRequest();
+    xhr.open('POST', '/api/notifications/read-all/', true);
+    xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+    xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.onload = function(){
+      if(xhr.status === 200){loadNotifications()}
+    };
+    xhr.send();
+  }
+  window.markAllRead = markAllRead;
+
+  /* ── CLOSE NOTIFICATIONS ON CLICK OUTSIDE ── */
+  document.addEventListener('click', function(e){
+    var panel = document.getElementById('notifPanel');
+    if(panel && panel.classList.contains('open')){
+      var bell = document.getElementById('notifBell');
+      if(!bell.contains(e.target) && !panel.contains(e.target)){
+        panel.classList.remove('open');
+      }
+    }
+  });
+
+  /* ── NOTIFICATION POLLING ── */
+  setInterval(function(){
+    var panel = document.getElementById('notifPanel');
+    if(!panel || !panel.classList.contains('open')){
+      /* silent update badge only */
+      var xhr = new XMLHttpRequest();
+      xhr.open('GET', '/api/notifications/', true);
+      xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
+      xhr.onload = function(){
+        if(xhr.status === 200){
+          var data = JSON.parse(xhr.responseText);
+          var badge = document.getElementById('notifBadge');
+          if(badge){
+            if(data.unread_count > 0){
+              badge.textContent = data.unread_count > 9 ? '9+' : data.unread_count;
+              badge.classList.add('has-unread');
+            } else {
+              badge.textContent = '';
+              badge.classList.remove('has-unread');
+            }
+          }
+        }
+      };
+      xhr.send();
+    }
+  }, 15000);
+
   /* ── INIT ── */
   function init(){
     initData();

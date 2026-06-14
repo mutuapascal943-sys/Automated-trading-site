@@ -10,7 +10,19 @@
       <div class="topbar-avatar-letter">{{ user.email|first|upper }}</div>
     {% endif %}
   </a>
-  <div class="topbar-notif" title="Notifications">🔔<div class="notif-badge"></div></div>
+  <div class="topbar-notif" id="notifBell" title="Notifications" onclick="toggleNotifications()">
+    <span class="notif-icon">🔔</span>
+    <div class="notif-badge" id="notifBadge"></div>
+  </div>
+  <div class="notif-panel" id="notifPanel">
+    <div class="notif-panel-header">
+      <span>Notifications</span>
+      <button class="notif-mark-read" onclick="markAllRead()">Mark all read</button>
+    </div>
+    <div class="notif-panel-body" id="notifList">
+      <div class="notif-empty">No notifications yet.</div>
+    </div>
+  </div>
   <form method="post" action="{% url 'logout' %}" style="display:inline">
     {% csrf_token %}
     <button type="submit" class="btn-logout">Logout</button>
