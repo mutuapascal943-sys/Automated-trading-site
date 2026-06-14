@@ -67,6 +67,13 @@
         <div><div class="settings-row-label">Trade Confirmation</div><div class="settings-row-sub">Require confirmation before execution</div></div>
         <div class="toggle on" onclick="this.classList.toggle('on')"></div>
       </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Security Questions</div>
+          <div class="settings-row-sub">Recover your account if you lose email access</div>
+        </div>
+        <a href="{% url 'setup_security_questions' %}" class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px;text-decoration:none">Manage</a>
+      </div>
     </div>
 
     <div class="settings-section" id="settings-broker" style="display:none">

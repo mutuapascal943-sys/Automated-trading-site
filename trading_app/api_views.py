@@ -10,7 +10,7 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
     Trade, TradingSignal, RAGDocument, RAGChunk,
-    LLMQuery, Subscription, EmailOTP,
+    LLMQuery, Subscription, EmailOTP, SecurityQuestion,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
@@ -386,3 +386,90 @@ def dashboard_stats_view(request):
         'daily_trades_count': user.daily_trades_count,
         'recent_signals': signal_data,
     })
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def api_password_reset_request(request):
+    email = request.data.get('email', '')
+    if not email:
+        return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': 'No account found with that email'}, status=status.HTTP_404_NOT_FOUND)
+
+    if not CacheService.check_rate_limit(f'api_pwd_reset_{user.id}', max_attempts=3, window=300):
+        return Response(
+            {'error': 'Too many requests. Please try again in 5 minutes.'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
+    otp_code = generate_otp()
+    expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
+    EmailOTP.objects.create(
+        user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
+    )
+    CacheService.set_otp(user.id, otp_code)
+    send_otp_email(user, otp_code)
+
+    return Response({'status': 'OTP sent', 'user_id': user.id})
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def api_password_reset_verify(request):
+    email = request.data.get('email', '')
+    code = request.data.get('code', '')
+
+    if not email or not code:
+        return Response({'error': 'Email and code are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    if CacheService.verify_otp(user.id, code):
+        otp = EmailOTP.objects.filter(
+            user=user, code=code, purpose='password_reset', is_used=False
+        ).last()
+        if otp and otp.is_valid():
+            otp.is_used = True
+            otp.save()
+            CacheService.reset_rate_limit(f'api_pwd_reset_{user.id}')
+            return Response({'status': 'verified', 'reset_token': str(user.id)})
+
+    return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def api_password_reset_confirm(request):
+    email = request.data.get('email', '')
+    new_password = request.data.get('new_password', '')
+
+    if not email or not new_password:
+        return Response({'error': 'Email and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if len(new_password) < 8:
+        return Response({'error': 'Password must be at least 8 characters'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        user = User.objects.get(email__iexact=email)
+    except User.DoesNotExist:
+        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+
+    user.set_password(new_password)
+    user.save()
+
+    # Invalidate all sessions for this user
+    from django.contrib.sessions.models import Session
+    sessions = Session.objects.filter(expire_date__gte=timezone.now())
+    for session in sessions:
+        data = session.get_decoded()
+        if str(user.id) == str(data.get('_auth_user_id')):
+            session.delete()
+
+    return Response({'status': 'Password reset successful'})

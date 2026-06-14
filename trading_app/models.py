@@ -211,3 +211,30 @@ class Subscription(models.Model):
 
     def __str__(self):
         return f'{self.user.email} - {self.tier}'
+
+
+SECURITY_QUESTIONS = [
+    ('pet', 'What was the name of your first pet?'),
+    ('school', 'What was the name of your elementary school?'),
+    ('city', 'In which city were you born?'),
+    ('mother', 'What is your mother\'s maiden name?'),
+    ('book', 'What was your favorite book as a child?'),
+    ('movie', 'What was your favorite movie as a teenager?'),
+    ('car', 'What was the make of your first car?'),
+    ('teacher', 'What was the name of your favorite teacher?'),
+]
+
+
+class SecurityQuestion(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='security_questions')
+    question_key = models.CharField(max_length=20, choices=SECURITY_QUESTIONS)
+    answer_hash = models.CharField(max_length=128)
+
+    class Meta:
+        unique_together = ['user', 'question_key']
+        indexes = [
+            models.Index(fields=['user']),
+        ]
+
+    def __str__(self):
+        return f'{self.user.email} - {self.get_question_key_display()}'

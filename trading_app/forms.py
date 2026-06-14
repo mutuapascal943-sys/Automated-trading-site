@@ -1,6 +1,7 @@
 from django import forms
-from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
-from .models import User
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, SetPasswordForm
+from django.contrib.auth import password_validation
+from .models import User, SECURITY_QUESTIONS
 
 BROKER_CHOICES = [
     ('', 'Choose your broker'),
@@ -123,5 +124,68 @@ class LLMQueryForm(forms.Form):
         widget=forms.Textarea(attrs={
             'class': 'form-input', 'placeholder': 'Optional: paste market data for context',
             'rows': 3, 'style': 'resize:vertical;font-size:12px'
+        })
+    )
+
+
+class PasswordResetRequestForm(forms.Form):
+    email = forms.EmailField(
+        widget=forms.EmailInput(attrs={
+            'class': 'form-input', 'placeholder': 'you@example.com', 'id': 'reset-email',
+            'autofocus': True,
+        })
+    )
+
+
+class PasswordResetVerifyForm(forms.Form):
+    otp_code = forms.CharField(
+        label='Verification Code',
+        max_length=6, min_length=6,
+        widget=forms.TextInput(attrs={
+            'class': 'form-input', 'placeholder': '000000',
+            'id': 'reset-otp', 'autocomplete': 'off',
+            'inputmode': 'numeric', 'pattern': '[0-9]*',
+        })
+    )
+
+
+class SetNewPasswordForm(SetPasswordForm):
+    new_password1 = forms.CharField(
+        label='New Password',
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-input', 'placeholder': 'Min 8 characters', 'id': 'new-pass1',
+            'autocomplete': 'new-password',
+        }),
+        strip=False,
+        help_text=password_validation.password_validators_help_text_html(),
+    )
+    new_password2 = forms.CharField(
+        label='Confirm New Password',
+        strip=False,
+        widget=forms.PasswordInput(attrs={
+            'class': 'form-input', 'placeholder': 'Repeat new password', 'id': 'new-pass2',
+            'autocomplete': 'new-password',
+        }),
+    )
+
+
+class SecurityQuestionForm(forms.Form):
+    question_key = forms.ChoiceField(
+        choices=SECURITY_QUESTIONS,
+        widget=forms.Select(attrs={'class': 'form-input', 'id': 'sec-q-key'})
+    )
+    answer = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={
+            'class': 'form-input', 'placeholder': 'Your answer', 'id': 'sec-q-answer',
+        })
+    )
+
+
+class SecurityAnswerForm(forms.Form):
+    answer = forms.CharField(
+        max_length=255,
+        widget=forms.TextInput(attrs={
+            'class': 'form-input', 'placeholder': 'Your answer', 'id': 'sec-answer',
         })
     )

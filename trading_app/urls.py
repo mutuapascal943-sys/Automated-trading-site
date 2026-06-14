@@ -22,6 +22,12 @@ urlpatterns = [
     path('settings/toggle-2fa/', views.toggle_2fa_view, name='toggle_2fa'),
     path('llm/query/', views.llm_query_view, name='llm_query'),
     path('documents/upload/', views.upload_document_view, name='upload_document'),
+    path('password-reset/', views.password_reset_request_view, name='password_reset_request'),
+    path('password-reset/verify/', views.password_reset_verify_view, name='password_reset_verify'),
+    path('password-reset/confirm/', views.password_reset_confirm_view, name='password_reset_confirm'),
+    path('password-reset/resend-otp/', views.resend_reset_otp_view, name='resend_reset_otp'),
+    path('settings/security-questions/', views.setup_security_questions_view, name='setup_security_questions'),
+    path('settings/security-questions/<str:question_key>/delete/', views.delete_security_question_view, name='delete_security_question'),
 
     # REST API - specific routes before router to avoid conflicts
     path('api/trades/execute/', api_views.execute_trade_view, name='api_execute_trade'),
@@ -31,6 +37,9 @@ urlpatterns = [
     path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
     path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
+    path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
+    path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
+    path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
     path('api/', include(router.urls)),
 ]

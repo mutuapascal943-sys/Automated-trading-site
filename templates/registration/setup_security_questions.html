@@ -1,0 +1,61 @@
+{% extends 'base.html' %}
+{% block content %}
+<div id="page-security-questions" class="page active">
+  <div class="auth-bg-lines"></div>
+  <div class="auth-glow g1"></div>
+  <div class="auth-glow g2"></div>
+  <div class="auth-wrap" style="max-width:480px">
+    {% include 'includes/auth_brand.html' %}
+    <div class="auth-form-panel">
+      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Security Questions</h2>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:20px">Set up security questions to recover your account if you lose access to your email.</p>
+
+      {% if messages %}
+        {% for message in messages %}
+          <div style="padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;
+            {% if message.tags == 'success' %}background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.15);color:var(--teal)
+            {% elif message.tags == 'error' %}background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.15);color:var(--red)
+            {% else %}background:rgba(245,194,122,0.06);border:1px solid rgba(245,194,122,0.1);color:var(--gold)
+            {% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div style="margin-bottom:20px">
+        <div class="settings-title" style="font-size:14px;margin-bottom:12px">Your Saved Questions</div>
+        {% if used_questions %}
+          {% for q in used_questions %}
+            <div style="display:flex;justify-content:space-between;align-items:center;padding:8px 12px;background:rgba(245,194,122,0.04);border-radius:6px;margin-bottom:6px;border:1px solid rgba(245,194,122,0.06)">
+              <span style="font-size:13px;color:var(--text1)">{{ q.get_question_key_display }}</span>
+              <a href="{% url 'delete_security_question' q.question_key %}" style="color:var(--red);font-size:12px;text-decoration:none;padding:2px 8px;border-radius:4px;border:1px solid rgba(255,77,109,0.2)">Remove</a>
+            </div>
+          {% endfor %}
+        {% else %}
+          <p style="color:var(--text3);font-size:13px">No security questions set up yet.</p>
+        {% endif %}
+      </div>
+
+      <div class="form-divider" style="margin:16px 0">Add New Question</div>
+
+      <form class="auth-form active" method="post" action="{% url 'setup_security_questions' %}">
+        {% csrf_token %}
+        <div>
+          <label class="form-label" for="sec-q-key">Choose a Question</label>
+          {{ form.question_key }}
+          {% if form.question_key.errors %}<div class="form-error">{{ form.question_key.errors.0 }}</div>{% endif %}
+        </div>
+        <div>
+          <label class="form-label" for="sec-q-answer">Your Answer</label>
+          {{ form.answer }}
+          {% if form.answer.errors %}<div class="form-error">{{ form.answer.errors.0 }}</div>{% endif %}
+        </div>
+        <button type="submit" class="btn-gold">Save Question →</button>
+      </form>
+
+      <div class="form-divider">or</div>
+      <a href="{% url 'dashboard' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Back to Dashboard</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

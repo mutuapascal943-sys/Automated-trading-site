@@ -10,9 +10,11 @@ from django.contrib.auth import get_user_model
 from .models import (
     User, EmailOTP, Trade, TradingSignal,
     RAGDocument, RAGChunk, LLMQuery, Subscription,
+    SecurityQuestion,
 )
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
+from .forms import PasswordResetRequestForm, PasswordResetVerifyForm, SetNewPasswordForm
 from .services.rag_engine import RAGEngine
 from .services.llm_service import LLMService
 from .services.broker_service import BrokerService
@@ -804,3 +806,250 @@ class ProfileViewTests(TestCase):
         })
         self.user.refresh_from_db()
         self.assertEqual(self.user.broker, 'IC Markets')
+
+
+class PasswordResetViewTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user(
+            email='reset@test.com', username='resetuser', password='OldPass123!'
+        )
+
+    def test_password_reset_page_loads(self):
+        response = self.client.get(reverse('password_reset_request'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'registration/password_reset_request.html')
+
+    def test_password_reset_request_valid_email(self):
+        response = self.client.post(reverse('password_reset_request'), {
+            'email': 'reset@test.com',
+        })
+        self.assertRedirects(response, reverse('password_reset_verify'))
+        otps = EmailOTP.objects.filter(user=self.user, purpose='password_reset')
+        self.assertEqual(otps.count(), 1)
+        self.assertEqual(len(otps.first().code), 6)
+
+    def test_password_reset_request_invalid_email(self):
+        response = self.client.post(reverse('password_reset_request'), {
+            'email': 'nonexistent@test.com',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'No account found')
+
+    def test_password_reset_verify_valid_code(self):
+        self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
+        CacheService.set_otp(self.user.id, otp.code)
+
+        response = self.client.post(reverse('password_reset_verify'), {
+            'otp_code': otp.code,
+        })
+        self.assertRedirects(response, reverse('password_reset_confirm'))
+
+    def test_password_reset_verify_invalid_code(self):
+        self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        response = self.client.post(reverse('password_reset_verify'), {
+            'otp_code': '000000',
+        })
+        self.assertEqual(response.status_code, 200)
+
+    def test_password_reset_verify_without_session(self):
+        response = self.client.get(reverse('password_reset_verify'))
+        self.assertRedirects(response, reverse('password_reset_request'))
+
+    def test_password_reset_confirm_valid(self):
+        self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
+        CacheService.set_otp(self.user.id, otp.code)
+        self.client.post(reverse('password_reset_verify'), {'otp_code': otp.code})
+
+        response = self.client.post(reverse('password_reset_confirm'), {
+            'new_password1': 'NewStrongPass456!',
+            'new_password2': 'NewStrongPass456!',
+        })
+        self.assertRedirects(response, reverse('login'))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('NewStrongPass456!'))
+        self.assertFalse(self.user.check_password('OldPass123!'))
+
+    def test_password_reset_confirm_without_session(self):
+        response = self.client.get(reverse('password_reset_confirm'))
+        self.assertRedirects(response, reverse('password_reset_request'))
+
+    def test_password_reset_redirects_when_authenticated(self):
+        self.client.force_login(self.user)
+        for url_name in ['password_reset_request', 'password_reset_verify', 'password_reset_confirm']:
+            response = self.client.get(reverse(url_name))
+            self.assertRedirects(response, reverse('dashboard'))
+
+    def test_resend_reset_otp(self):
+        self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        response = self.client.post(reverse('resend_reset_otp'))
+        self.assertRedirects(response, reverse('password_reset_verify'))
+
+    def test_resend_reset_otp_without_session(self):
+        response = self.client.post(reverse('resend_reset_otp'))
+        self.assertRedirects(response, reverse('password_reset_request'))
+
+    def test_full_reset_flow(self):
+        response = self.client.get(reverse('password_reset_request'))
+        self.assertEqual(response.status_code, 200)
+
+        self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
+        CacheService.set_otp(self.user.id, otp.code)
+
+        self.client.post(reverse('password_reset_verify'), {'otp_code': otp.code})
+        self.client.post(reverse('password_reset_confirm'), {
+            'new_password1': 'FinalNewPass789!',
+            'new_password2': 'FinalNewPass789!',
+        })
+
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('FinalNewPass789!'))
+
+    @override_settings(MAX_LOGIN_ATTEMPTS=10)
+    def test_forgot_password_link_on_login(self):
+        response = self.client.get(reverse('login'))
+        self.assertContains(response, reverse('password_reset_request'))
+
+    def test_password_reset_rate_limit(self):
+        for _ in range(3):
+            self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
+        response = self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'}, follow=True)
+        messages_list = list(response.context['messages'])
+        self.assertTrue(any('Too many password reset' in str(m) for m in messages_list))
+
+
+class PasswordResetAPIViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='apireset@test.com', username='apiresetuser', password='OldPass123!'
+        )
+
+    def test_api_password_reset_request(self):
+        response = self.client.post(reverse('api_password_reset_request'), {
+            'email': 'apireset@test.com',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'OTP sent')
+
+    def test_api_password_reset_request_missing_email(self):
+        response = self.client.post(reverse('api_password_reset_request'), {},
+                                    content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_password_reset_request_invalid_email(self):
+        response = self.client.post(reverse('api_password_reset_request'), {
+            'email': 'nobody@test.com',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 404)
+
+    def test_api_password_reset_verify_valid(self):
+        self.client.post(reverse('api_password_reset_request'), {
+            'email': 'apireset@test.com',
+        }, content_type='application/json')
+        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
+        CacheService.set_otp(self.user.id, otp.code)
+
+        response = self.client.post(reverse('api_password_reset_verify'), {
+            'email': 'apireset@test.com',
+            'code': otp.code,
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'verified')
+
+    def test_api_password_reset_verify_invalid(self):
+        response = self.client.post(reverse('api_password_reset_verify'), {
+            'email': 'apireset@test.com',
+            'code': '000000',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_password_reset_confirm(self):
+        self.client.post(reverse('api_password_reset_request'), {
+            'email': 'apireset@test.com',
+        }, content_type='application/json')
+        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
+        CacheService.set_otp(self.user.id, otp.code)
+        self.client.post(reverse('api_password_reset_verify'), {
+            'email': 'apireset@test.com',
+            'code': otp.code,
+        }, content_type='application/json')
+
+        response = self.client.post(reverse('api_password_reset_confirm'), {
+            'email': 'apireset@test.com',
+            'new_password': 'ApiNewPass456!',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 200)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('ApiNewPass456!'))
+
+    def test_api_password_reset_confirm_short_password(self):
+        response = self.client.post(reverse('api_password_reset_confirm'), {
+            'email': 'apireset@test.com',
+            'new_password': '123',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+
+class SecurityQuestionModelTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='secq@test.com', username='secquser', password='Pass123!'
+        )
+
+    def test_create_security_question(self):
+        q = SecurityQuestion.objects.create(
+            user=self.user,
+            question_key='pet',
+            answer_hash=str(hash('fluffy')),
+        )
+        self.assertEqual(q.question_key, 'pet')
+        self.assertEqual(q.get_question_key_display(), "What was the name of your first pet?")
+
+    def test_security_question_unique_together(self):
+        SecurityQuestion.objects.create(
+            user=self.user, question_key='city', answer_hash='hash1'
+        )
+        with self.assertRaises(Exception):
+            SecurityQuestion.objects.create(
+                user=self.user, question_key='city', answer_hash='hash2'
+            )
+
+    def test_security_question_str(self):
+        q = SecurityQuestion.objects.create(
+            user=self.user, question_key='school',
+            answer_hash=str(hash('sunnydale')),
+        )
+        self.assertIn('secq@test.com', str(q))
+        self.assertIn('elementary', str(q))
+
+
+class SecurityQuestionViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='secqview@test.com', username='secqview', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    def test_setup_page_loads(self):
+        response = self.client.get(reverse('setup_security_questions'))
+        self.assertEqual(response.status_code, 200)
+
+    def test_add_security_question(self):
+        response = self.client.post(reverse('setup_security_questions'), {
+            'question_key': 'pet',
+            'answer': 'Fluffy',
+        })
+        self.assertRedirects(response, reverse('setup_security_questions'))
+        self.assertEqual(SecurityQuestion.objects.filter(user=self.user).count(), 1)
+
+    def test_delete_security_question(self):
+        SecurityQuestion.objects.create(
+            user=self.user, question_key='city', answer_hash='hash'
+        )
+        response = self.client.get(reverse('delete_security_question', args=['city']))
+        self.assertRedirects(response, reverse('setup_security_questions'))
+        self.assertEqual(SecurityQuestion.objects.filter(user=self.user).count(), 0)

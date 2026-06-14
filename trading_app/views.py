@@ -7,8 +7,12 @@ from django.contrib import messages
 from django.urls import reverse
 from django.conf import settings
 from django.utils import timezone
-from .forms import RegisterForm, LoginForm, OTPForm
-from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery
+from .forms import (
+    RegisterForm, LoginForm, OTPForm,
+    PasswordResetRequestForm, PasswordResetVerifyForm,
+    SetNewPasswordForm, SecurityQuestionForm, SecurityAnswerForm,
+)
+from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion
 from .decorators import two_factor_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
@@ -358,3 +362,167 @@ def upload_document_view(request):
         return redirect('dashboard')
 
     return redirect('dashboard')
+
+
+def password_reset_request_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    form = PasswordResetRequestForm()
+    if request.method == 'POST':
+        form = PasswordResetRequestForm(request.POST)
+        if form.is_valid():
+            email = form.cleaned_data['email']
+            try:
+                user = User.objects.get(email__iexact=email)
+            except User.DoesNotExist:
+                messages.error(request, 'No account found with that email address.')
+                return render(request, 'registration/password_reset_request.html', {'form': form})
+
+            if not CacheService.check_rate_limit(f'pwd_reset_{user.id}', max_attempts=3, window=300):
+                messages.error(request, 'Too many password reset attempts. Please try again in 5 minutes.')
+                return render(request, 'registration/password_reset_request.html', {'form': form})
+
+            otp_code = generate_otp()
+            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
+            EmailOTP.objects.create(
+                user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
+            )
+            CacheService.set_otp(user.id, otp_code)
+            send_otp_email(user, otp_code, request)
+
+            request.session['reset_user_id'] = user.id
+            messages.success(request, 'A verification code has been sent to your email.')
+            return redirect('password_reset_verify')
+
+    return render(request, 'registration/password_reset_request.html', {'form': form})
+
+
+def password_reset_verify_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    user_id = request.session.get('reset_user_id')
+    if not user_id:
+        messages.error(request, 'Please start the password reset process again.')
+        return redirect('password_reset_request')
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        messages.error(request, 'User not found. Please start again.')
+        return redirect('password_reset_request')
+
+    form = PasswordResetVerifyForm()
+    if request.method == 'POST':
+        form = PasswordResetVerifyForm(request.POST)
+        if form.is_valid():
+            code = form.cleaned_data['otp_code']
+
+            if CacheService.verify_otp(user.id, code):
+                otp = EmailOTP.objects.filter(
+                    user=user, code=code, purpose='password_reset', is_used=False
+                ).last()
+                if otp and otp.is_valid():
+                    otp.is_used = True
+                    otp.save()
+                    request.session['reset_verified'] = True
+                    CacheService.reset_rate_limit(f'pwd_reset_{user.id}')
+                    messages.success(request, 'Code verified. You can now set a new password.')
+                    return redirect('password_reset_confirm')
+
+            messages.error(request, 'Invalid or expired code. Please request a new one.')
+
+    return render(request, 'registration/password_reset_verify.html', {'form': form, 'user_email': user.email})
+
+
+def password_reset_confirm_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    user_id = request.session.get('reset_user_id')
+    if not user_id or not request.session.get('reset_verified'):
+        messages.error(request, 'Please start the password reset process again.')
+        return redirect('password_reset_request')
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        messages.error(request, 'User not found. Please start again.')
+        return redirect('password_reset_request')
+
+    form = SetNewPasswordForm(user)
+    if request.method == 'POST':
+        form = SetNewPasswordForm(user, request.POST)
+        if form.is_valid():
+            form.save()
+            del request.session['reset_user_id']
+            del request.session['reset_verified']
+            messages.success(request, 'Password reset successful! You can now log in.')
+            return redirect('login')
+
+    return render(request, 'registration/password_reset_confirm.html', {'form': form})
+
+
+def resend_reset_otp_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+
+    user_id = request.session.get('reset_user_id')
+    if not user_id:
+        return redirect('password_reset_request')
+
+    try:
+        user = User.objects.get(id=user_id)
+    except User.DoesNotExist:
+        return redirect('password_reset_request')
+
+    if not CacheService.check_rate_limit(f'resend_reset_otp_{user.id}', max_attempts=3, window=60):
+        messages.error(request, 'Too many requests. Please wait 60 seconds.')
+        return redirect('password_reset_verify')
+
+    otp_code = generate_otp()
+    expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
+    EmailOTP.objects.create(
+        user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
+    )
+    CacheService.set_otp(user.id, otp_code)
+    send_otp_email(user, otp_code, request)
+    messages.success(request, 'A new verification code has been sent to your email.')
+    return redirect('password_reset_verify')
+
+
+@login_required
+def setup_security_questions_view(request):
+    questions = SecurityQuestion.objects.filter(user=request.user)
+    existing = {q.question_key for q in questions}
+
+    form = SecurityQuestionForm()
+    if request.method == 'POST':
+        form = SecurityQuestionForm(request.POST)
+        if form.is_valid():
+            question_key = form.cleaned_data['question_key']
+            answer = form.cleaned_data['answer'].lower().strip()
+            answer_hash = str(hash(answer))
+
+            SecurityQuestion.objects.update_or_create(
+                user=request.user,
+                question_key=question_key,
+                defaults={'answer_hash': answer_hash},
+            )
+            messages.success(request, 'Security question saved successfully.')
+            return redirect('setup_security_questions')
+
+    used_questions = SecurityQuestion.objects.filter(user=request.user)
+    return render(request, 'registration/setup_security_questions.html', {
+        'form': form,
+        'used_questions': used_questions,
+        'existing': existing,
+    })
+
+
+@login_required
+def delete_security_question_view(request, question_key):
+    SecurityQuestion.objects.filter(user=request.user, question_key=question_key).delete()
+    messages.success(request, 'Security question removed.')
+    return redirect('setup_security_questions')
