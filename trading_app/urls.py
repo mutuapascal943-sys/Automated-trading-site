@@ -27,6 +27,7 @@ urlpatterns = [
     path('password-reset/confirm/', views.password_reset_confirm_view, name='password_reset_confirm'),
     path('password-reset/resend-otp/', views.resend_reset_otp_view, name='resend_reset_otp'),
     path('settings/security-questions/', views.setup_security_questions_view, name='setup_security_questions'),
+    path('profile/', views.profile_page_view, name='profile_page'),
     path('settings/security-questions/<str:question_key>/delete/', views.delete_security_question_view, name='delete_security_question'),
 
     # REST API - specific routes before router to avoid conflicts

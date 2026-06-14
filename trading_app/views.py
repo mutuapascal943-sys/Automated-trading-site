@@ -11,6 +11,7 @@ from .forms import (
     RegisterForm, LoginForm, OTPForm,
     PasswordResetRequestForm, PasswordResetVerifyForm,
     SetNewPasswordForm, SecurityQuestionForm, SecurityAnswerForm,
+    ProfileForm, ProfilePictureForm,
 )
 from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion
 from .decorators import two_factor_required
@@ -211,18 +212,70 @@ def dashboard_view(request):
 
 @login_required
 def profile_view(request):
+    user = request.user
+    form = ProfileForm(instance=user)
+    pic_form = ProfilePictureForm(instance=user)
+
     if request.method == 'POST':
-        user = request.user
-        email = request.POST.get('email', '').strip()
-        broker = request.POST.get('broker', '').strip()
-        if email:
-            user.email = email
-        if broker:
-            user.broker = broker
-        user.save()
-        messages.success(request, 'Profile updated successfully.')
-        return redirect('settings_profile')
-    return redirect('dashboard')
+        if 'remove_avatar' in request.POST:
+            if user.avatar:
+                user.avatar.delete()
+                user.avatar = None
+                user.save()
+                messages.success(request, 'Profile picture removed.')
+            return redirect('settings_profile')
+        if 'update_profile' in request.POST:
+            form = ProfileForm(request.POST, instance=user)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Profile updated successfully.')
+                return redirect('settings_profile')
+        elif 'update_avatar' in request.POST:
+            pic_form = ProfilePictureForm(request.POST, request.FILES, instance=user)
+            if pic_form.is_valid():
+                pic_form.save()
+                messages.success(request, 'Profile picture updated successfully.')
+                return redirect('settings_profile')
+
+    return render(request, 'dashboard/settings_panel.html', {
+        'profile_form': form,
+        'pic_form': pic_form,
+        'page_title': 'Settings',
+    })
+
+
+@login_required
+def profile_page_view(request):
+    user = request.user
+    form = ProfileForm(instance=user)
+    pic_form = ProfilePictureForm(instance=user)
+
+    if request.method == 'POST':
+        if 'remove_avatar' in request.POST:
+            if user.avatar:
+                user.avatar.delete()
+                user.avatar = None
+                user.save()
+                messages.success(request, 'Profile picture removed.')
+            return redirect('profile_page')
+        if 'update_profile' in request.POST:
+            form = ProfileForm(request.POST, instance=user)
+            if form.is_valid():
+                form.save()
+                messages.success(request, 'Profile updated successfully.')
+                return redirect('profile_page')
+        elif 'update_avatar' in request.POST:
+            pic_form = ProfilePictureForm(request.POST, request.FILES, instance=user)
+            if pic_form.is_valid():
+                pic_form.save()
+                messages.success(request, 'Profile picture updated successfully.')
+                return redirect('profile_page')
+
+    return render(request, 'registration/profile.html', {
+        'profile_form': form,
+        'pic_form': pic_form,
+        'page_title': 'My Profile',
+    })
 
 
 @login_required

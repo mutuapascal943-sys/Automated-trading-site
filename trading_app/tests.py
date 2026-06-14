@@ -14,7 +14,11 @@ from .models import (
 )
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
-from .forms import PasswordResetRequestForm, PasswordResetVerifyForm, SetNewPasswordForm
+from .forms import (
+    PasswordResetRequestForm, PasswordResetVerifyForm,
+    SetNewPasswordForm, ProfileForm, ProfilePictureForm,
+    RegisterForm,
+)
 from .services.rag_engine import RAGEngine
 from .services.llm_service import LLMService
 from .services.broker_service import BrokerService
@@ -1053,3 +1057,144 @@ class SecurityQuestionViewTests(TestCase):
         response = self.client.get(reverse('delete_security_question', args=['city']))
         self.assertRedirects(response, reverse('setup_security_questions'))
         self.assertEqual(SecurityQuestion.objects.filter(user=self.user).count(), 0)
+
+
+class EmailValidationTests(TestCase):
+    def test_disposable_email_rejected(self):
+        form = RegisterForm(data={
+            'email': 'test@mailinator.com',
+            'username': 'testuser1',
+            'password1': 'StrongPass123!',
+            'password2': 'StrongPass123!',
+            'broker': 'Deriv',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('Disposable email', str(form.errors.get('email', '')))
+
+    def test_common_fake_email_rejected(self):
+        form = RegisterForm(data={
+            'email': 'test@test.com',
+            'username': 'testuser2',
+            'password1': 'StrongPass123!',
+            'password2': 'StrongPass123!',
+            'broker': 'Deriv',
+        })
+        self.assertFalse(form.is_valid())
+        self.assertIn('real email', str(form.errors.get('email', '')))
+
+    def test_valid_email_accepted(self):
+        form = RegisterForm(data={
+            'email': 'realperson@gmail.com',
+            'username': 'testuser3',
+            'password1': 'StrongPass123!',
+            'password2': 'StrongPass123!',
+            'broker': 'Deriv',
+        })
+        user_count_before = User.objects.count()
+        # Form might fail on other validations (password etc), just check email
+        email_errors = form.errors.get('email', [])
+        self.assertEqual(len(email_errors), 0)
+
+    def test_profile_form_email_validation(self):
+        user = User.objects.create_user(
+            email='profilevalid@test.com', username='profval', password='Pass123!'
+        )
+        form = ProfileForm(data={'email': 'test@mailinator.com'}, instance=user)
+        self.assertFalse(form.is_valid())
+        self.assertIn('Disposable email', str(form.errors.get('email', '')))
+
+
+class ProfileViewTests(TestCase):
+    def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
+        self.user = User.objects.create_user(
+            email='profileview@test.com', username='profview', password='Pass123!',
+            broker='Deriv',
+        )
+        self.client.force_login(self.user)
+
+    def test_profile_page_loads(self):
+        response = self.client.get(reverse('profile_page'))
+        self.assertEqual(response.status_code, 200)
+        self.assertTemplateUsed(response, 'registration/profile.html')
+
+    def test_profile_update_email(self):
+        response = self.client.post(reverse('profile_page'), {
+            'update_profile': '1',
+            'email': 'updatedprofile@test.com',
+            'broker': 'IC Markets',
+            'phone': '+1234567890',
+            'bio': 'A crypto trader',
+        })
+        self.assertRedirects(response, reverse('profile_page'))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'updatedprofile@test.com')
+        self.assertEqual(self.user.broker, 'IC Markets')
+        self.assertEqual(self.user.phone, '+1234567890')
+        self.assertEqual(self.user.bio, 'A crypto trader')
+
+    def test_profile_page_requires_login(self):
+        self.client.logout()
+        response = self.client.get(reverse('profile_page'))
+        self.assertRedirects(response, f'{reverse("login")}?next={reverse("profile_page")}')
+
+    def test_settings_profile_update(self):
+        response = self.client.post(reverse('settings_profile'), {
+            'update_profile': '1',
+            'email': 'settingsupdate@test.com',
+            'broker': 'Exness',
+        })
+        self.assertRedirects(response, reverse('settings_profile'))
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.email, 'settingsupdate@test.com')
+
+    def test_avatar_upload_and_remove(self):
+        import tempfile, os
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+        import io
+
+        # Create a small test image
+        img = Image.new('RGB', (100, 100), color='red')
+        buf = io.BytesIO()
+        img.save(buf, format='JPEG')
+        buf.seek(0)
+
+        response = self.client.post(reverse('profile_page'), {
+            'update_avatar': '1',
+            'avatar': SimpleUploadedFile('test.jpg', buf.getvalue(), content_type='image/jpeg'),
+        })
+        self.assertRedirects(response, reverse('profile_page'))
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.avatar)
+
+        # Remove avatar
+        response = self.client.post(reverse('profile_page'), {
+            'remove_avatar': '1',
+        })
+        self.assertRedirects(response, reverse('profile_page'))
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.avatar)
+
+    def test_avatar_displayed_in_sidebar(self):
+        from django.core.files.uploadedfile import SimpleUploadedFile
+        from PIL import Image
+        import io
+        img = Image.new('RGB', (50, 50), color='blue')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        buf.seek(0)
+        self.client.post(reverse('profile_page'), {
+            'update_avatar': '1',
+            'avatar': SimpleUploadedFile('avatar.png', buf.getvalue(), content_type='image/png'),
+        })
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.avatar)
+        response = self.client.get(reverse('dashboard'))
+        self.assertContains(response, 'sidebar-avatar')
+        self.assertContains(response, '/media/avatars/')
+
+    def test_broker_config_page(self):
+        response = self.client.get(reverse('dashboard'))
+        self.assertEqual(response.status_code, 200)

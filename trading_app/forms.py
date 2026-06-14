@@ -1,7 +1,38 @@
+import re
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, SetPasswordForm
 from django.contrib.auth import password_validation
 from .models import User, SECURITY_QUESTIONS
+
+
+DISPOSABLE_DOMAINS = {
+    'mailinator.com', 'guerrillamail.com', 'temp-mail.org', 'tempmail.com',
+    '10minutemail.com', 'throwawaymail.com', 'yopmail.com', 'maildrop.cc',
+    'trashmail.com', 'sharklasers.com', 'getairmail.com', 'airmailhub.com',
+    'emailondeck.com', 'tempinbox.com', 'fakeinbox.com', 'mailnator.com',
+    'dispostable.com', 'mailexpire.com', 'spamgourmet.com', 'mytemp.email',
+    'tempemail.net', 'tempinbox.co', 'instantemailaddress.com',
+    'mailmetrash.com', 'mintemail.com', 'mytrashmail.com', 'trash2009.com',
+    'trashymail.com', 'tyldd.com', 'uggsrock.com', 'wegwerfmail.de',
+    'wh4f.org', 'whyspam.me', 'willselfdestruct.com', 'winemaven.info',
+    'wronghead.com', 'wuzup.net', 'xagloo.com', 'xemaps.com',
+    'xents.com', 'xmaily.com', 'xoxy.net', 'yep.it', 'yogamaven.com',
+    'yopmail.fr', 'yopmail.net', 'ypmail.webarnak.fr.eu.org',
+    'yuurok.com', 'zehnminutenmail.de', 'zippymail.info', 'zoaxe.com',
+    'zoemail.org', 'mailmetrash.com', 'maileater.com', 'mailexpire.com',
+}
+
+
+def validate_email_not_disposable(email):
+    domain = email.split('@')[-1].lower()
+    if domain in DISPOSABLE_DOMAINS:
+        raise forms.ValidationError('Disposable email addresses are not allowed.')
+    if not re.match(r'^[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}$', email):
+        raise forms.ValidationError('Enter a valid email address.')
+    common_fakes = ['test@test.com', 'a@a.com', 'user@user.com', 'email@email.com',
+                    'admin@admin.com', 'mail@mail.com', 'name@name.com']
+    if email.lower() in common_fakes:
+        raise forms.ValidationError('Please use a real email address.')
 
 BROKER_CHOICES = [
     ('', 'Choose your broker'),
@@ -49,6 +80,7 @@ class RegisterForm(UserCreationForm):
         email = self.cleaned_data.get('email')
         if User.objects.filter(email__iexact=email).exists():
             raise forms.ValidationError('A user with this email already exists.')
+        validate_email_not_disposable(email)
         return email.lower()
 
 
@@ -189,3 +221,45 @@ class SecurityAnswerForm(forms.Form):
             'class': 'form-input', 'placeholder': 'Your answer', 'id': 'sec-answer',
         })
     )
+
+
+class ProfileForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['email', 'broker', 'phone', 'bio']
+        widgets = {
+            'email': forms.EmailInput(attrs={
+                'class': 'form-input', 'id': 'prof-email',
+            }),
+            'broker': forms.Select(attrs={
+                'class': 'form-input', 'id': 'prof-broker',
+            }, choices=BROKER_CHOICES),
+            'phone': forms.TextInput(attrs={
+                'class': 'form-input', 'id': 'prof-phone', 'placeholder': '+1 (555) 123-4567',
+            }),
+            'bio': forms.Textarea(attrs={
+                'class': 'form-input', 'id': 'prof-bio', 'rows': 3,
+                'placeholder': 'Tell us about yourself...',
+                'style': 'resize:vertical;min-height:80px',
+            }),
+        }
+
+    def clean_email(self):
+        email = self.cleaned_data.get('email')
+        if email:
+            existing = User.objects.filter(email__iexact=email).exclude(pk=self.instance.pk)
+            if existing.exists():
+                raise forms.ValidationError('A user with this email already exists.')
+            validate_email_not_disposable(email)
+        return email.lower() if email else email
+
+
+class ProfilePictureForm(forms.ModelForm):
+    class Meta:
+        model = User
+        fields = ['avatar']
+        widgets = {
+            'avatar': forms.FileInput(attrs={
+                'class': 'form-input', 'id': 'prof-avatar', 'accept': 'image/*',
+            }),
+        }

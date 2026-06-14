@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% load static %}
+{% block content %}
+<div id="page-profile" class="page active">
+  <div class="auth-bg-lines"></div>
+  <div class="auth-glow g1"></div>
+  <div class="auth-glow g2"></div>
+  <div class="auth-wrap" style="max-width:600px">
+    <div class="auth-form-panel full">
+      <div style="text-align:center;margin-bottom:24px">
+        <div style="position:relative;display:inline-block">
+          {% if user.avatar %}
+            <img src="{{ user.avatar.url }}" alt="Avatar" style="width:100px;height:100px;border-radius:50%;object-fit:cover;border:2px solid rgba(245,194,122,0.3)">
+          {% else %}
+            <div style="width:100px;height:100px;border-radius:50%;background:rgba(245,194,122,0.1);border:2px solid rgba(245,194,122,0.2);display:flex;align-items:center;justify-content:center;font-size:36px;font-family:'Syne',sans-serif;color:var(--gold);margin:0 auto">
+              {{ user.email|first|upper }}
+            </div>
+          {% endif %}
+        </div>
+        <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin:12px 0 4px">{{ user.email }}</h2>
+        <p style="color:var(--text2);font-size:13px">{{ user.broker|default:"No broker" }}</p>
+      </div>
+
+      {% if messages %}
+        {% for message in messages %}
+          <div style="padding:8px 12px;border-radius:6px;font-size:13px;margin-bottom:12px;
+            {% if message.tags == 'success' %}background:rgba(0,212,170,0.08);border:1px solid rgba(0,212,170,0.15);color:var(--teal)
+            {% elif message.tags == 'error' %}background:rgba(255,77,109,0.08);border:1px solid rgba(255,77,109,0.15);color:var(--red)
+            {% else %}background:rgba(245,194,122,0.06);border:1px solid rgba(245,194,122,0.1);color:var(--gold)
+            {% endif %}">
+            {{ message }}
+          </div>
+        {% endfor %}
+      {% endif %}
+
+      <div style="display:flex;gap:12px;margin-bottom:24px">
+        <form method="post" enctype="multipart/form-data" style="flex:1">
+          {% csrf_token %}
+          <input type="hidden" name="update_avatar" value="1">
+          <div style="background:rgba(245,194,122,0.04);border:1px dashed rgba(245,194,122,0.2);border-radius:10px;padding:16px;text-align:center">
+            <label class="form-label" for="prof-avatar" style="cursor:pointer">
+              {% if user.avatar %}Change{% else %}Upload{% endif %} Profile Picture
+            </label>
+            {{ pic_form.avatar }}
+            {% if pic_form.avatar.errors %}<div class="form-error">{{ pic_form.avatar.errors.0 }}</div>{% endif %}
+            <button type="submit" class="btn-gold" style="width:auto;padding:8px 20px;font-size:12px;margin-top:8px">Save Photo</button>
+            {% if user.avatar %}
+              <button type="submit" name="remove_avatar" value="1" class="btn-outline" style="width:auto;padding:8px 20px;font-size:12px;margin-top:8px;margin-left:4px">Remove</button>
+            {% endif %}
+          </div>
+        </form>
+      </div>
+
+      <div class="form-divider" style="margin:16px 0">Profile Details</div>
+
+      <form class="auth-form active" method="post" action="{% url 'profile_page' %}">
+        {% csrf_token %}
+        <input type="hidden" name="update_profile" value="1">
+        <div>
+          <label class="form-label" for="prof-email">Email Address</label>
+          {{ profile_form.email }}
+          {% if profile_form.email.errors %}<div class="form-error">{{ profile_form.email.errors.0 }}</div>{% endif %}
+        </div>
+        <div>
+          <label class="form-label" for="prof-broker">Broker</label>
+          {{ profile_form.broker }}
+          {% if profile_form.broker.errors %}<div class="form-error">{{ profile_form.broker.errors.0 }}</div>{% endif %}
+        </div>
+        <div>
+          <label class="form-label" for="prof-phone">Phone Number</label>
+          {{ profile_form.phone }}
+          {% if profile_form.phone.errors %}<div class="form-error">{{ profile_form.phone.errors.0 }}</div>{% endif %}
+        </div>
+        <div>
+          <label class="form-label" for="prof-bio">Bio</label>
+          {{ profile_form.bio }}
+          {% if profile_form.bio.errors %}<div class="form-error">{{ profile_form.bio.errors.0 }}</div>{% endif %}
+        </div>
+        <button type="submit" class="btn-gold">Save Profile →</button>
+      </form>
+
+      <div class="form-divider">or</div>
+      <a href="{% url 'dashboard' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Back to Dashboard</a>
+    </div>
+  </div>
+</div>
+{% endblock %}

@@ -19,7 +19,13 @@
     </div>
   </div>
   <div class="sidebar-user">
-    <div class="sidebar-avatar" id="sidebar-avatar">{{ user.email|first|upper }}</div>
+    <div class="sidebar-avatar" id="sidebar-avatar">
+      {% if user.avatar %}
+        <img src="{{ user.avatar.url }}" alt="Avatar" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+      {% else %}
+        {{ user.email|first|upper }}
+      {% endif %}
+    </div>
     <div class="sidebar-user-info">
       <div class="sidebar-user-name" id="sidebar-name">{{ user.email|cut:"@"|first }}</div>
       <div class="sidebar-user-role" id="sidebar-broker">{{ user.broker|default:"No Broker" }}</div>

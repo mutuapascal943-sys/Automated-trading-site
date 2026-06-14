@@ -15,6 +15,9 @@ class User(AbstractUser):
     broker_account_id = models.CharField(max_length=100, blank=True, default='')
     daily_trades_count = models.IntegerField(default=0)
     last_trade_date = models.DateField(null=True, blank=True)
+    avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
+    phone = models.CharField(max_length=20, blank=True, default='')
+    bio = models.TextField(max_length=500, blank=True, default='')
 
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username']
