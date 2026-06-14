@@ -1,5 +1,7 @@
 import json
 import logging
+import secrets
+from datetime import timedelta
 from django.shortcuts import render, redirect, get_object_or_404
 from django.contrib.auth import login, logout, authenticate, update_session_auth_hash
 from django.contrib.auth.decorators import login_required
@@ -7,13 +9,14 @@ from django.contrib import messages
 from django.urls import reverse
 from django.conf import settings
 from django.utils import timezone
+from django.http import HttpResponseRedirect
 from .forms import (
     RegisterForm, LoginForm, OTPForm,
     PasswordResetRequestForm, PasswordResetVerifyForm,
     SetNewPasswordForm, SecurityQuestionForm, SecurityAnswerForm,
     ProfileForm, ProfilePictureForm,
 )
-from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion
+from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion, RememberMeToken
 from .decorators import two_factor_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
@@ -43,7 +46,7 @@ def register_view(request):
                 user=user, code=otp_code, purpose='2fa', expires_at=expires_at
             )
             CacheService.set_otp(user.id, otp_code)
-            send_otp_email(user, otp_code, request)
+            send_otp_email(user, otp_code, request, purpose='email_verify')
 
             messages.success(request, 'Account created! Check your email for the verification code.')
             return redirect('setup_2fa')
@@ -67,7 +70,30 @@ def login_view(request):
                 messages.error(request, 'Too many login attempts. Please try again in 5 minutes.')
                 return render(request, 'registration/login.html', {'form': form})
 
+            remember_me = request.POST.get('remember_me') == 'on'
             login(request, user)
+
+            if remember_me:
+                token = secrets.token_hex(32)
+                RememberMeToken.objects.create(
+                    user=user,
+                    token=token,
+                    expires_at=timezone.now() + timedelta(days=30),
+                )
+                response = HttpResponseRedirect(
+                    reverse('verify_2fa') if user.two_factor_enabled else reverse('dashboard')
+                )
+                response.set_signed_cookie(
+                    'remember_me', token,
+                    max_age=30 * 24 * 3600,
+                    secure=not settings.DEBUG,
+                    httponly=True,
+                    samesite='Lax',
+                )
+                if not user.two_factor_enabled:
+                    CacheService.reset_rate_limit(f'login_{user.id}')
+                    messages.success(request, f'Welcome back, {user.email}!')
+                return response
 
             if user.two_factor_enabled:
                 otp_code = generate_otp()
@@ -76,7 +102,7 @@ def login_view(request):
                     user=user, code=otp_code, purpose='2fa', expires_at=expires_at
                 )
                 CacheService.set_otp(user.id, otp_code)
-                send_otp_email(user, otp_code, request)
+                send_otp_email(user, otp_code, request, purpose='2fa')
                 messages.info(request, 'A verification code has been sent to your email.')
                 return redirect('verify_2fa')
 
@@ -117,7 +143,7 @@ def setup_2fa_view(request):
                 user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
             )
             CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request)
+            send_otp_email(request.user, otp_code, request, purpose='2fa')
     else:
         otp_code = generate_otp()
         expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
@@ -125,7 +151,7 @@ def setup_2fa_view(request):
             user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
         )
         CacheService.set_otp(request.user.id, otp_code)
-        send_otp_email(request.user, otp_code, request)
+        send_otp_email(request.user, otp_code, request, purpose='2fa')
         messages.info(request, 'A verification code has been sent to your email.')
 
     otp_form = OTPForm()
@@ -164,7 +190,7 @@ def verify_2fa_view(request):
                 user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
             )
             CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request)
+            send_otp_email(request.user, otp_code, request, purpose='2fa')
     else:
         if not request.session.get('otp_sent'):
             otp_code = generate_otp()
@@ -173,7 +199,7 @@ def verify_2fa_view(request):
                 user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
             )
             CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request)
+            send_otp_email(request.user, otp_code, request, purpose='2fa')
             request.session['otp_sent'] = True
             messages.info(request, 'A verification code has been sent to your email.')
 
@@ -183,8 +209,31 @@ def verify_2fa_view(request):
 
 @login_required
 def logout_view(request):
+    token = request.get_signed_cookie('remember_me', default=None)
+    if token:
+        RememberMeToken.objects.filter(token=token).delete()
+    response = HttpResponseRedirect(reverse('login'))
+    response.delete_cookie('remember_me')
     logout(request)
     messages.success(request, 'You have been logged out.')
+    return response
+
+
+def auto_login_view(request):
+    if request.user.is_authenticated:
+        return redirect('dashboard')
+    token = request.get_signed_cookie('remember_me', default=None)
+    if token:
+        try:
+            rm_token = RememberMeToken.objects.get(token=token, expires_at__gt=timezone.now())
+            user = rm_token.user
+            login(request, user)
+            messages.success(request, f'Welcome back, {user.email}!')
+            return redirect('dashboard')
+        except RememberMeToken.DoesNotExist:
+            response = redirect('login')
+            response.delete_cookie('remember_me')
+            return response
     return redirect('login')
 
 
@@ -197,6 +246,10 @@ def dashboard_view(request):
     closed_trades = Trade.objects.filter(user=user, status='CLOSED').count()
     win_rate = round((win_trades / closed_trades * 100) if closed_trades > 0 else 0, 1)
 
+    show_welcome = not request.session.get('welcome_dismissed', False)
+    if show_welcome:
+        request.session['welcome_dismissed'] = True
+
     context = {
         'user_email': user.email,
         'user_broker': user.broker,
@@ -206,6 +259,7 @@ def dashboard_view(request):
         'recent_signals': recent_signals,
         'win_rate': win_rate,
         'total_trades': closed_trades + Trade.objects.filter(user=user, status='OPEN').count(),
+        'show_welcome': show_welcome,
     }
     return render(request, 'dashboard/base.html', context)
 
@@ -305,7 +359,7 @@ def resend_otp_view(request):
             user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
         )
         CacheService.set_otp(request.user.id, otp_code)
-        sent = send_otp_email(request.user, otp_code, request)
+        sent = send_otp_email(request.user, otp_code, request, purpose='2fa')
         if sent:
             messages.success(request, 'A new verification code has been sent to your email.')
         return redirect('verify_2fa')
@@ -442,7 +496,7 @@ def password_reset_request_view(request):
                 user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
             )
             CacheService.set_otp(user.id, otp_code)
-            send_otp_email(user, otp_code, request)
+            send_otp_email(user, otp_code, request, purpose='password_reset')
 
             request.session['reset_user_id'] = user.id
             messages.success(request, 'A verification code has been sent to your email.')
@@ -540,7 +594,7 @@ def resend_reset_otp_view(request):
         user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
     )
     CacheService.set_otp(user.id, otp_code)
-    send_otp_email(user, otp_code, request)
+    send_otp_email(user, otp_code, request, purpose='password_reset')
     messages.success(request, 'A new verification code has been sent to your email.')
     return redirect('password_reset_verify')
 

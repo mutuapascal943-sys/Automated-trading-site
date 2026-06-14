@@ -27,7 +27,7 @@
           {% if form.password.errors %}<div class="form-error">{{ form.password.errors.0 }}</div>{% endif %}
         </div>
         <div style="display:flex;justify-content:space-between;align-items:center">
-          <label class="form-check"><input type="checkbox" checked> Remember me</label>
+          <label class="form-check"><input type="checkbox" name="remember_me" checked> Remember me</label>
           <a href="{% url 'password_reset_request' %}" class="form-link">Forgot password?</a>
         </div>
         <button type="submit" class="btn-gold">Login to Dashboard →</button>

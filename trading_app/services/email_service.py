@@ -11,12 +11,18 @@ def generate_otp(length=6):
     return ''.join(random.choices(string.digits, k=length))
 
 
-def send_otp_email(user, otp_code, request=None):
-    subject = 'Your Forex AI Pro Verification Code'
+def send_otp_email(user, otp_code, request=None, purpose='2fa'):
+    purpose_labels = {
+        '2fa': 'Two-Factor Authentication',
+        'password_reset': 'Password Recovery',
+        'email_verify': 'Email Verification',
+    }
+    label = purpose_labels.get(purpose, 'Verification')
+    subject = f'Your Forex AI Pro {label} Code'
     message = f"""
 Hello {user.email},
 
-Your verification code is: {otp_code}
+Your {label.lower()} code is: {otp_code}
 
 This code will expire in {settings.OTP_EXPIRY_SECONDS // 60} minutes.
 
@@ -34,8 +40,8 @@ Forex AI Pro Team
     <div style="text-align: center; margin-bottom: 24px;">
       <span style="font-family: 'Syne',sans-serif; font-size: 22px; font-weight: 800; color: #f5c27a;">Forex AI Pro</span>
     </div>
-    <h2 style="color: #e8edf5; font-size: 18px; margin: 0 0 8px;">Your Verification Code</h2>
-    <p style="color: #8a91a8; font-size: 13px; margin: 0 0 20px;">Use the code below to complete your verification.</p>
+    <h2 style="color: #e8edf5; font-size: 18px; margin: 0 0 8px;">{label}</h2>
+    <p style="color: #8a91a8; font-size: 13px; margin: 0 0 20px;">Use the code below to complete your {label.lower()}.</p>
     <div style="background: rgba(245,194,122,0.06); border-radius: 8px; padding: 20px; text-align: center; border: 1px solid rgba(245,194,122,0.1);">
       <span style="font-family: 'DM Mono', monospace; font-size: 36px; font-weight: 700; color: #f5c27a; letter-spacing: 8px;">{otp_code}</span>
     </div>

@@ -32,7 +32,8 @@ body{
 .page{display:none;min-height:100vh;width:100%}
 .page.active{display:flex}
 
-#page-register,#page-login,#page-setup-2fa,#page-verify-2fa{
+#page-register,#page-login,#page-setup-2fa,#page-verify-2fa,
+#page-password-reset,#page-password-reset-verify,#page-password-reset-confirm,#page-security-questions,#page-profile{
   align-items:center;justify-content:center;
   background: radial-gradient(ellipse 80% 60% at 60% 30%, #0d2a4a 0%, var(--navy) 70%);
   position:relative;overflow:hidden;
@@ -364,6 +365,12 @@ body{
   font-family:'DM Mono',monospace;transition:all .2s;
 }
 .btn-logout:hover{border-color:var(--red);color:var(--red)}
+
+.topbar-avatar-link{text-decoration:none;display:flex;align-items:center}
+.topbar-avatar-img{width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid rgba(245,194,122,0.2);cursor:pointer;transition:border-color .2s}
+.topbar-avatar-img:hover{border-color:var(--gold)}
+.topbar-avatar-letter{width:32px;height:32px;border-radius:50%;background:linear-gradient(135deg,var(--gold2),var(--gold3));display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;color:var(--navy);cursor:pointer;transition:opacity .2s}
+.topbar-avatar-letter:hover{opacity:.85}
 
 .hamburger{
   display:none;background:none;border:none;
@@ -796,3 +803,32 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 .text-dim{color:var(--text2)}
 .mono{font-family:'DM Mono',monospace}
 .mb-2{margin-bottom:16px}
+
+/* Welcome popup */
+.welcome-overlay{
+  display:none;position:fixed;inset:0;z-index:9997;
+  background:rgba(4,13,26,0.7);backdrop-filter:blur(6px);
+  align-items:center;justify-content:center;
+}
+.welcome-overlay.active{display:flex}
+.welcome-modal{
+  background:linear-gradient(145deg,var(--navy3),var(--navy4));
+  border:1px solid var(--border);border-radius:24px;
+  padding:40px 36px;max-width:440px;width:90%;
+  text-align:center;position:relative;overflow:hidden;
+  animation:popIn .4s ease;
+}
+.welcome-icon{
+  width:72px;height:72px;border-radius:50%;
+  background:linear-gradient(135deg,var(--gold2),var(--gold3));
+  display:flex;align-items:center;justify-content:center;
+  font-size:32px;margin:0 auto 18px;
+}
+.welcome-modal h2{
+  font-family:'Syne',sans-serif;font-size:22px;font-weight:800;
+  margin-bottom:8px;
+}
+.welcome-modal p{color:var(--text2);font-size:14px;margin-bottom:6px;line-height:1.6}
+.welcome-features{text-align:left;margin:18px 0 24px;display:flex;flex-direction:column;gap:10px}
+.welcome-feat{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--text2)}
+.welcome-feat::before{content:'\2713';color:var(--teal);font-weight:700;font-size:15px}

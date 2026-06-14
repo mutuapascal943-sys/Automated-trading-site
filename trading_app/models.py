@@ -241,3 +241,22 @@ class SecurityQuestion(models.Model):
 
     def __str__(self):
         return f'{self.user.email} - {self.get_question_key_display()}'
+
+
+class RememberMeToken(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='remember_me_tokens')
+    token = models.CharField(max_length=64, unique=True, db_index=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['token']),
+            models.Index(fields=['expires_at']),
+        ]
+
+    def is_valid(self):
+        return timezone.now() < self.expires_at
+
+    def __str__(self):
+        return f'{self.user.email} - remember_me'

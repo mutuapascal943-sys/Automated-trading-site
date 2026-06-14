@@ -18,10 +18,11 @@
       <a href="{% url 'dashboard' %}#settings" class="nav-item" data-panel="settings"><span class="nav-icon">⚙</span> Settings</a>
     </div>
   </div>
+  <a href="{% url 'profile_page' %}" style="text-decoration:none;color:inherit">
   <div class="sidebar-user">
     <div class="sidebar-avatar" id="sidebar-avatar">
       {% if user.avatar %}
-        <img src="{{ user.avatar.url }}" alt="Avatar" style="width:36px;height:36px;border-radius:50%;object-fit:cover">
+        <img src="{{ user.avatar.url }}" alt="Avatar" style="width:36px;height:36px;border-radius:50%;object-fit:cover;cursor:pointer">
       {% else %}
         {{ user.email|first|upper }}
       {% endif %}
@@ -31,4 +32,5 @@
       <div class="sidebar-user-role" id="sidebar-broker">{{ user.broker|default:"No Broker" }}</div>
     </div>
   </div>
+  </a>
 </nav>

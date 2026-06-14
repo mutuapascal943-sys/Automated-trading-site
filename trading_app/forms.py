@@ -1,7 +1,9 @@
 import re
+import socket
 from django import forms
 from django.contrib.auth.forms import UserCreationForm, AuthenticationForm, SetPasswordForm
 from django.contrib.auth import password_validation
+from django.conf import settings
 from .models import User, SECURITY_QUESTIONS
 
 
@@ -33,6 +35,16 @@ def validate_email_not_disposable(email):
                     'admin@admin.com', 'mail@mail.com', 'name@name.com']
     if email.lower() in common_fakes:
         raise forms.ValidationError('Please use a real email address.')
+    try:
+        import dns.resolver
+        if not settings.DEBUG:
+            try:
+                dns.resolver.resolve(domain, 'MX', lifetime=5)
+            except (dns.resolver.NoAnswer, dns.resolver.NXDOMAIN, dns.resolver.Timeout,
+                    dns.exception.DNSException):
+                raise forms.ValidationError('Email domain does not exist or cannot receive emails.')
+    except ImportError:
+        pass
 
 BROKER_CHOICES = [
     ('', 'Choose your broker'),

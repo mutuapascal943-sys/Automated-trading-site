@@ -29,4 +29,27 @@
     </div>
   </main>
 </div>
+
+{% if show_welcome %}
+<div class="welcome-overlay active" id="welcomePopup">
+  <div class="welcome-modal">
+    <div class="welcome-icon">🚀</div>
+    <h2>Welcome to Forex AI Pro</h2>
+    <p>Your AI-powered trading assistant is ready.</p>
+    <div class="welcome-features">
+      <div class="welcome-feat">Real-time AI market analysis across 50+ pairs</div>
+      <div class="welcome-feat">Automated signal generation with confidence scoring</div>
+      <div class="welcome-feat">Multi-broker support (Deriv, Exness, XM & more)</div>
+      <div class="welcome-feat">Risk-managed trade execution</div>
+    </div>
+    <button class="btn-gold" onclick="dismissWelcome()">Get Started →</button>
+  </div>
+</div>
+<script>
+function dismissWelcome(){
+  var el = document.getElementById('welcomePopup');
+  if(el){el.classList.remove('active'); el.style.display = 'none'}
+}
+</script>
+{% endif %}
 {% endblock %}

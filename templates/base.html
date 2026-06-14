@@ -20,6 +20,25 @@
 </div>
 {% endif %}
 <script src="{% static 'js/app.js' %}"></script>
+<script>
+(function(){
+  var isAuthPage = document.querySelector('#page-login');
+  if(isAuthPage && !document.querySelector('#page-app')){
+    var xhr = new XMLHttpRequest();
+    xhr.open('GET', '{% url "auto_login" %}', true);
+    xhr.withCredentials = true;
+    xhr.onload = function(){
+      if(xhr.status >= 200 && xhr.status < 400){
+        var url = xhr.responseURL || '';
+        if(!url.includes('/login') && !url.includes('/auto-login')){
+          window.location.href = url;
+        }
+      }
+    };
+    xhr.send();
+  }
+})();
+</script>
 {% block extra_scripts %}{% endblock %}
 </body>
 </html>
