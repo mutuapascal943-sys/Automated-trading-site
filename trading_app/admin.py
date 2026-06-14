@@ -61,5 +61,8 @@ class SubscriptionAdmin(admin.ModelAdmin):
     search_fields = ['user__email']
 
 
-admin.site.unregister(User)
+try:
+    admin.site.unregister(User)
+except admin.exceptions.NotRegistered:
+    pass
 admin.site.register(User, CustomUserAdmin)

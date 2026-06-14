@@ -23,14 +23,14 @@ urlpatterns = [
     path('llm/query/', views.llm_query_view, name='llm_query'),
     path('documents/upload/', views.upload_document_view, name='upload_document'),
 
-    # REST API
-    path('api/', include(router.urls)),
-    path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
-    path('api/market-data/', api_views.market_data_view, name='api_market_data'),
+    # REST API - specific routes before router to avoid conflicts
     path('api/trades/execute/', api_views.execute_trade_view, name='api_execute_trade'),
-    path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
     path('api/auth/request-otp/', api_views.request_otp_view, name='api_request_otp'),
     path('api/auth/verify-otp/', api_views.verify_otp_view, name='api_verify_otp'),
+    path('api/market-data/', api_views.market_data_view, name='api_market_data'),
+    path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
+    path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
+    path('api/', include(router.urls)),
 ]

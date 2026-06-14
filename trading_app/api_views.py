@@ -79,12 +79,15 @@ class TradeViewSet(viewsets.ModelViewSet):
         return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
 
-class SignalViewSet(viewsets.ReadOnlyModelViewSet):
+class SignalViewSet(viewsets.ModelViewSet):
     serializer_class = TradingSignalSerializer
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
         return TradingSignal.objects.filter(user=self.request.user).order_by('-created_at')
+
+    def perform_create(self, serializer):
+        serializer.save(user=self.request.user)
 
 
 class RAGDocumentViewSet(viewsets.ModelViewSet):
@@ -271,6 +274,7 @@ def configure_broker_view(request):
 
 
 @api_view(['POST'])
+@permission_classes([permissions.AllowAny])
 def request_otp_view(request):
     email = request.data.get('email', '')
     purpose = request.data.get('purpose', '2fa')
@@ -310,6 +314,7 @@ def request_otp_view(request):
 
 
 @api_view(['POST'])
+@permission_classes([permissions.AllowAny])
 def verify_otp_view(request):
     serializer = OTPVerifySerializer(data=request.data)
     serializer.is_valid(raise_exception=True)

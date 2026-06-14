@@ -90,26 +90,36 @@ else:
 
 # Cache - Redis for production, local-memory for development
 CACHE_URL = config('CACHE_URL', default='')
-if CACHE_URL and 'redis' in CACHE_URL:
-    CACHES = {
-        'default': {
-            'BACKEND': 'django_redis.cache.RedisCache',
-            'LOCATION': CACHE_URL,
-            'OPTIONS': {
-                'CLIENT_CLASS': 'django_redis.client.DefaultClient',
-                'CONNECTION_POOL_CLASS': 'redis.BlockingConnectionPool',
-                'CONNECTION_POOL_CLASS_KWARGS': {
-                    'max_connections': 50,
-                    'timeout': 20,
+try:
+    import django_redis
+    if CACHE_URL and 'redis' in CACHE_URL:
+        CACHES = {
+            'default': {
+                'BACKEND': 'django_redis.cache.RedisCache',
+                'LOCATION': CACHE_URL,
+                'OPTIONS': {
+                    'CLIENT_CLASS': 'django_redis.client.DefaultClient',
+                    'CONNECTION_POOL_CLASS': 'redis.BlockingConnectionPool',
+                    'CONNECTION_POOL_CLASS_KWARGS': {
+                        'max_connections': 50,
+                        'timeout': 20,
+                    },
+                    'MAX_CONNECTIONS': 1000,
+                    'PICKLE_VERSION': -1,
                 },
-                'MAX_CONNECTIONS': 1000,
-                'PICKLE_VERSION': -1,
-            },
-            'KEY_PREFIX': 'forex_ai_pro',
-            'TIMEOUT': 300,
+                'KEY_PREFIX': 'forex_ai_pro',
+                'TIMEOUT': 300,
+            }
         }
-    }
-else:
+    else:
+        CACHES = {
+            'default': {
+                'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
+                'LOCATION': 'forex-ai-pro-cache',
+                'TIMEOUT': 300,
+            }
+        }
+except ImportError:
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -187,8 +197,8 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'anon': f'{RATE_LIMIT_REQUESTS}/{RATE_LIMIT_WINDOW}',
-        'user': f'{RATE_LIMIT_REQUESTS * 2}/{RATE_LIMIT_WINDOW}',
+        'anon': f'{RATE_LIMIT_REQUESTS}/m',
+        'user': f'{RATE_LIMIT_REQUESTS * 2}/m',
     },
     'DEFAULT_AUTHENTICATION_CLASSES': [
         'rest_framework.authentication.SessionAuthentication',

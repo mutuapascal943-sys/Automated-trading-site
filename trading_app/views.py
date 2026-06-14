@@ -218,7 +218,7 @@ def profile_view(request):
         user.save()
         messages.success(request, 'Profile updated successfully.')
         return redirect('settings_profile')
-    return render(request, 'dashboard/settings.html', {'page_title': 'Settings'})
+    return redirect('dashboard')
 
 
 @login_required

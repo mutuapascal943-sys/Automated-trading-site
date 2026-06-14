@@ -1,3 +1,4 @@
+from decimal import Decimal
 from rest_framework import serializers
 from .models import (
     User, Trade, TradingSignal, RAGDocument,
@@ -29,7 +30,7 @@ class TradeCreateSerializer(serializers.ModelSerializer):
         fields = ['symbol', 'action', 'volume', 'entry_price', 'stop_loss',
                   'take_profit', 'order_type']
         extra_kwargs = {
-            'volume': {'required': True, 'min_value': 0.01},
+            'volume': {'required': True, 'min_value': Decimal('0.01')},
         }
 
 
