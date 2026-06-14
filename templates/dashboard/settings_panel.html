@@ -5,6 +5,7 @@
     <button class="settings-nav-item" onclick="settingsTab(this,'notifications')">Notifications</button>
     <button class="settings-nav-item" onclick="settingsTab(this,'security')">Security</button>
     <button class="settings-nav-item" onclick="settingsTab(this,'broker')">Broker API</button>
+    <button class="settings-nav-item" onclick="settingsTab(this,'ai')">AI Config</button>
   </div>
   <div>
     <div class="settings-section" id="settings-profile">
@@ -49,12 +50,12 @@
       <div class="settings-title">Security Settings</div>
       <div class="settings-row">
         <div>
-          <div class="settings-row-label">Two-Factor Authentication</div>
+          <div class="settings-row-label">Two-Factor Authentication (Email OTP)</div>
           <div class="settings-row-sub">
             {% if user.two_factor_enabled %}
-              <span style="color:var(--teal)">✅ Enabled</span>
+              <span style="color:var(--teal)">✅ Enabled - verification codes sent to your email</span>
             {% else %}
-              Protect your account with 2FA
+              Protect your account with email-based 2FA
             {% endif %}
           </div>
         </div>
@@ -67,5 +68,112 @@
         <div class="toggle on" onclick="this.classList.toggle('on')"></div>
       </div>
     </div>
+
+    <div class="settings-section" id="settings-broker" style="display:none">
+      <div class="settings-title">Broker API Configuration</div>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Connect your trading broker API for live execution. Get your API credentials from your broker's dashboard.</p>
+      <form id="broker-api-form">
+        {% csrf_token %}
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Endpoint</label>
+            <input type="text" id="broker-endpoint" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="https://api.deriv.com">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Key</label>
+            <input type="password" id="broker-api-key" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Enter your broker API key">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Secret</label>
+            <input type="password" id="broker-api-secret" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Enter your broker API secret">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Account ID</label>
+            <input type="text" id="broker-account-id" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Optional: Account identifier">
+          </div>
+        </div>
+        <button type="submit" class="btn-gold" style="width:auto;padding:10px 24px;margin-top:12px">Save API Configuration</button>
+      </form>
+      <div id="broker-status" style="display:none;margin-top:12px;padding:10px 14px;border-radius:6px;font-size:13px"></div>
+    </div>
+
+    <div class="settings-section" id="settings-ai" style="display:none">
+      <div class="settings-title">AI Configuration</div>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Configure your AI trading assistant. API keys are stored in the server environment.</p>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">AI Model</div>
+          <div class="settings-row-sub">GPT-4 (primary) / GPT-3.5-Turbo (fallback)</div>
+        </div>
+        <div><span style="color:var(--teal);font-size:13px;font-family:'DM Mono',monospace">● Connected</span></div>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">RAG Knowledge Base</div>
+          <div class="settings-row-sub">{{ user.rag_documents.count }} documents indexed</div>
+        </div>
+        <a href="#" class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px;text-decoration:none">Manage</a>
+      </div>
+      <div class="settings-row">
+        <div>
+          <div class="settings-row-label">Trading Signals</div>
+          <div class="settings-row-sub">AI-generated trade recommendations</div>
+        </div>
+        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
+      </div>
+    </div>
   </div>
 </div>
+
+<script>
+document.getElementById('broker-api-form')?.addEventListener('submit', async function(e) {
+  e.preventDefault();
+  const statusEl = document.getElementById('broker-status');
+  const btn = this.querySelector('button[type="submit"]');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const response = await fetch('/api/broker/configure/', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-CSRFToken': this.querySelector('[name=csrfmiddlewaretoken]').value,
+      },
+      body: JSON.stringify({
+        api_key: document.getElementById('broker-api-key').value,
+        api_secret: document.getElementById('broker-api-secret').value,
+        account_id: document.getElementById('broker-account-id').value,
+      }),
+    });
+    const data = await response.json();
+    statusEl.style.display = 'block';
+    if (response.ok) {
+      statusEl.style.background = 'rgba(0,212,170,0.08)';
+      statusEl.style.border = '1px solid rgba(0,212,170,0.15)';
+      statusEl.style.color = 'var(--teal)';
+      statusEl.textContent = '✅ Broker API configured successfully!';
+    } else {
+      statusEl.style.background = 'rgba(255,77,109,0.08)';
+      statusEl.style.border = '1px solid rgba(255,77,109,0.15)';
+      statusEl.style.color = 'var(--red)';
+      statusEl.textContent = '❌ Error: ' + (data.error || 'Failed to configure');
+    }
+  } catch (err) {
+    statusEl.style.display = 'block';
+    statusEl.style.background = 'rgba(255,77,109,0.08)';
+    statusEl.style.border = '1px solid rgba(255,77,109,0.15)';
+    statusEl.style.color = 'var(--red)';
+    statusEl.textContent = '❌ Connection error';
+  }
+  btn.disabled = false;
+  btn.textContent = 'Save API Configuration';
+  setTimeout(() => { statusEl.style.display = 'none'; }, 5000);
+});
+</script>
