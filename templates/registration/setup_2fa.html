@@ -6,15 +6,15 @@
   <div class="auth-glow g2"></div>
   <div class="auth-wrap" style="max-width:520px">
     <div class="auth-form-panel full">
-      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Two-Factor Authentication</h2>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">Secure your account with 2FA using Google Authenticator, Authy, or any TOTP-compatible app.</p>
+      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Verify Your Email</h2>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">Enable two-factor authentication via email verification.</p>
 
       <div style="background:rgba(245,194,122,0.08);border:1px solid rgba(245,194,122,0.15);border-radius:10px;padding:14px;font-size:12px;color:var(--gold);margin-bottom:16px">
-        <strong>📱 Setup Instructions:</strong>
+        <strong>📧 Setup Instructions:</strong>
         <ol style="margin:8px 0 0 16px;line-height:1.8">
-          <li>Install Google Authenticator (or similar) on your phone</li>
-          <li>Scan the QR code below with the app</li>
-          <li>Enter the 6-digit code from the app to verify</li>
+          <li>A verification code has been sent to <strong>{{ user_email }}</strong></li>
+          <li>Check your email inbox (and spam folder)</li>
+          <li>Enter the 6-digit code below to enable 2FA</li>
         </ol>
       </div>
 
@@ -22,19 +22,10 @@
         <div class="form-nonfield-errors">{{ otp_form.non_field_errors }}</div>
       {% endif %}
 
-      <div class="qr-section">
-        <img src="data:image/png;base64,{{ qr_b64 }}" alt="2FA QR Code" style="width:180px;height:180px">
-      </div>
-
-      <div style="text-align:center;margin-bottom:16px">
-        <div style="font-size:11px;color:var(--text3);margin-bottom:4px">Or enter this key manually:</div>
-        <div class="secret-key-display">{{ secret_key }}</div>
-      </div>
-
       <form method="post" action="{% url 'setup_2fa' %}">
         {% csrf_token %}
         <div class="otp-input-wrap">
-          <label class="form-label" style="text-align:center">Enter 6-digit code</label>
+          <label class="form-label" style="text-align:center">Enter 6-digit verification code</label>
           {{ otp_form.otp_code }}
           {% if otp_form.otp_code.errors %}<div class="form-error text-center">{{ otp_form.otp_code.errors.0 }}</div>{% endif %}
         </div>

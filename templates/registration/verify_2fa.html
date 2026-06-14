@@ -7,7 +7,11 @@
   <div class="auth-wrap" style="max-width:520px">
     <div class="auth-form-panel full">
       <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Two-Factor Authentication</h2>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:20px">Enter the verification code from your authenticator app.</p>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">Enter the verification code sent to your email.</p>
+
+      <div style="background:rgba(245,194,122,0.08);border:1px solid rgba(245,194,122,0.15);border-radius:10px;padding:14px;font-size:12px;color:var(--gold);margin-bottom:16px">
+        <strong>📧</strong> A code has been sent to <strong>{{ user.email }}</strong>. Check your inbox (and spam folder).
+      </div>
 
       {% if otp_form.non_field_errors %}
         <div class="form-nonfield-errors">{{ otp_form.non_field_errors }}</div>
@@ -16,11 +20,17 @@
       <form method="post" action="{% url 'verify_2fa' %}">
         {% csrf_token %}
         <div class="otp-input-wrap">
-          <label class="form-label" style="text-align:center">Authentication Code</label>
+          <label class="form-label" style="text-align:center">Verification Code</label>
           {{ otp_form.otp_code }}
           {% if otp_form.otp_code.errors %}<div class="form-error text-center">{{ otp_form.otp_code.errors.0 }}</div>{% endif %}
         </div>
         <button type="submit" class="btn-gold" style="margin-top:8px">Verify & Sign In →</button>
+      </form>
+
+      <div class="form-divider" style="margin-top:16px">Didn't receive the code?</div>
+      <form method="post" action="{% url 'resend_otp' %}" style="margin-top:4px">
+        {% csrf_token %}
+        <button type="submit" class="btn-outline" style="width:100%;cursor:pointer;font-size:13px">Resend Code</button>
       </form>
     </div>
   </div>
