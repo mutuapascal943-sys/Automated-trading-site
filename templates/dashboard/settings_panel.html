@@ -37,10 +37,7 @@
             <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Connected Broker</label>
             <select name="broker" class="form-input" style="margin-top:6px">
               <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
-              <option value="Exness" {% if user.broker == 'Exness' %}selected{% endif %}>Exness</option>
-              <option value="XM" {% if user.broker == 'XM' %}selected{% endif %}>XM</option>
-              <option value="FBS" {% if user.broker == 'FBS' %}selected{% endif %}>FBS</option>
-              <option value="IC Markets" {% if user.broker == 'IC Markets' %}selected{% endif %}>IC Markets</option>
+              <option value="Binance" {% if user.broker == 'Binance' %}selected{% endif %}>Binance</option>
             </select>
           </div>
         </div>
@@ -100,15 +97,9 @@
             <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Broker</label>
             <select id="broker-select" class="form-input" style="margin-top:6px">
               <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
-              <option value="Exness" {% if user.broker == 'Exness' %}selected{% endif %}>Exness</option>
-              <option value="XM" {% if user.broker == 'XM' %}selected{% endif %}>XM</option>
-              <option value="FBS" {% if user.broker == 'FBS' %}selected{% endif %}>FBS</option>
-              <option value="IC Markets" {% if user.broker == 'IC Markets' %}selected{% endif %}>IC Markets</option>
-              <option value="Pepperstone" {% if user.broker == 'Pepperstone' %}selected{% endif %}>Pepperstone</option>
-              <option value="FXTM" {% if user.broker == 'FXTM' %}selected{% endif %}>FXTM</option>
-              <option value="Tickmill" {% if user.broker == 'Tickmill' %}selected{% endif %}>Tickmill</option>
-              <option value="RoboForex" {% if user.broker == 'RoboForex' %}selected{% endif %}>RoboForex</option>
+              <option value="Binance" {% if user.broker == 'Binance' %}selected{% endif %}>Binance</option>
             </select>
+            <span style="font-size:11px;color:var(--text3);display:block;margin-top:4px">More brokers coming soon</span>
           </div>
         </div>
         <div class="settings-row">
@@ -180,13 +171,13 @@ document.getElementById('broker-api-form')?.addEventListener('submit', async fun
   btn.textContent = 'Saving...';
 
   try {
+    var toggle = document.getElementById('settings-paper-toggle');
     const response = await fetch('/api/broker/configure/', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
         'X-CSRFToken': this.querySelector('[name=csrfmiddlewaretoken]').value,
       },
-      var toggle = document.getElementById('settings-paper-toggle');
       body: JSON.stringify({
         broker: document.getElementById('broker-select').value,
         api_key: document.getElementById('broker-api-key').value,

@@ -36,6 +36,12 @@ logger = logging.getLogger(__name__)
 audit = ConsoleAuditLogger()
 
 
+def create_notification(user, title, message='', notification_type='system'):
+    Notification.objects.create(
+        user=user, title=title, message=message, notification_type=notification_type
+    )
+
+
 class UserViewSet(viewsets.ModelViewSet):
     queryset = User.objects.all()
     serializer_class = UserSerializer
@@ -288,11 +294,14 @@ def _execute_via_adapter(user, trade, risk=None):
         ))
         trade.status = 'OPEN'
         trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+        trade.current_price = trade.entry_price
+        trade.unrealized_pnl = Decimal('0')
         trade.stop_loss = risk_signal.stop_loss
         trade.take_profit = risk_signal.take_profit
         trade.executed_at = timezone.now()
         trade.is_live = False
         trade.save()
+        create_notification(user, 'Paper Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
         audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
         return trade
 
@@ -318,6 +327,7 @@ def _execute_via_adapter(user, trade, risk=None):
         trade.executed_at = timezone.now()
         trade.is_live = True
         trade.save()
+        create_notification(user, 'Live Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
         audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
     except Exception as e:
         logger.error('Live execution failed: %s', e)
@@ -366,10 +376,7 @@ def broker_status_view(request):
         'broker': user.broker,
         'paper_mode': user.paper_mode,
         'configured': configured,
-        'broker_list': [
-            'Deriv', 'Exness', 'XM', 'FBS', 'HFM (HotForex)',
-            'IC Markets', 'Pepperstone', 'FXTM', 'Tickmill', 'RoboForex',
-        ],
+        'broker_list': ['Deriv', 'Binance'],
     })
 
 
@@ -716,6 +723,94 @@ def mark_notification_read(request, notification_id):
 def mark_all_notifications_read(request):
     Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
     return Response({'status': 'ok'})
+
+
+# ---------------------------------------------------------------------------
+# Backtest
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def run_backtest_view(request):
+    from .trading_bot.backtest import run_backtest, BacktestResult
+    from .trading_bot.interface import Candle, OrderRequest
+
+    symbol = request.data.get('symbol', 'EUR/USD')
+    initial_balance = Decimal(str(request.data.get('initial_balance', 10000)))
+    days = int(request.data.get('days', 30))
+    stop_loss_pct = Decimal(str(request.data.get('stop_loss_pct', '2')))
+    take_profit_pct = Decimal(str(request.data.get('take_profit_pct', '4')))
+
+    paper = PaperBrokerAdapter(initial_balance=initial_balance)
+    paper.connect({})
+
+    try:
+        adapter = _resolve_adapter(request.user)
+        creds = build_credentials(request.user)
+        adapter.connect(creds)
+        raw_candles = adapter.get_candles(symbol, 3600, days * 24)
+        adapter.disconnect()
+    except Exception:
+        raw_candles = []
+
+    if not raw_candles:
+        from datetime import datetime, timedelta
+        import random
+        raw_candles = []
+        now = datetime.now(timezone.utc)
+        for i in range(min(days * 24, 720)):
+            ts = now - timedelta(hours=days * 24 - i)
+            base = Decimal('1.05') if 'EUR' in symbol else Decimal('1.25')
+            raw_candles.append(Candle(
+                symbol=symbol,
+                open=base + Decimal(str(random.uniform(-0.01, 0.01))),
+                high=base + Decimal(str(random.uniform(0, 0.02))),
+                low=base + Decimal(str(random.uniform(-0.02, 0))),
+                close=base + Decimal(str(random.uniform(-0.01, 0.01))),
+                volume=Decimal(str(random.randint(100, 10000))),
+                timestamp=ts,
+            ))
+
+    paper.seed_candles(raw_candles)
+
+    def sma_strategy(candle, positions, balance):
+        if positions:
+            return None
+        candles_list = paper._candle_store.get(symbol, [])
+        if len(candles_list) < 20:
+            return None
+        recent = candles_list[-20:]
+        sma = sum(c.close for c in recent) / len(recent)
+        if candle.close > sma * Decimal('1.002'):
+            return OrderRequest(
+                symbol=symbol, side='buy', order_type='market',
+                volume=Decimal('0.1'),
+                stop_loss=candle.close * (Decimal('1') - stop_loss_pct / Decimal('100')),
+                take_profit=candle.close * (Decimal('1') + take_profit_pct / Decimal('100')),
+            )
+        elif candle.close < sma * Decimal('0.998'):
+            return OrderRequest(
+                symbol=symbol, side='sell', order_type='market',
+                volume=Decimal('0.1'),
+                stop_loss=candle.close * (Decimal('1') + stop_loss_pct / Decimal('100')),
+                take_profit=candle.close * (Decimal('1') - take_profit_pct / Decimal('100')),
+            )
+        return None
+
+    result = run_backtest(paper, raw_candles, sma_strategy, initial_balance=initial_balance)
+
+    return Response({
+        'symbol': symbol,
+        'total_trades': result.total_trades,
+        'winning_trades': result.winning_trades,
+        'losing_trades': result.losing_trades,
+        'total_pnl': str(result.total_pnl),
+        'final_balance': str(result.final_balance),
+        'max_drawdown': str(result.max_drawdown),
+        'peak_equity': str(result.peak_equity),
+        'win_rate': round(result.winning_trades / result.total_trades * 100, 1) if result.total_trades > 0 else 0,
+        'equity_curve': [str(e) for e in result.equity_curve],
+    })
 
 
 # ---------------------------------------------------------------------------

@@ -249,4 +249,8 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading_app.tasks.cleanup_expired_otps',
         'schedule': crontab(hour='*/1'),
     },
+    'check-paper-positions': {
+        'task': 'trading_app.tasks.check_paper_positions',
+        'schedule': crontab(minute='*/2'),
+    },
 }

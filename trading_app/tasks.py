@@ -5,7 +5,7 @@ from decimal import Decimal
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
-from .models import EmailOTP, Trade, User, TradingSignal, RiskConfig
+from .models import EmailOTP, Trade, User, TradingSignal, RiskConfig, Notification
 from .serializers import TradeCreateSerializer, TradingSignalSerializer
 from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
@@ -74,6 +74,85 @@ def sync_live_trades():
 
 
 @shared_task
+def check_paper_positions():
+    open_paper_trades = Trade.objects.filter(is_live=False, status='OPEN').select_related('user')
+    for trade in open_paper_trades:
+        try:
+            user = trade.user
+            current_price = None
+
+            if not user.paper_mode:
+                try:
+                    adapter = get_adapter_for_broker(user.broker or '')
+                    creds = build_credentials(user)
+                    adapter.connect(creds)
+                    candles = adapter.get_candles(trade.symbol, 3600, 1)
+                    adapter.disconnect()
+                    if candles:
+                        current_price = Decimal(str(candles[-1].close))
+                except Exception:
+                    pass
+
+            if current_price is None:
+                cached = CacheService.get_market_data(trade.symbol)
+                if cached and cached.get('price'):
+                    current_price = Decimal(cached['price'])
+
+            if current_price is None:
+                continue
+
+            side = trade.action.lower()
+            if side == 'buy':
+                unrealized = (current_price - trade.entry_price) * Decimal(str(trade.volume))
+                sl_hit = trade.stop_loss and current_price <= trade.stop_loss
+                tp_hit = trade.take_profit and current_price >= trade.take_profit
+            else:
+                unrealized = (trade.entry_price - current_price) * Decimal(str(trade.volume))
+                sl_hit = trade.stop_loss and current_price >= trade.stop_loss
+                tp_hit = trade.take_profit and current_price <= trade.take_profit
+
+            trade.current_price = current_price
+            trade.unrealized_pnl = unrealized
+
+            if sl_hit:
+                exit_price = trade.stop_loss
+                if side == 'buy':
+                    pnl = (exit_price - trade.entry_price) * Decimal(str(trade.volume))
+                else:
+                    pnl = (trade.entry_price - exit_price) * Decimal(str(trade.volume))
+                trade.status = 'CLOSED'
+                trade.exit_price = exit_price
+                trade.pnl = pnl
+                trade.closed_at = timezone.now()
+                trade.save()
+                Notification.objects.create(
+                    user=user, title=f'Stop Loss Hit — {trade.symbol}',
+                    message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
+                    notification_type='trade',
+                )
+            elif tp_hit:
+                exit_price = trade.take_profit
+                if side == 'buy':
+                    pnl = (exit_price - trade.entry_price) * Decimal(str(trade.volume))
+                else:
+                    pnl = (trade.entry_price - exit_price) * Decimal(str(trade.volume))
+                trade.status = 'CLOSED'
+                trade.exit_price = exit_price
+                trade.pnl = pnl
+                trade.closed_at = timezone.now()
+                trade.save()
+                Notification.objects.create(
+                    user=user, title=f'Take Profit Hit — {trade.symbol}',
+                    message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
+                    notification_type='trade',
+                )
+            else:
+                trade.save()
+        except Exception as e:
+            logger.error(f'Failed to check paper position {trade.id}: {e}')
+
+
+@shared_task
 def reset_daily_trade_counts():
     User.objects.update(daily_trades_count=0, last_trade_date=timezone.now().date())
     logger.info('Daily trade counts reset')
@@ -95,7 +174,7 @@ def run_bot_cycle():
 
 def _run_single_user_bot(user):
     risk = RiskConfig.get_for_user(user)
-    symbols = ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
+    symbols = user.watchlist or ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
 
     for symbol in symbols:
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
@@ -143,6 +222,11 @@ def _run_single_user_bot(user):
                 reasoning=analysis.rationale,
                 source='AI',
                 risk_level='MEDIUM',
+            )
+            Notification.objects.create(
+                user=user, title=f'Signal: {signal_type} {symbol}',
+                message=f'Confidence: {confidence}% — {analysis.rationale[:100]}',
+                notification_type='signal',
             )
             audit.log_signal(symbol, signal_type, confidence, {
                 'signal_id': signal.id, 'user_id': user.id, 'source': 'bot_cycle',
@@ -212,9 +296,16 @@ def _execute_trade(user, trade, risk):
         ))
         trade.status = 'OPEN'
         trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+        trade.current_price = trade.entry_price
+        trade.unrealized_pnl = Decimal('0')
         trade.executed_at = timezone.now()
         trade.is_live = False
         trade.save()
+        Notification.objects.create(
+            user=user, title=f'Paper Trade Opened',
+            message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
+            notification_type='trade',
+        )
         return
 
     adapter = get_adapter_for_broker(user.broker or '')

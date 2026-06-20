@@ -10,15 +10,6 @@ from trading_app.trading_bot.binance_adapter import BinanceAdapter
 ADAPTER_MAP: dict[str, type[BrokerAdapter]] = {
     "Deriv": DerivAdapter,
     "Binance": BinanceAdapter,
-    "Exness": DerivAdapter,
-    "XM": DerivAdapter,
-    "FBS": DerivAdapter,
-    "HFM (HotForex)": DerivAdapter,
-    "IC Markets": DerivAdapter,
-    "Pepperstone": DerivAdapter,
-    "FXTM": DerivAdapter,
-    "Tickmill": DerivAdapter,
-    "RoboForex": DerivAdapter,
 }
 
 

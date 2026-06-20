@@ -49,15 +49,7 @@ def validate_email_not_disposable(email):
 BROKER_CHOICES = [
     ('', 'Choose your broker'),
     ('Deriv', 'Deriv'),
-    ('Exness', 'Exness'),
-    ('XM', 'XM'),
-    ('FBS', 'FBS'),
-    ('HFM (HotForex)', 'HFM (HotForex)'),
-    ('IC Markets', 'IC Markets'),
-    ('Pepperstone', 'Pepperstone'),
-    ('FXTM', 'FXTM'),
-    ('Tickmill', 'Tickmill'),
-    ('RoboForex', 'RoboForex'),
+    ('Binance', 'Binance'),
 ]
 
 

@@ -16,6 +16,7 @@ class User(AbstractUser):
     daily_trades_count = models.IntegerField(default=0)
     last_trade_date = models.DateField(null=True, blank=True)
     paper_mode = models.BooleanField(default=True, help_text='Paper/demo mode — no real broker execution')
+    watchlist = models.JSONField(default=list, blank=True, help_text='User-preferred trading symbols')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, default='')
     bio = models.TextField(max_length=500, blank=True, default='')
@@ -114,6 +115,8 @@ class Trade(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     is_live = models.BooleanField(default=False)
     broker_trade_id = models.CharField(max_length=100, blank=True, default='')
+    current_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True, help_text='Current market price for paper trades')
+    unrealized_pnl = models.DecimalField(max_digits=14, decimal_places=2, null=True, blank=True, help_text='Unrealized P&L for open paper trades')
 
     class Meta:
         indexes = [
