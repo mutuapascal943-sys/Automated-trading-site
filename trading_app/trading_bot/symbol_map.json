@@ -1,0 +1,62 @@
+{
+  "EURUSD": {
+    "deriv": "EUR/USD",
+    "binance": "EURUSDT",
+    "paper": "EURUSD"
+  },
+  "GBPUSD": {
+    "deriv": "GBP/USD",
+    "binance": "GBPUSDT",
+    "paper": "GBPUSD"
+  },
+  "USDJPY": {
+    "deriv": "USD/JPY",
+    "binance": "USDJPY",
+    "paper": "USDJPY"
+  },
+  "AUDUSD": {
+    "deriv": "AUD/USD",
+    "binance": "AUDUSDT",
+    "paper": "AUDUSD"
+  },
+  "USDCAD": {
+    "deriv": "USD/CAD",
+    "binance": "USDCAD",
+    "paper": "USDCAD"
+  },
+  "USDCHF": {
+    "deriv": "USD/CHF",
+    "binance": "USDCHF",
+    "paper": "USDCHF"
+  },
+  "NZDUSD": {
+    "deriv": "NZD/USD",
+    "binance": "NZDUSDT",
+    "paper": "NZDUSD"
+  },
+  "BTCUSD": {
+    "deriv": "BTC/USD",
+    "binance": "BTCUSDT",
+    "paper": "BTCUSD"
+  },
+  "ETHUSD": {
+    "deriv": "ETH/USD",
+    "binance": "ETHUSDT",
+    "paper": "ETHUSD"
+  },
+  "XAUUSD": {
+    "deriv": "XAU/USD",
+    "binance": "XAUUSDT",
+    "paper": "XAUUSD"
+  },
+  "US30": {
+    "deriv": "US30",
+    "binance": "US30",
+    "paper": "US30"
+  },
+  "R_100": {
+    "deriv": "R_100",
+    "binance": "R_100",
+    "paper": "R_100"
+  }
+}
