@@ -20,6 +20,10 @@
       <option>M30</option><option>H1</option><option>H4</option><option>D1</option>
     </select>
   </div>
+  <div class="filter-group" style="margin-left:auto;display:flex;align-items:center;gap:8px">
+    <label style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Paper Mode</label>
+    <div class="toggle {% if user.paper_mode %}on{% endif %}" id="paper-mode-toggle" onclick="togglePaperMode()"></div>
+  </div>
 </div>
 
 <div class="bot-grid">
@@ -28,7 +32,7 @@
       <div class="chart-header">
         <div>
           <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
-          <div style="font-size:12px;color:var(--text3)" class="mono">LIVE</div>
+          <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">{% if user.paper_mode %}PAPER{% else %}LIVE{% endif %}</div>
         </div>
         <div class="chart-price" id="bot-price">1.08432</div>
       </div>
@@ -40,22 +44,20 @@
     <div class="controls-card mt-2">
       <div class="analysis-title">⚙ Bot Controls</div>
       <div class="controls-grid">
-        <button class="btn-ctrl start" onclick="startAnalysis()">▶ START</button>
+        <button class="btn-ctrl start" onclick="startAnalysis()">▶ ANALYZE</button>
         <button class="btn-ctrl stop" onclick="stopAnalysis()">■ STOP</button>
         <button class="btn-ctrl refresh" onclick="refreshSignals()">↺ REFRESH</button>
-        <button class="btn-ctrl connect">⇌ CONNECT BROKER</button>
+        <button class="btn-ctrl connect" onclick="location.hash='settings'">⇌ BROKER SETTINGS</button>
         <button class="btn-ctrl execute" onclick="executeTrade()">⚡ EXECUTE TRADE</button>
-        <button class="btn-ctrl close">✕ CLOSE ALL</button>
-        <button class="btn-ctrl pause">⏸ PAUSE BOT</button>
-        <button class="btn-ctrl resume">▶ RESUME BOT</button>
+        <button class="btn-ctrl close" onclick="closeAllTrades()">✕ CLOSE ALL</button>
       </div>
       <div class="scan-status" id="scanStatus"></div>
       <div class="analysis-title mt-2">🛡 Risk Management</div>
       <div class="risk-grid">
-        <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1"></div>
-        <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50"></div>
-        <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50"></div>
-        <div class="risk-field"><label>Daily profit target %</label><input type="number" value="5" min="1" max="100"></div>
+        <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Daily profit target %</label><input type="number" value="5" min="1" max="100" onchange="saveRiskConfig()"></div>
       </div>
     </div>
   </div>
@@ -71,29 +73,95 @@
         <div class="score-bar-label"><span>Signal Confidence</span><span id="conf-val">74%</span></div>
         <div class="score-bar"><div class="score-bar-fill" id="conf-bar" style="width:74%"></div></div>
       </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar-label"><span>Market Volatility</span><span id="vol-val">42%</span></div>
-        <div class="score-bar"><div class="score-bar-fill teal" id="vol-bar" style="width:42%"></div></div>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar-label"><span>Risk Score</span><span id="risk-val">28%</span></div>
-        <div class="score-bar"><div class="score-bar-fill red" id="risk-bar" style="width:28%"></div></div>
-      </div>
-      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">1.0812</span></div>
-      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">1.0784</span></div>
-      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">1.0876</span></div>
-      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">1.0910</span></div>
+      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">—</span></div>
+      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">—</span></div>
+      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">—</span></div>
+      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">—</span></div>
     </div>
 
     <div class="analysis-card">
       <div class="analysis-title">⚡ Trade Signal</div>
-      <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">1.08432</span></div>
-      <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">1.08180</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">1.08690</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 2</span><span class="signal-val green" id="sig-tp2">1.08950</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 3</span><span class="signal-val green" id="sig-tp3">1.09240</span></div>
-      <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold">1:2.7</span></div>
-      <div class="signal-row"><span class="signal-key">Signal Strength</span><span class="signal-val green">STRONG</span></div>
+      <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">—</span></div>
+      <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">—</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">—</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 2</span><span class="signal-val green" id="sig-tp2">—</span></div>
+      <div class="signal-row"><span class="signal-key">Take Profit 3</span><span class="signal-val green" id="sig-tp3">—</span></div>
+      <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold">—</span></div>
+      <div class="signal-row"><span class="signal-key">Signal Strength</span><span class="signal-val green">—</span></div>
+    </div>
+
+    <div class="analysis-card">
+      <div class="analysis-title">📋 Recent Trades</div>
+      <div id="bot-recent-trades" style="font-size:12px;color:var(--text2)">
+        <span>Open bot panel to load trades...</span>
+      </div>
     </div>
   </div>
 </div>
+
+<script>
+function togglePaperMode(){
+  var toggle = document.getElementById('paper-mode-toggle');
+  if(!toggle) return;
+  var newMode = !toggle.classList.contains('on');
+  toggle.classList.toggle('on', newMode);
+  fetch('/api/broker/configure/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({paper_mode: newMode}),
+  }).then(function(r){ return r.json() }).then(function(data){
+    var label = document.getElementById('bot-mode-label');
+    if(label) label.textContent = newMode ? 'PAPER' : 'LIVE';
+    showToast('Paper mode ' + (newMode ? 'enabled' : 'disabled'), 'success');
+  }).catch(function(){
+    toggle.classList.toggle('on', !newMode);
+    showToast('Failed to toggle paper mode', 'error');
+  });
+}
+
+function loadRecentTrades(){
+  fetch('/api/trades/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  .then(function(r){ return r.json() })
+  .then(function(data){
+    var trades = data.results || data || [];
+    var el = document.getElementById('bot-recent-trades');
+    if(!el) return;
+    if(trades.length === 0){
+      el.innerHTML = '<span style="color:var(--text3)">No trades yet</span>';
+      return;
+    }
+    el.innerHTML = trades.slice(0, 5).map(function(t){
+      var cls = t.status === 'OPEN' ? 'teal' : t.pnl > 0 ? 'green' : 'red';
+      return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
+        '<span>' + t.symbol + ' ' + t.action + '</span>' +
+        '<span style="color:var(--' + cls + ')">' + (t.pnl ? (t.pnl > 0 ? '+' : '') + t.pnl : t.status) + '</span></div>';
+    }).join('');
+  })
+  .catch(function(){});
+}
+
+function closeAllTrades(){
+  if(!confirm('Close all open positions?')) return;
+  fetch('/api/trades/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  .then(function(r){ return r.json() })
+  .then(function(data){
+    var trades = data.results || data || [];
+    var openTrades = trades.filter(function(t){ return t.status === 'OPEN' });
+    if(openTrades.length === 0){
+      showToast('No open trades to close', 'info');
+      return;
+    }
+    showToast('Close all trades feature requires manual closing per trade', 'info');
+  })
+  .catch(function(){});
+}
+
+// Load trades when bot panel becomes visible
+var _origNav = window.navigateToPanel;
+window.navigateToPanel = function(panelId){
+  if(panelId === 'bot'){
+    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); }, 100);
+  }
+  if(_origNav) _origNav(panelId);
+};
+</script>

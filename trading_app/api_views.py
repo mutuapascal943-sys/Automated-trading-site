@@ -1,5 +1,6 @@
 import time
 import logging
+from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth import get_user_model
@@ -10,23 +11,29 @@ from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
     Trade, TradingSignal, RAGDocument, RAGChunk,
-    LLMQuery, Subscription, EmailOTP, SecurityQuestion, Notification,
+    LLMQuery, Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
     RAGDocumentSerializer, LLMQuerySerializer, LLMQueryCreateSerializer,
     SubscriptionSerializer, MarketDataSerializer, BrokerConfigSerializer,
-    OTPVerifySerializer, UserSerializer,
+    OTPVerifySerializer, UserSerializer, RiskConfigSerializer,
 )
 from .services.llm_service import llm_service
 from .services.rag_engine import rag_engine
-from .services.broker_service import BrokerService
 from .services.cache_service import CacheService
 from .services.email_service import generate_otp, send_otp_email
+from .services.credential_encrypt import encrypt, decrypt
+from .services.adapter_resolver import get_adapter_for_broker, build_credentials
+from .trading_bot.paper_broker import PaperBrokerAdapter
+from .trading_bot.risk_engine import RiskEngine, PositionSizing
+from .trading_bot.interface import OrderRequest as RiskOrderRequest
+from .trading_bot.logging_utils import ConsoleAuditLogger
 from .decorators import two_factor_required_api
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+audit = ConsoleAuditLogger()
 
 
 class UserViewSet(viewsets.ModelViewSet):
@@ -53,29 +60,7 @@ class TradeViewSet(viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         trade = serializer.save(user=request.user, status='PENDING')
 
-        broker = BrokerService(
-            api_key=request.user.broker_api_key,
-            api_secret=request.user.broker_api_secret,
-            account_id=request.user.broker_account_id,
-        )
-        if broker.is_configured():
-            result = broker.execute_trade(
-                symbol=trade.symbol,
-                action=trade.action,
-                volume=float(trade.volume),
-                order_type=trade.order_type,
-            )
-            if result:
-                trade.is_live = True
-                trade.broker_trade_id = result.get('trade_id', '')
-                trade.status = 'OPEN'
-                trade.executed_at = timezone.now()
-                trade.save()
-                return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
-
-        trade.status = 'OPEN'
-        trade.executed_at = timezone.now()
-        trade.save()
+        trade = _execute_via_adapter(request.user, trade)
         return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
 
@@ -181,6 +166,10 @@ class LLMQueryView(generics.CreateAPIView):
             )
 
 
+# ---------------------------------------------------------------------------
+# Market Data
+# ---------------------------------------------------------------------------
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def market_data_view(request):
@@ -189,18 +178,35 @@ def market_data_view(request):
     if cached:
         return Response(cached)
 
-    broker = BrokerService(
-        api_key=request.user.broker_api_key,
-        api_secret=request.user.broker_api_secret,
-        account_id=request.user.broker_account_id,
-    )
-    data = broker.get_market_data(symbol)
-    if data:
-        CacheService.set_market_data(symbol, data)
-        return Response(data)
+    if request.user.paper_mode:
+        return Response({'symbol': symbol, 'price': '0', 'message': 'Paper mode — no live data'})
+
+    adapter = _resolve_adapter(request.user)
+    creds = build_credentials(request.user)
+    try:
+        adapter.connect(creds)
+        candles = adapter.get_candles(symbol, 3600, 1)
+        adapter.disconnect()
+        if candles:
+            data = {
+                'symbol': symbol,
+                'price': str(candles[-1].close),
+                'high': str(candles[-1].high),
+                'low': str(candles[-1].low),
+                'open': str(candles[-1].open),
+                'timestamp': candles[-1].timestamp.isoformat(),
+            }
+            CacheService.set_market_data(symbol, data)
+            return Response(data)
+    except Exception as e:
+        logger.warning('Market data fetch failed: %s', e)
 
     return Response({'symbol': symbol, 'price': '0', 'message': 'Using simulated data'})
 
+
+# ---------------------------------------------------------------------------
+# Trade Execution
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -209,54 +215,124 @@ def execute_trade_view(request):
     serializer.is_valid(raise_exception=True)
 
     user = request.user
-    today = timezone.now().date()
+    risk = RiskConfig.get_for_user(user)
 
+    if not risk.trading_enabled:
+        return Response({'error': 'Trading is disabled in your risk settings'}, status=status.HTTP_403_FORBIDDEN)
+
+    today = timezone.now().date()
     if user.last_trade_date != today:
         user.daily_trades_count = 0
         user.last_trade_date = today
 
-    if user.daily_trades_count >= 50:
+    if user.daily_trades_count >= risk.max_daily_trades:
         return Response(
-            {'error': 'Daily trade limit reached (50 trades/day)'},
+            {'error': f'Daily trade limit reached ({risk.max_daily_trades} trades/day)'},
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    trade = serializer.save(
-        user=user,
-        status='PENDING',
-        is_live=False,
-    )
+    trade = serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
 
-    broker = BrokerService(
-        api_key=user.broker_api_key,
-        api_secret=user.broker_api_secret,
-        account_id=user.broker_account_id,
-    )
-    if broker.is_configured():
-        result = broker.execute_trade(
-            symbol=trade.symbol,
-            action=trade.action,
-            volume=float(trade.volume),
-            order_type=trade.order_type,
-        )
-        if result:
-            trade.is_live = True
-            trade.broker_trade_id = result.get('trade_id', '')
-            trade.status = 'OPEN'
-            trade.executed_at = timezone.now()
-            trade.save()
-            user.daily_trades_count += 1
-            user.save()
-            return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
+    trade = _execute_via_adapter(user, trade, risk)
 
-    trade.status = 'OPEN'
-    trade.executed_at = timezone.now()
-    trade.save()
     user.daily_trades_count += 1
     user.save()
 
     return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
+
+def _execute_via_adapter(user, trade, risk=None):
+    if risk is None:
+        risk = RiskConfig.get_for_user(user)
+
+    engine = RiskEngine(
+        sizing=PositionSizing(
+            method='fixed',
+            fixed_volume=Decimal(str(trade.volume)),
+            max_position_size=risk.max_position_size,
+        ),
+        max_exposure_percent=Decimal('50'),
+        max_daily_loss_percent=risk.max_drawdown,
+    )
+
+    fake_signal = RiskOrderRequest(
+        symbol=trade.symbol,
+        side=trade.action.lower(),
+        order_type=trade.order_type.lower(),
+        volume=Decimal(str(trade.volume)),
+        price=trade.entry_price,
+        stop_loss=trade.stop_loss,
+        take_profit=trade.take_profit,
+    )
+
+    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance)
+    if risk_signal is None:
+        trade.status = 'CANCELLED'
+        trade.save()
+        audit.log_risk('rules_engine', triggered=True, details={
+            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk rules rejected',
+        })
+        return trade
+
+    if user.paper_mode:
+        paper = PaperBrokerAdapter(initial_balance=user.balance)
+        paper.connect({})
+        order = paper.place_order(RiskOrderRequest(
+            symbol=trade.symbol,
+            side=trade.action.lower(),
+            order_type=trade.order_type.lower(),
+            volume=Decimal(str(trade.volume)),
+            price=trade.entry_price,
+            stop_loss=risk_signal.stop_loss,
+            take_profit=risk_signal.take_profit,
+        ))
+        trade.status = 'OPEN'
+        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+        trade.stop_loss = risk_signal.stop_loss
+        trade.take_profit = risk_signal.take_profit
+        trade.executed_at = timezone.now()
+        trade.is_live = False
+        trade.save()
+        audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
+        return trade
+
+    adapter = _resolve_adapter(user)
+    creds = build_credentials(user)
+    try:
+        adapter.connect(creds)
+        order = adapter.place_order(RiskOrderRequest(
+            symbol=trade.symbol,
+            side=trade.action.lower(),
+            order_type=trade.order_type.lower(),
+            volume=Decimal(str(trade.volume)),
+            price=trade.entry_price,
+            stop_loss=risk_signal.stop_loss,
+            take_profit=risk_signal.take_profit,
+        ))
+        adapter.disconnect()
+        trade.status = 'OPEN'
+        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+        trade.broker_trade_id = order.broker_order_id or ''
+        trade.stop_loss = risk_signal.stop_loss
+        trade.take_profit = risk_signal.take_profit
+        trade.executed_at = timezone.now()
+        trade.is_live = True
+        trade.save()
+        audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
+    except Exception as e:
+        logger.error('Live execution failed: %s', e)
+        trade.status = 'OPEN'
+        trade.executed_at = timezone.now()
+        trade.is_live = False
+        trade.save()
+        audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
+
+    return trade
+
+
+# ---------------------------------------------------------------------------
+# Broker Configuration
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
@@ -265,13 +341,148 @@ def configure_broker_view(request):
     serializer.is_valid(raise_exception=True)
 
     user = request.user
-    user.broker_api_key = serializer.validated_data['api_key']
-    user.broker_api_secret = serializer.validated_data['api_secret']
-    user.broker_account_id = serializer.validated_data.get('account_id', '')
+    if 'api_key' in serializer.validated_data and serializer.validated_data['api_key']:
+        user.broker_api_key = encrypt(serializer.validated_data['api_key'])
+    if 'api_secret' in serializer.validated_data and serializer.validated_data['api_secret']:
+        user.broker_api_secret = encrypt(serializer.validated_data['api_secret'])
+    if 'account_id' in serializer.validated_data:
+        user.broker_account_id = serializer.validated_data['account_id']
+    if 'paper_mode' in serializer.validated_data:
+        user.paper_mode = serializer.validated_data['paper_mode']
+    if 'broker' in serializer.validated_data:
+        user.broker = serializer.validated_data['broker']
     user.save()
 
-    return Response({'status': 'Broker configured successfully'})
+    audit.log_connection(user.broker or 'unknown', 'configured', {'user_id': user.id})
+    return Response({'status': 'Broker configured successfully', 'paper_mode': user.paper_mode})
 
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def broker_status_view(request):
+    user = request.user
+    configured = bool(user.broker_api_key) and bool(user.broker)
+    return Response({
+        'broker': user.broker,
+        'paper_mode': user.paper_mode,
+        'configured': configured,
+        'broker_list': [
+            'Deriv', 'Exness', 'XM', 'FBS', 'HFM (HotForex)',
+            'IC Markets', 'Pepperstone', 'FXTM', 'Tickmill', 'RoboForex',
+        ],
+    })
+
+
+# ---------------------------------------------------------------------------
+# Risk Configuration
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def risk_config_view(request):
+    risk = RiskConfig.get_for_user(request.user)
+
+    if request.method == 'GET':
+        return Response(RiskConfigSerializer(risk).data)
+
+    serializer = RiskConfigSerializer(risk, data=request.data, partial=True)
+    serializer.is_valid(raise_exception=True)
+    serializer.save()
+    return Response(RiskConfigSerializer(risk).data)
+
+
+# ---------------------------------------------------------------------------
+# Market Analysis (wired to LLM + signal creation)
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def analyze_and_signal_view(request):
+    serializer = LLMQueryCreateSerializer(data=request.data)
+    serializer.is_valid(raise_exception=True)
+
+    symbol = serializer.validated_data.get('prompt', 'EUR/USD')
+    try:
+        candles = []
+        if not request.user.paper_mode:
+            adapter = _resolve_adapter(request.user)
+            creds = build_credentials(request.user)
+            adapter.connect(creds)
+            candles = adapter.get_candles(symbol, 3600, 30)
+            adapter.disconnect()
+
+        from trading_app.trading_bot.llm_analyzer import LLMAnalyzer, OpenAIProvider
+        from decouple import config as decouple_config
+
+        api_key = decouple_config('OPENAI_API_KEY', default='')
+        if api_key:
+            provider = OpenAIProvider(api_key=api_key)
+            analyzer = LLMAnalyzer(provider=provider)
+            analysis = analyzer.analyze(symbol, candles)
+        else:
+            analysis = None
+
+        bias = analysis.bias if analysis else 'neutral'
+        confidence = int((analysis.confidence if analysis else 0) * 100)
+
+        signal = TradingSignal.objects.create(
+            user=request.user,
+            symbol=symbol,
+            signal_type='BUY' if bias == 'bullish' else 'SELL' if bias == 'bearish' else 'HOLD',
+            confidence=confidence,
+            reasoning=analysis.rationale if analysis else 'LLM not configured',
+            source='AI',
+            risk_level='MEDIUM',
+        )
+        audit.log_signal(symbol, signal.signal_type, confidence, {
+            'signal_id': signal.id, 'rationale': signal.reasoning,
+        })
+
+        risk = RiskConfig.get_for_user(request.user)
+        if risk.auto_execute and signal.signal_type != 'HOLD' and risk.trading_enabled:
+            from decimal import Decimal
+            trade_data = {
+                'symbol': symbol,
+                'action': signal.signal_type,
+                'volume': float(risk.max_position_size),
+                'entry_price': 0,
+                'stop_loss': signal.stop_loss or 0,
+                'take_profit': signal.take_profit or 0,
+                'order_type': 'MARKET',
+            }
+            inner_serializer = TradeCreateSerializer(data=trade_data)
+            if inner_serializer.is_valid():
+                trade = inner_serializer.save(user=request.user, status='PENDING', is_live=not request.user.paper_mode)
+                _execute_via_adapter(request.user, trade, risk)
+                signal.is_executed = True
+                signal.save()
+                return Response({
+                    'signal': TradingSignalSerializer(signal).data,
+                    'trade': TradeSerializer(trade).data,
+                    'analysis': {
+                        'bias': bias,
+                        'confidence': confidence,
+                        'rationale': analysis.rationale if analysis else '',
+                    },
+                })
+
+        return Response({
+            'signal': TradingSignalSerializer(signal).data,
+            'analysis': {
+                'bias': bias,
+                'confidence': confidence,
+                'rationale': analysis.rationale if analysis else '',
+            },
+        })
+
+    except Exception as e:
+        logger.error('Analysis failed: %s', e)
+        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# OTP, Password Reset, Dashboard, Notifications (unchanged)
+# ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
@@ -331,7 +542,6 @@ def verify_otp_view(request):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
 
-    # Check cache first (fast path)
     if CacheService.verify_otp(user.id, code):
         otp = EmailOTP.objects.filter(
             user=user, code=code, purpose=purpose, is_used=False
@@ -341,7 +551,6 @@ def verify_otp_view(request):
             otp.save()
             return Response({'status': 'verified', 'user_id': user.id})
 
-    # Check database (slow path)
     otp = EmailOTP.objects.filter(
         user=user, code=code, purpose=purpose, is_used=False
     ).last()
@@ -375,6 +584,7 @@ def dashboard_stats_view(request):
     closed_trades = Trade.objects.filter(user=user, status='CLOSED').count()
     win_rate = (win_trades / closed_trades * 100) if closed_trades > 0 else 0
 
+    risk = RiskConfig.get_for_user(user)
     recent_signals = TradingSignal.objects.filter(user=user).order_by('-created_at')[:5]
     signal_data = TradingSignalSerializer(recent_signals, many=True).data
 
@@ -384,6 +594,8 @@ def dashboard_stats_view(request):
         'total_trades': total_trades,
         'win_rate': round(win_rate, 1),
         'daily_trades_count': user.daily_trades_count,
+        'paper_mode': user.paper_mode,
+        'trading_enabled': risk.trading_enabled,
         'recent_signals': signal_data,
     })
 
@@ -464,7 +676,6 @@ def api_password_reset_confirm(request):
     user.set_password(new_password)
     user.save()
 
-    # Invalidate all sessions for this user
     from django.contrib.sessions.models import Session
     sessions = Session.objects.filter(expire_date__gte=timezone.now())
     for session in sessions:
@@ -505,3 +716,11 @@ def mark_notification_read(request, notification_id):
 def mark_all_notifications_read(request):
     Notification.objects.filter(user=request.user, is_read=False).update(is_read=True)
     return Response({'status': 'ok'})
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _resolve_adapter(user):
+    return get_adapter_for_broker(user.broker or '')

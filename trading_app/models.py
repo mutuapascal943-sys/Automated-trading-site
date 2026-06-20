@@ -15,6 +15,7 @@ class User(AbstractUser):
     broker_account_id = models.CharField(max_length=100, blank=True, default='')
     daily_trades_count = models.IntegerField(default=0)
     last_trade_date = models.DateField(null=True, blank=True)
+    paper_mode = models.BooleanField(default=True, help_text='Paper/demo mode — no real broker execution')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, default='')
     bio = models.TextField(max_length=500, blank=True, default='')
@@ -30,6 +31,33 @@ class User(AbstractUser):
 
     def __str__(self):
         return self.email
+
+
+class RiskConfig(models.Model):
+    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='risk_config')
+    risk_per_trade = models.DecimalField(max_digits=4, decimal_places=1, default=Decimal('2.0'),
+                                         help_text='Max risk per trade as % of balance')
+    max_daily_trades = models.IntegerField(default=5, help_text='Max trades per day')
+    max_drawdown = models.DecimalField(max_digits=4, decimal_places=1, default=Decimal('10.0'),
+                                       help_text='Max drawdown % before trading is halted')
+    daily_profit_target = models.DecimalField(max_digits=4, decimal_places=1, default=Decimal('5.0'),
+                                              help_text='Daily profit target %')
+    max_position_size = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('1.0'),
+                                            help_text='Max volume per position (lots)')
+    auto_execute = models.BooleanField(default=False, help_text='Auto-execute signals without manual confirmation')
+    trading_enabled = models.BooleanField(default=True, help_text='Master toggle for all trading')
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = 'Risk Configuration'
+
+    def __str__(self):
+        return f'{self.user.email} risk config'
+
+    @classmethod
+    def get_for_user(cls, user) -> 'RiskConfig':
+        obj, _ = cls.objects.get_or_create(user=user)
+        return obj
 
 
 class EmailOTP(models.Model):

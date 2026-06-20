@@ -2,7 +2,7 @@ from decimal import Decimal
 from rest_framework import serializers
 from .models import (
     User, Trade, TradingSignal, RAGDocument,
-    RAGChunk, LLMQuery, Subscription,
+    RAGChunk, LLMQuery, Subscription, RiskConfig,
 )
 
 
@@ -91,10 +91,18 @@ class MarketDataSerializer(serializers.Serializer):
     volume = serializers.IntegerField(required=False)
 
 
+class RiskConfigSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RiskConfig
+        exclude = ['user', 'updated_at']
+
+
 class BrokerConfigSerializer(serializers.Serializer):
-    api_key = serializers.CharField(max_length=500)
-    api_secret = serializers.CharField(max_length=500)
+    api_key = serializers.CharField(max_length=500, required=False, allow_blank=True)
+    api_secret = serializers.CharField(max_length=500, required=False, allow_blank=True)
     account_id = serializers.CharField(max_length=100, required=False)
+    paper_mode = serializers.BooleanField(required=False)
+    broker = serializers.CharField(max_length=100, required=False)
 
 
 class OTPVerifySerializer(serializers.Serializer):

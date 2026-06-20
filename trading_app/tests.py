@@ -13,6 +13,7 @@ from .models import (
     SecurityQuestion,
 )
 from .services.email_service import generate_otp, send_otp_email
+from .services.credential_encrypt import decrypt
 from .services.cache_service import CacheService
 from .forms import (
     PasswordResetRequestForm, PasswordResetVerifyForm,
@@ -663,7 +664,9 @@ class APIViewTests(TestCase):
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
-        self.assertEqual(self.user.broker_api_key, 'test_key_123')
+        self.assertEqual(decrypt(self.user.broker_api_key), 'test_key_123')
+        self.assertEqual(decrypt(self.user.broker_api_secret), 'test_secret_456')
+        self.assertEqual(self.user.broker_account_id, 'acc_789')
 
     def test_llm_query_no_api_key(self):
         response = self.client.post(reverse('api_llm_query'), {

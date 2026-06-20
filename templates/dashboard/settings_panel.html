@@ -97,14 +97,24 @@
         {% csrf_token %}
         <div class="settings-row">
           <div>
-            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Endpoint</label>
-            <input type="text" id="broker-endpoint" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="https://api.deriv.com">
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Broker</label>
+            <select id="broker-select" class="form-input" style="margin-top:6px">
+              <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
+              <option value="Exness" {% if user.broker == 'Exness' %}selected{% endif %}>Exness</option>
+              <option value="XM" {% if user.broker == 'XM' %}selected{% endif %}>XM</option>
+              <option value="FBS" {% if user.broker == 'FBS' %}selected{% endif %}>FBS</option>
+              <option value="IC Markets" {% if user.broker == 'IC Markets' %}selected{% endif %}>IC Markets</option>
+              <option value="Pepperstone" {% if user.broker == 'Pepperstone' %}selected{% endif %}>Pepperstone</option>
+              <option value="FXTM" {% if user.broker == 'FXTM' %}selected{% endif %}>FXTM</option>
+              <option value="Tickmill" {% if user.broker == 'Tickmill' %}selected{% endif %}>Tickmill</option>
+              <option value="RoboForex" {% if user.broker == 'RoboForex' %}selected{% endif %}>RoboForex</option>
+            </select>
           </div>
         </div>
         <div class="settings-row">
           <div>
-            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Key</label>
-            <input type="password" id="broker-api-key" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Enter your broker API key">
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">API Key (token)</label>
+            <input type="password" id="broker-api-key" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Enter your broker API key or token">
           </div>
         </div>
         <div class="settings-row">
@@ -117,6 +127,15 @@
           <div>
             <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Account ID</label>
             <input type="text" id="broker-account-id" class="form-input" style="margin-top:6px;font-family:monospace;font-size:12px" placeholder="Optional: Account identifier">
+          </div>
+        </div>
+        <div class="settings-row">
+          <div>
+            <label style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Trading Mode</label>
+            <div style="margin-top:6px;display:flex;align-items:center;gap:10px">
+              <div class="toggle {% if user.paper_mode %}on{% endif %}" id="settings-paper-toggle" onclick="this.classList.toggle('on')"></div>
+              <span style="font-size:13px;color:var(--text2)" id="settings-mode-label">{% if user.paper_mode %}Paper Trading{% else %}Live Trading{% endif %}</span>
+            </div>
           </div>
         </div>
         <button type="submit" class="btn-gold" style="width:auto;padding:10px 24px;margin-top:12px">Save API Configuration</button>
@@ -167,10 +186,13 @@ document.getElementById('broker-api-form')?.addEventListener('submit', async fun
         'Content-Type': 'application/json',
         'X-CSRFToken': this.querySelector('[name=csrfmiddlewaretoken]').value,
       },
+      var toggle = document.getElementById('settings-paper-toggle');
       body: JSON.stringify({
+        broker: document.getElementById('broker-select').value,
         api_key: document.getElementById('broker-api-key').value,
         api_secret: document.getElementById('broker-api-secret').value,
         account_id: document.getElementById('broker-account-id').value,
+        paper_mode: toggle ? toggle.classList.contains('on') : true,
       }),
     });
     const data = await response.json();
@@ -179,7 +201,10 @@ document.getElementById('broker-api-form')?.addEventListener('submit', async fun
       statusEl.style.background = 'rgba(0,212,170,0.08)';
       statusEl.style.border = '1px solid rgba(0,212,170,0.15)';
       statusEl.style.color = 'var(--teal)';
-      statusEl.textContent = '✅ Broker API configured successfully!';
+      var mode = data.paper_mode ? 'Paper' : 'Live';
+      statusEl.textContent = '✅ Broker configured — ' + mode + ' trading mode';
+      var modeLabel = document.getElementById('settings-mode-label');
+      if(modeLabel) modeLabel.textContent = data.paper_mode ? 'Paper Trading' : 'Live Trading';
     } else {
       statusEl.style.background = 'rgba(255,77,109,0.08)';
       statusEl.style.border = '1px solid rgba(255,77,109,0.15)';

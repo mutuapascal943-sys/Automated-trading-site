@@ -239,22 +239,54 @@
     var ss = document.getElementById('scanStatus');
     if(!ss) return;
     ss.style.display = 'block';
-    ss.textContent = '';
-    var i = 0;
-    botInterval = setInterval(function(){
-      if(i < scanLines.length){
-        ss.textContent += scanLines[i] + '\n';
-        i++;
-      } else {
-        clearInterval(botInterval);
+    ss.textContent = '> Connecting to AI engine...\n';
+
+    var sel = document.getElementById('bot-market');
+    var pair = sel ? sel.value : 'EUR/USD';
+
+    fetch('/api/analyze-signal/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      ss.textContent += '> Analysis complete.\n';
+      if(data.analysis){
+        var trend = data.analysis.bias || 'neutral';
+        var conf = data.analysis.confidence || 0;
+        var tb = document.getElementById('trend-badge');
+        if(tb){
+          tb.className = 'trend-badge ' + trend;
+          tb.textContent = trend === 'bullish' ? '▲ BULLISH' : trend === 'bearish' ? '▼ BEARISH' : '◆ SIDEWAYS';
+        }
+        var confVal = document.getElementById('conf-val');
+        var confBar = document.getElementById('conf-bar');
+        if(confVal) confVal.textContent = conf + '%';
+        if(confBar) confBar.style.width = Math.min(conf, 100) + '%';
+        ss.textContent += '> ' + (data.analysis.rationale || '') + '\n';
       }
-    }, 400);
+      if(data.signal){
+        ss.textContent += '> Signal: ' + data.signal.signal_type + ' (' + data.signal.confidence + '% confidence)\n';
+        var sigEntry = document.getElementById('sig-entry');
+        var sigSl = document.getElementById('sig-sl');
+        var sigTp1 = document.getElementById('sig-tp1');
+        if(sigEntry && data.signal.entry_price) sigEntry.textContent = data.signal.entry_price;
+        if(sigSl && data.signal.stop_loss) sigSl.textContent = data.signal.stop_loss;
+        if(sigTp1 && data.signal.take_profit) sigTp1.textContent = data.signal.take_profit;
+      }
+      ss.textContent += '> Awaiting user authorization to execute...\n';
+      botRunning = false;
+    })
+    .catch(function(err){
+      ss.textContent += '> Error: ' + err + '\n';
+      botRunning = false;
+    });
   }
   window.startAnalysis = startAnalysis;
 
   function stopAnalysis(){
     botRunning = false;
-    clearInterval(botInterval);
     var ss = document.getElementById('scanStatus');
     if(ss){
       ss.textContent += '> Analysis stopped.\n';
@@ -264,44 +296,122 @@
   window.stopAnalysis = stopAnalysis;
 
   function refreshSignals(){
-    var conf = Math.round(55 + Math.random() * 35);
-    var vol = Math.round(25 + Math.random() * 50);
-    var risk = Math.round(15 + Math.random() * 40);
-    var confVal = document.getElementById('conf-val');
-    var confBar = document.getElementById('conf-bar');
-    var volVal = document.getElementById('vol-val');
-    var volBar = document.getElementById('vol-bar');
-    var riskVal = document.getElementById('risk-val');
-    var riskBar = document.getElementById('risk-bar');
-    if(confVal) confVal.textContent = conf + '%';
-    if(confBar) confBar.style.width = conf + '%';
-    if(volVal) volVal.textContent = vol + '%';
-    if(volBar) volBar.style.width = vol + '%';
-    if(riskVal) riskVal.textContent = risk + '%';
-    if(riskBar) riskBar.style.width = risk + '%';
-    var trends = ['bullish','bearish','sideways'];
-    var labels = ['▲ BULLISH','▼ BEARISH','◆ SIDEWAYS'];
-    var t = Math.floor(Math.random() * 3);
-    var tb = document.getElementById('trend-badge');
-    if(tb){
-      tb.className = 'trend-badge ' + trends[t];
-      tb.textContent = labels[t];
-    }
-    var sel = document.getElementById('bot-market');
-    var pair = sel ? sel.value : 'EUR/USD';
-    var p = pairs[pair] || 1.0;
-    updateSignals(pair, p);
+    loadSignals();
+    loadRiskConfig();
   }
   window.refreshSignals = refreshSignals;
 
+  function loadSignals(){
+    fetch('/api/signals/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      var signals = data.results || data || [];
+      if(signals.length > 0){
+        var s = signals[0];
+        var confVal = document.getElementById('conf-val');
+        var confBar = document.getElementById('conf-bar');
+        if(confVal) confVal.textContent = s.confidence + '%';
+        if(confBar) confBar.style.width = Math.min(s.confidence, 100) + '%';
+        var tb = document.getElementById('trend-badge');
+        if(tb){
+          var trend = s.signal_type === 'BUY' ? 'bullish' : s.signal_type === 'SELL' ? 'bearish' : 'sideways';
+          tb.className = 'trend-badge ' + trend;
+          tb.textContent = s.signal_type === 'BUY' ? '▲ BULLISH' : s.signal_type === 'SELL' ? '▼ BEARISH' : '◆ SIDEWAYS';
+        }
+        var sigEntry = document.getElementById('sig-entry');
+        var sigSl = document.getElementById('sig-sl');
+        var sigTp1 = document.getElementById('sig-tp1');
+        if(sigEntry && s.entry_price) sigEntry.textContent = s.entry_price;
+        if(sigSl && s.stop_loss) sigSl.textContent = s.stop_loss;
+        if(sigTp1 && s.take_profit) sigTp1.textContent = s.take_profit;
+        var reasoning = document.getElementById('scanStatus');
+        if(reasoning && s.reasoning) reasoning.textContent = '> ' + s.reasoning;
+      }
+    })
+    .catch(function(){});
+  }
+
+  function loadRiskConfig(){
+    fetch('/api/risk-config/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      var riskInput = document.querySelector('.risk-field input[type="number"]');
+      if(riskInput && data.risk_per_trade !== undefined) riskInput.value = data.risk_per_trade;
+      var maxTrades = document.querySelectorAll('.risk-field input[type="number"]')[1];
+      if(maxTrades && data.max_daily_trades !== undefined) maxTrades.value = data.max_daily_trades;
+      var drawdown = document.querySelectorAll('.risk-field input[type="number"]')[2];
+      if(drawdown && data.max_drawdown !== undefined) drawdown.value = data.max_drawdown;
+      var profitTarget = document.querySelectorAll('.risk-field input[type="number"]')[3];
+      if(profitTarget && data.daily_profit_target !== undefined) profitTarget.value = data.daily_profit_target;
+    })
+    .catch(function(){});
+  }
+
+  function saveRiskConfig(){
+    var inputs = document.querySelectorAll('.risk-field input[type="number"]');
+    fetch('/api/risk-config/', {
+      method: 'PUT',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({
+        risk_per_trade: inputs[0] ? parseFloat(inputs[0].value) : 2.0,
+        max_daily_trades: inputs[1] ? parseInt(inputs[1].value) : 5,
+        max_drawdown: inputs[2] ? parseFloat(inputs[2].value) : 10.0,
+        daily_profit_target: inputs[3] ? parseFloat(inputs[3].value) : 5.0,
+      }),
+    })
+    .then(function(){ showToast('Risk settings saved', 'success'); })
+    .catch(function(){ showToast('Failed to save risk settings', 'error'); });
+  }
+  window.saveRiskConfig = saveRiskConfig;
+
   function executeTrade(){
-    var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'Unknown';
-    var entry = document.getElementById('sig-entry') ? document.getElementById('sig-entry').textContent : '—';
-    if(confirm('⚠️ TRADE CONFIRMATION\n\nPair: ' + pair + '\nAction: BUY\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
-      showToast('Trade sent to broker. Ensure your broker API is connected for live execution.', 'success');
+    var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+    var entry = document.getElementById('sig-entry') ? document.getElementById('sig-entry').textContent : '0';
+    var sl = document.getElementById('sig-sl') ? document.getElementById('sig-sl').textContent : '';
+    var tp1 = document.getElementById('sig-tp1') ? document.getElementById('sig-tp1').textContent : '';
+
+    var sel = document.getElementById('bot-tf');
+    var volume = 0.01;
+
+    if(!confirm('⚠️ TRADE CONFIRMATION\n\nPair: ' + pair + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
+      return;
     }
+
+    fetch('/api/trades/execute/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({
+        symbol: pair,
+        action: 'BUY',
+        volume: volume,
+        entry_price: parseFloat(entry) || 0,
+        stop_loss: parseFloat(sl) || null,
+        take_profit: parseFloat(tp1) || null,
+        order_type: 'MARKET',
+      }),
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      if(data.id){
+        showToast('✅ Trade executed — ID: ' + data.id + ' [' + data.status + ']', 'success');
+      } else {
+        showToast('❌ ' + (data.error || 'Execution failed'), 'error');
+      }
+    })
+    .catch(function(err){
+      showToast('❌ Network error: ' + err, 'error');
+    });
   }
   window.executeTrade = executeTrade;
+
+  function getCSRF(){
+    var m = document.cookie.match(/csrftoken=([^;]+)/);
+    return m ? m[1] : '';
+  }
 
   /* ── CHARTS ── */
   function initArtCanvas(){

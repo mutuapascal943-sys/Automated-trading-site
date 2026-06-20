@@ -230,3 +230,23 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
+
+from celery.schedules import crontab
+CELERY_BEAT_SCHEDULE = {
+    'run-bot-cycle': {
+        'task': 'trading_app.tasks.run_bot_cycle',
+        'schedule': crontab(minute='*/5'),
+    },
+    'sync-live-trades': {
+        'task': 'trading_app.tasks.sync_live_trades',
+        'schedule': crontab(minute='*'),
+    },
+    'reset-daily-trade-counts': {
+        'task': 'trading_app.tasks.reset_daily_trade_counts',
+        'schedule': crontab(hour=0, minute=0),
+    },
+    'cleanup-expired-otps': {
+        'task': 'trading_app.tasks.cleanup_expired_otps',
+        'schedule': crontab(hour='*/1'),
+    },
+}
