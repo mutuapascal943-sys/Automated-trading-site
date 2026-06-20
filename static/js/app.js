@@ -5,12 +5,19 @@
   let botRunning = false;
   let botInterval = null;
   let artAnimId = null;
-  let botChartAnimId = null;
   let pairs = {};
   let changes = {};
   let histData = [];
 
-  const loadingSteps = [
+  var wsConnections = {};
+  var botChartInstance = null;
+  var botCandleSeries = null;
+  var candleBuffer = {};
+  var currentChartPair = null;
+
+  var botChartContainer = null;
+
+  var loadingSteps = [
     'Connecting Broker...',
     'Loading Market Data...',
     'Initializing AI Engine...',
@@ -58,6 +65,48 @@
       ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','+$76','Win','Exness'],
       ['2025-06-10','NZD/USD','BUY','0.60180','—','—','Pending','Deriv']
     ];
+  }
+
+  /* ── WebSocket Market Stream ── */
+  function getMarketWS(symbol) {
+    var normalised = symbol.replace(/\//g, '-');
+    if (wsConnections[normalised] && wsConnections[normalised].readyState === WebSocket.OPEN) {
+      return wsConnections[normalised];
+    }
+    var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var url = protocol + '//' + window.location.host + '/ws/market/' + normalised + '/';
+    var ws = new WebSocket(url);
+    ws._symbol = symbol;
+    ws._normalised = normalised;
+    ws._listeners = [];
+    ws.onmessage = function(e) {
+      var data;
+      try { data = JSON.parse(e.data); } catch(_) { return; }
+      if (data.type === 'tick') {
+        pairs[data.symbol] = data.price;
+        ws._listeners.forEach(function(cb) { cb(data); });
+      }
+    };
+    ws.onclose = function() {
+      var ns = this._normalised;
+      if (wsConnections[ns] === this) delete wsConnections[ns];
+      setTimeout(function() { getMarketWS(symbol); }, 3000);
+    };
+    wsConnections[normalised] = ws;
+    return ws;
+  }
+
+  function addWSListener(symbol, cb) {
+    var ws = getMarketWS(symbol);
+    ws._listeners.push(cb);
+  }
+
+  function removeWSListener(symbol, cb) {
+    var normalised = symbol.replace(/\//g, '-');
+    var ws = wsConnections[normalised];
+    if (!ws) return;
+    var idx = ws._listeners.indexOf(cb);
+    if (idx !== -1) ws._listeners.splice(idx, 1);
   }
 
   /* ── NAVIGATION ── */
@@ -164,21 +213,21 @@
     setText('res2', price + spread * 1.8);
   }
 
-  /* ── PRICE TICKER ── */
+  /* ── PRICE TICKER (WebSocket driven) ── */
   function startPriceTicker(){
-    setInterval(function(){
-      Object.keys(pairs).forEach(function(k){
-        var delta = (Math.random() - 0.5) * pairs[k] * 0.0003;
-        pairs[k] = Math.max(0.001, pairs[k] + delta);
+    Object.keys(pairs).forEach(function(k){
+      getMarketWS(k);
+      addWSListener(k, function(tick){
+        var p = tick.price;
+        pairs[k] = p;
+        var sel = document.getElementById('bot-market');
+        if(sel && sel.value === k){
+          var priceEl = document.getElementById('bot-price');
+          if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
+        }
+        updateMarketCards();
       });
-      var sel = document.getElementById('bot-market');
-      if(sel){
-        var p = pairs[sel.value] || 1.0;
-        var priceEl = document.getElementById('bot-price');
-        if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
-      }
-      updateMarketCards();
-    }, 1800);
+    });
   }
 
   /* ── TRIAL TIMER ── */
@@ -468,67 +517,139 @@
   }
 
   function initBotChart(){
-    var canvas = document.getElementById('botChart');
-    if(!canvas) return;
-    if(botChartAnimId){cancelAnimationFrame(botChartAnimId)}
-    canvas.width = canvas.offsetWidth || 600;
-    var ctx = canvas.getContext('2d');
-    var w = canvas.width, h = canvas.height;
-    var sel = document.getElementById('bot-market');
-    var base = sel && pairs[sel.value] ? pairs[sel.value] : 1.08;
-    var prices = [];
-    for(var i=0;i<60;i++) prices.push(base * (1 + (Math.sin(i*0.15+1) * 0.008) + (Math.random()-0.5)*0.004));
+    if (typeof LightweightCharts === 'undefined') return;
+    var wrap = document.querySelector('.chart-canvas-wrap');
+    if (!wrap) return;
 
-    function draw(){
-      ctx.clearRect(0,0,w,h);
-      var cw = w / prices.length;
-      var max = Math.max.apply(null, prices);
-      var min = Math.min.apply(null, prices);
-      var range = max - min || 1;
-      var pad = 8;
-
-      ctx.strokeStyle = 'rgba(255,255,255,0.04)';
-      ctx.lineWidth = 1;
-      for(var i=0;i<5;i++){
-        var y = pad + (h - pad*2) * (i/4);
-        ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke();
-      }
-
-      for(var i=0;i<prices.length-1;i++){
-        var x = i * cw + cw/2;
-        var o = prices[i], c = prices[i+1];
-        var hi = Math.max(o,c) + (Math.random()*0.0002);
-        var lo = Math.min(o,c) - (Math.random()*0.0002);
-        var bull = c >= o;
-        var scaleY = function(v){return pad + (h-pad*2) * (1 - (v-min)/range)};
-        ctx.strokeStyle = bull ? '#00d4aa' : '#ff4d6d';
-        ctx.fillStyle = bull ? 'rgba(0,212,170,0.75)' : 'rgba(255,77,109,0.75)';
-        ctx.lineWidth = 1;
-        ctx.beginPath(); ctx.moveTo(x, scaleY(hi)); ctx.lineTo(x, scaleY(lo)); ctx.stroke();
-        var bh = Math.max(1.5, Math.abs(scaleY(o) - scaleY(c)));
-        ctx.fillRect(x - cw*0.35, Math.min(scaleY(o), scaleY(c)), cw*0.7, bh);
-      }
-
-      ctx.strokeStyle = 'rgba(245,194,122,0.5)';
-      ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      var ema = prices[0];
-      prices.forEach(function(v, i){
-        ema = ema * 0.9 + v * 0.1;
-        var x = i * cw + cw/2;
-        var y = pad + (h-pad*2) * (1 - (ema-min)/range);
-        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-      });
-      ctx.stroke();
-
-      prices.shift();
-      var last = prices[prices.length-1];
-      prices.push(last * (1 + (Math.random()-0.49) * 0.002));
-
-      botChartAnimId = setTimeout(function(){requestAnimationFrame(draw)}, 1000);
+    if (botChartInstance) {
+      botChartInstance.remove();
+      botChartInstance = null;
+      botCandleSeries = null;
     }
-    draw();
+
+    if (!botChartContainer || !document.body.contains(botChartContainer)) {
+      botChartContainer = document.createElement('div');
+      botChartContainer.id = 'tv-bot-chart';
+      botChartContainer.style.width = '100%';
+      botChartContainer.style.height = '260px';
+      wrap.innerHTML = '';
+      wrap.appendChild(botChartContainer);
+    } else {
+      wrap.innerHTML = '';
+      wrap.appendChild(botChartContainer);
+    }
+
+    var sel = document.getElementById('bot-market');
+    var pair = sel ? sel.value : 'EUR/USD';
+
+    if (currentChartPair && currentChartPair !== pair) {
+      removeWSListener(currentChartPair, botTickHandler);
+      delete candleBuffer[currentChartPair];
+    }
+    currentChartPair = pair;
+
+    botChartInstance = LightweightCharts.createChart(botChartContainer, {
+      layout: {
+        background: { type: 'solid', color: 'transparent' },
+        textColor: '#8fa3bf',
+        fontSize: 10,
+        fontFamily: 'DM Mono, monospace',
+      },
+      grid: {
+        vertLines: { color: 'rgba(255,255,255,0.04)' },
+        horzLines: { color: 'rgba(255,255,255,0.04)' },
+      },
+      crosshair: {
+        mode: LightweightCharts.CrosshairMode.Normal,
+        vertLine: { color: 'rgba(245,194,122,0.4)', width: 1, style: LightweightCharts.LineStyle.Dashed },
+        horzLine: { color: 'rgba(245,194,122,0.4)', width: 1, style: LightweightCharts.LineStyle.Dashed },
+      },
+      timeScale: {
+        borderColor: 'rgba(255,255,255,0.08)',
+        timeVisible: true,
+        secondsVisible: false,
+      },
+      rightPriceScale: {
+        borderColor: 'rgba(255,255,255,0.08)',
+      },
+    });
+
+    botCandleSeries = botChartInstance.addCandlestickSeries({
+      upColor: '#00d4aa',
+      downColor: '#ff4d6d',
+      borderUpColor: '#00d4aa',
+      borderDownColor: '#ff4d6d',
+      wickUpColor: '#00d4aa',
+      wickDownColor: '#ff4d6d',
+      priceFormat: {
+        type: 'price',
+        precision: pair.indexOf('JPY') !== -1 || pair.indexOf('BTC') !== -1 || pair.indexOf('XAU') !== -1 ? 2 : 5,
+        minMove: pair.indexOf('JPY') !== -1 || pair.indexOf('BTC') !== -1 || pair.indexOf('XAU') !== -1 ? 0.01 : 0.00001,
+      },
+    });
+
+    var basePrice = pairs[pair] || 1.08;
+    var now = Math.floor(Date.now() / 1000);
+    var seedCandles = [];
+    var t = now - 120;
+    for (var i = 0; i < 60; i++) {
+      var o = basePrice * (1 + (Math.sin(i * 0.15 + 1) * 0.008) + (Math.sin(i * 0.3) * 0.004));
+      var c = basePrice * (1 + (Math.sin((i + 1) * 0.15 + 1) * 0.008) + (Math.sin((i + 1) * 0.3) * 0.004));
+      var high = Math.max(o, c) * 1.001;
+      var low = Math.min(o, c) * 0.999;
+      seedCandles.push({ time: t + i * 2, open: o, high: high, low: low, close: c });
+    }
+    botCandleSeries.setData(seedCandles);
+
+    candleBuffer[pair] = { ticks: [], lastCandleTime: now - (now % 60) };
+
+    addWSListener(pair, botTickHandler);
+
+    botChartInstance.timeScale().fitContent();
   }
+
+  var botTickHandler = function(tick) {
+    var sel = document.getElementById('bot-market');
+    var pair = sel ? sel.value : 'EUR/USD';
+    if (tick.symbol !== pair) return;
+    if (!candleBuffer[pair]) return;
+    var buf = candleBuffer[pair];
+    buf.ticks.push(tick);
+
+    var tickTime = new Date(tick.timestamp).getTime();
+    if (isNaN(tickTime)) tickTime = Date.now();
+    var candleSec = Math.floor(tickTime / 1000);
+    var candleStart = candleSec - (candleSec % 60);
+
+    if (candleStart > buf.lastCandleTime) {
+      if (buf.ticks.length > 1) {
+        var prev = buf.ticks;
+        var o = prev[0].price;
+        var h = prev[0].price;
+        var l = prev[0].price;
+        prev.forEach(function(t) {
+          if (t.price > h) h = t.price;
+          if (t.price < l) l = t.price;
+        });
+        var c = prev[prev.length - 1].price;
+        var candle = { time: buf.lastCandleTime, open: o, high: h, low: l, close: c };
+        if (botCandleSeries) botCandleSeries.update(candle);
+      }
+      buf.lastCandleTime = candleStart;
+      buf.ticks = [tick];
+    } else {
+      if (buf.ticks.length > 0) {
+        var all = buf.ticks;
+        var h = tick.price, l = tick.price;
+        all.forEach(function(t) {
+          if (t.price > h) h = t.price;
+          if (t.price < l) l = t.price;
+        });
+        var partial = { time: buf.lastCandleTime, open: all[0].price, high: h, low: l, close: tick.price };
+        if (botCandleSeries) botCandleSeries.update(partial);
+      }
+    }
+  };
 
   function initAnalyticsCharts(){
     var pnlCanvas = document.getElementById('pnlChart');

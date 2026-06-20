@@ -25,6 +25,7 @@ from .services.cache_service import CacheService
 from .services.email_service import generate_otp, send_otp_email
 from .services.credential_encrypt import encrypt, decrypt
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
+from .services.ticker_bridge import TickerBridge
 from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest as RiskOrderRequest
@@ -811,6 +812,31 @@ def run_backtest_view(request):
         'win_rate': round(result.winning_trades / result.total_trades * 100, 1) if result.total_trades > 0 else 0,
         'equity_curve': [str(e) for e in result.equity_curve],
     })
+
+
+# ---------------------------------------------------------------------------
+# Ticker subscription (WebSocket bridge control)
+# ---------------------------------------------------------------------------
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def ticker_subscribe_view(request):
+    symbol = request.data.get('symbol', '').strip()
+    if not symbol:
+        return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
+    TickerBridge.ensure_subscription(symbol)
+    return Response({'status': 'ok', 'symbol': symbol})
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def ticker_unsubscribe_view(request):
+    symbol = request.data.get('symbol', '').strip()
+    if not symbol:
+        return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
+    TickerBridge.remove_subscription(symbol)
+    return Response({'status': 'ok', 'symbol': symbol})
 
 
 # ---------------------------------------------------------------------------

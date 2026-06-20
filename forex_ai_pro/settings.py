@@ -11,6 +11,8 @@ DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='*').split(',')
 
 INSTALLED_APPS = [
+    'daphne',
+    'channels',
     'django.contrib.admin',
     'django.contrib.auth',
     'django.contrib.contenttypes',
@@ -52,6 +54,13 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'forex_ai_pro.wsgi.application'
+ASGI_APPLICATION = 'forex_ai_pro.asgi.application'
+
+CHANNEL_LAYERS = {
+    'default': {
+        'BACKEND': 'channels.layers.InMemoryChannelLayer',
+    },
+}
 
 # Database - supports SQLite (dev) and PostgreSQL (prod)
 DATABASE_URL = config('DATABASE_URL', default='sqlite:///db.sqlite3')

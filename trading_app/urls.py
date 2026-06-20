@@ -50,5 +50,7 @@ urlpatterns = [
     path('api/notifications/<int:notification_id>/read/', api_views.mark_notification_read, name='api_notification_read'),
     path('api/notifications/read-all/', api_views.mark_all_notifications_read, name='api_notifications_read_all'),
     path('api/backtest/', api_views.run_backtest_view, name='api_backtest'),
+    path('api/ws/ticker/subscribe/', api_views.ticker_subscribe_view, name='api_ticker_subscribe'),
+    path('api/ws/ticker/unsubscribe/', api_views.ticker_unsubscribe_view, name='api_ticker_unsubscribe'),
     path('api/', include(router.urls)),
 ]
