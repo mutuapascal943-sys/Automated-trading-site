@@ -1,4 +1,4 @@
-# Forex AI Pro
+# Automated-trading-site
 
 AI-powered automated forex and crypto trading platform with real-time market analysis, multi-broker support, paper trading, and LLM-driven insights.
 
@@ -38,8 +38,8 @@ AI-powered automated forex and crypto trading platform with real-time market ana
 
 ```bash
 # Clone the repository
-git clone https://github.com/your-username/forex-ai-pro.git
-cd forex-ai-pro
+git clone https://github.com/your-username/Automated-trading-site
+cd Automated-trading-site
 
 # Create and activate virtual environment
 python -m venv .venv
