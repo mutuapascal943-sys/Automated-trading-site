@@ -1,2 +1,41 @@
 <div class="section-title">Live <span>Markets</span></div>
+
+<div class="market-summary stagger" id="marketSummary">
+  <div class="mkt-summary-card">
+    <div class="mkt-summary-icon"><span class="material-symbols-outlined">arrow_upward</span></div>
+    <div class="mkt-summary-label">Top Gainer</div>
+    <div class="mkt-summary-value up" id="top-gainer">--</div>
+    <div class="mkt-summary-sub" id="top-gainer-change">--</div>
+  </div>
+  <div class="mkt-summary-card">
+    <div class="mkt-summary-icon"><span class="material-symbols-outlined">arrow_downward</span></div>
+    <div class="mkt-summary-label">Top Loser</div>
+    <div class="mkt-summary-value down" id="top-loser">--</div>
+    <div class="mkt-summary-sub" id="top-loser-change">--</div>
+  </div>
+  <div class="mkt-summary-card">
+    <div class="mkt-summary-icon"><span class="material-symbols-outlined">monitoring</span></div>
+    <div class="mkt-summary-label">Advancers</div>
+    <div class="mkt-summary-value up" id="advancers">--</div>
+    <div class="mkt-summary-sub">pairs trading up</div>
+  </div>
+  <div class="mkt-summary-card">
+    <div class="mkt-summary-icon"><span class="material-symbols-outlined">trending_down</span></div>
+    <div class="mkt-summary-label">Decliners</div>
+    <div class="mkt-summary-value down" id="decliners">--</div>
+    <div class="mkt-summary-sub">pairs trading down</div>
+  </div>
+</div>
+
+<div class="markets-controls">
+  <input class="search-input market-search" id="marketSearch" type="text" placeholder="Search markets..." oninput="filterMarkets(this.value)">
+  <div class="market-categories" id="marketCategories">
+    <button class="mkt-cat-chip active" data-cat="all" onclick="filterMarketCategory(this)">All</button>
+    <button class="mkt-cat-chip" data-cat="forex" onclick="filterMarketCategory(this)">Forex</button>
+    <button class="mkt-cat-chip" data-cat="indices" onclick="filterMarketCategory(this)">Indices</button>
+    <button class="mkt-cat-chip" data-cat="commodities" onclick="filterMarketCategory(this)">Commodities</button>
+    <button class="mkt-cat-chip" data-cat="crypto" onclick="filterMarketCategory(this)">Crypto</button>
+  </div>
+</div>
+
 <div class="markets-grid stagger" id="markets-grid"></div>

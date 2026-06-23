@@ -8,6 +8,9 @@
   let pairs = {};
   let changes = {};
   let histData = [];
+  let marketCategories = {};
+  let currentMarketCategory = 'all';
+  let currentMarketSearch = '';
 
   var wsConnections = {};
   var botChartInstance = null;
@@ -56,6 +59,14 @@
       'USD/CAD':0.07,'NZD/USD':-0.22,'XAU/USD':0.54,'BTC/USD':1.83,
       'Boom 1000 Index':0.92,'Crash 1000 Index':-0.43,
       'Volatility 75 Index':1.12,'Volatility 100 Index':0.67};
+    marketCategories = {
+      'EUR/USD':'forex','GBP/USD':'forex','USD/JPY':'forex',
+      'AUD/USD':'forex','USD/CAD':'forex','NZD/USD':'forex',
+      'XAU/USD':'commodities',
+      'BTC/USD':'crypto',
+      'Boom 1000 Index':'indices','Crash 1000 Index':'indices',
+      'Volatility 75 Index':'indices','Volatility 100 Index':'indices'
+    };
     histData = [
       ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','+$84','Win','Exness'],
       ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','+$156','Win','Deriv'],
@@ -126,8 +137,8 @@
     if(titleEl){titleEl.textContent = panelTitles[panelId] || panelId}
     if(panelId === 'bot'){setTimeout(initBotChart,100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
-    if(panelId === 'markets'){setTimeout(populateMarkets,50)}
-    if(panelId === 'dashboard' && !artAnimId){initArtCanvas()}
+    if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
+    if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
     if(document.getElementById('sidebar') && window.innerWidth < 768){
       document.getElementById('sidebar').classList.remove('open');
     }
@@ -150,18 +161,83 @@
   }
 
   /* ── MARKETS ── */
-  function populateMarkets(){
+  function populateMarkets(filterCat, filterText){
+    filterCat = filterCat || currentMarketCategory;
+    filterText = (filterText || currentMarketSearch).toLowerCase();
     var grid = document.getElementById('markets-grid');
-    if(!grid || grid.children.length > 0) return;
-    grid.innerHTML = Object.keys(pairs).map(function(k){
-      var p = pairs[k] > 100 ? pairs[k].toFixed(2) : pairs[k].toFixed(5);
+    if(!grid) return;
+
+    var keys = Object.keys(pairs).filter(function(k){
+      if (filterCat !== 'all' && marketCategories[k] !== filterCat) return false;
+      if (filterText && !k.toLowerCase().includes(filterText)) return false;
+      return true;
+    });
+
+    grid.innerHTML = keys.map(function(k){
+      var p = pairs[k];
+      var pStr = p > 100 ? p.toFixed(2) : p.toFixed(5);
       var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
       var sign = (changes[k] || 0) >= 0 ? '+' : '';
-      return '<div class="market-card" onclick="navigateToBot(\'' + k + '\')">' +
-        '<div class="market-pair">' + k + '</div>' +
-        '<div class="market-price">' + p + '</div>' +
-        '<div class="market-change ' + cls + '">' + sign + (changes[k]||0) + '%</div></div>';
+      var changeVal = (changes[k] || 0).toFixed(2);
+      var cat = marketCategories[k] || '';
+      var spread = (p * 0.0002).toFixed(p > 100 ? 2 : 5);
+      var bid = (p * 0.9998).toFixed(p > 100 ? 2 : 5);
+      var ask = (p * 1.0002).toFixed(p > 100 ? 2 : 5);
+      var dailyHigh = (p * 1.003).toFixed(p > 100 ? 2 : 5);
+      var dailyLow = (p * 0.997).toFixed(p > 100 ? 2 : 5);
+      return '<div class="market-card ' + cls + '" onclick="navigateToBot(\'' + k + '\')">' +
+        '<div class="market-pair">' + k + '<span class="market-category-badge">' + cat + '</span></div>' +
+        '<div class="market-price-row">' +
+        '<span class="market-price">' + pStr + '</span>' +
+        '<span class="market-change ' + cls + '">' + sign + changeVal + '%</span></div>' +
+        '<div class="market-details">' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Bid</span><span class="mkt-detail-value">' + bid + '</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Ask</span><span class="mkt-detail-value">' + ask + '</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Spread</span><span class="mkt-detail-value">' + spread + '</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Day Range</span><span class="mkt-detail-value">' + dailyLow + ' – ' + dailyHigh + '</span></div>' +
+        '</div></div>';
     }).join('');
+  }
+
+  function filterMarkets(text){
+    currentMarketSearch = text;
+    populateMarkets(currentMarketCategory, text);
+  }
+  window.filterMarkets = filterMarkets;
+
+  function filterMarketCategory(el){
+    document.querySelectorAll('.mkt-cat-chip').forEach(function(c){c.classList.remove('active')});
+    el.classList.add('active');
+    currentMarketCategory = el.dataset.cat;
+    populateMarkets(currentMarketCategory, currentMarketSearch);
+  }
+  window.filterMarketCategory = filterMarketCategory;
+
+  function updateMarketSummary(){
+    var upCount = 0, downCount = 0;
+    var bestKey = null, bestChange = -999;
+    var worstKey = null, worstChange = 999;
+    Object.keys(changes).forEach(function(k){
+      var c = changes[k] || 0;
+      if (c >= 0) upCount++; else downCount++;
+      if (c > bestChange) { bestChange = c; bestKey = k; }
+      if (c < worstChange) { worstChange = c; worstKey = k; }
+    });
+    var bestEl = document.getElementById('top-gainer');
+    if (bestEl && bestKey) bestEl.textContent = bestKey;
+    var bestChangeEl = document.getElementById('top-gainer-change');
+    if (bestChangeEl) bestChangeEl.textContent = '+' + bestChange.toFixed(2) + '%';
+
+    var worstEl = document.getElementById('top-loser');
+    if (worstEl && worstKey) worstEl.textContent = worstKey;
+    var worstChangeEl = document.getElementById('top-loser-change');
+    if (worstChangeEl) worstChangeEl.textContent = worstChange.toFixed(2) + '%';
+
+    var advEl = document.getElementById('advancers');
+    if (advEl) advEl.textContent = upCount;
+
+    var decEl = document.getElementById('decliners');
+    if (decEl) decEl.textContent = downCount;
   }
 
   function navigateToBot(pair){
@@ -173,15 +249,33 @@
 
   function updateMarketCards(){
     Object.keys(pairs).forEach(function(k){
+      var p = pairs[k];
+      var pStr = p > 100 ? p.toFixed(2) : p.toFixed(5);
+      var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
+      var sign = (changes[k] || 0) >= 0 ? '+' : '';
+      var changeVal = (changes[k] || 0).toFixed(2);
+      var spread = (p * 0.0002).toFixed(p > 100 ? 2 : 5);
+      var bid = (p * 0.9998).toFixed(p > 100 ? 2 : 5);
+      var ask = (p * 1.0002).toFixed(p > 100 ? 2 : 5);
       var cards = document.querySelectorAll('.market-card');
       for(var i=0;i<cards.length;i++){
         var pairEl = cards[i].querySelector('.market-pair');
-        if(pairEl && pairEl.textContent === k){
+        if(pairEl && pairEl.textContent.trim().startsWith(k)){
           var priceEl = cards[i].querySelector('.market-price');
-          if(priceEl){priceEl.textContent = pairs[k] > 100 ? pairs[k].toFixed(2) : pairs[k].toFixed(5)}
+          if(priceEl) priceEl.textContent = pStr;
+          var changeEl = cards[i].querySelector('.market-change');
+          if(changeEl) changeEl.textContent = sign + changeVal + '%';
+          cards[i].className = 'market-card ' + cls;
+          var details = cards[i].querySelectorAll('.mkt-detail-value');
+          if(details.length >= 4){
+            details[0].textContent = bid;
+            details[1].textContent = ask;
+            details[2].textContent = spread;
+          }
         }
       }
     });
+    updateMarketSummary();
   }
 
   function updateBotMarket(){
@@ -674,6 +768,43 @@
     }
   };
 
+  function fetchDashboardStats(){
+    fetch('/api/dashboard/stats/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      function setText(id, val){
+        var el = document.getElementById(id);
+        if(el) el.textContent = val;
+      }
+
+      setText('hero-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
+      setText('hero-trades', data.open_trades || 0);
+      setText('hero-signals', data.recent_signals || 0);
+
+      setText('dash-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
+      setText('dash-win-rate', (data.win_rate || 0) + '%');
+      setText('dash-open-trades', data.open_trades || 0);
+      setText('dash-monthly-pnl', (data.monthly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.monthly_pnl || 0).toFixed(2));
+      setText('dash-signals', data.recent_signals || 0);
+
+      var dailyPnl = data.daily_pnl || 0;
+      var balDelta = document.getElementById('dash-balance-delta');
+      if(balDelta) balDelta.textContent = (dailyPnl >= 0 ? '▲ +$' : '▼ -$') + Math.abs(dailyPnl).toFixed(2) + ' today';
+
+      ['dash-win-rate', 'dash-monthly-pnl'].forEach(function(id){
+        var el = document.getElementById(id);
+        if(!el) return;
+        var val = parseFloat(el.textContent.replace(/[^-.\d]/g, ''));
+        if(val < 0) el.className = 'dash-kpi-value text-red';
+        else if(val > 0) el.className = 'dash-kpi-value text-teal';
+        else el.className = 'dash-kpi-value';
+      });
+    })
+    .catch(function(){});
+  }
+
   function initAnalyticsCharts(){
     fetch('/api/dashboard/stats/', {
       headers: {'X-Requested-With': 'XMLHttpRequest'},
@@ -876,7 +1007,7 @@
       });
     }, {threshold: 0.1});
 
-    document.querySelectorAll('.stat-card, .service-card, .plan-card, .market-card, .kpi-card').forEach(function(el){
+    document.querySelectorAll('.stat-card, .service-card, .plan-card, .market-card, .kpi-card, .dashboard-kpi-card, .mkt-summary-card').forEach(function(el){
       if(!el.classList.contains('fade-in-up')){
         el.style.opacity = '0';
         observer.observe(el);
@@ -1022,6 +1153,8 @@
     startPriceTicker();
     populateHistory();
     populateMarkets();
+    updateMarketSummary();
+    fetchDashboardStats();
     setTimeout(function(){initArtCanvas(); initBotChart(); initAnalyticsCharts()}, 100);
 
     window.addEventListener('hashchange', handleHashChange);

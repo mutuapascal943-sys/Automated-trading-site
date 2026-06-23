@@ -1,73 +1,105 @@
 <div class="hero-card">
   <div class="hero-title">AI Powered<br><span>Forex Trading</span> Assistant</div>
   <div class="hero-sub">Analyze markets, generate signals, and manage your trading with institutional-grade AI tools.</div>
-  <div class="hero-btns">
+  <div class="dash-hero-stats">
+    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--gold)">signal_cellular_alt</span> <strong id="hero-balance">${{ balance|floatformat:0 }}</strong> Balance</div>
+    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--teal)">trending_up</span> <strong id="hero-trades">--</strong> Open Trades</div>
+    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--gold3)">auto_awesome</span> <strong id="hero-signals">--</strong> Signals Today</div>
+  </div>
+  <div class="hero-btns" style="margin-top:20px">
     <button class="btn-primary" onclick="navigateToPanel('bot')">Start Free Trial</button>
     <button class="btn-secondary" onclick="navigateToPanel('subscription')">Upgrade Plan</button>
   </div>
 </div>
 
-<div class="trial-card">
-  <div>
-    <div class="trial-badge">FREE TRIAL</div>
-    <div class="trial-title">24-Hour Free Trial</div>
-    <div class="trial-sub">Full access, no credit card required</div>
-    <div class="trial-features">
-      <div class="trial-feat">Market Analysis</div>
-      <div class="trial-feat">AI Signals</div>
-      <div class="trial-feat">Risk Management</div>
-      <div class="trial-feat">Trade History</div>
-      <div class="trial-feat">Live Charts</div>
+<div class="subscription-banner">
+  <div class="sub-banner-left">
+    <div class="sub-banner-icon"><span class="material-symbols-outlined">workspace_premium</span></div>
+    <div>
+      <div class="sub-banner-title" id="trial-title">24-Hour Free Trial Active</div>
+      <div class="sub-banner-sub"><span id="trial-timer">23:47:12</span> remaining — full access, no credit card required</div>
     </div>
   </div>
-  <div class="trial-timer">
-    <div class="timer-value" id="trial-timer">23:47:12</div>
-    <div class="timer-label">Remaining</div>
-    <button class="btn-primary" style="margin-top:14px;padding:10px 20px;font-size:12px" onclick="navigateToPanel('bot')">Activate Bot →</button>
+  <div style="display:flex;gap:10px">
+    <button class="sub-banner-btn" onclick="navigateToPanel('bot')">Activate Bot</button>
   </div>
 </div>
 
-<div class="stats-grid stagger">
-  <div class="stat-card">
-    <div class="stat-label">Account Balance</div>
-    <div class="stat-value">${{ balance|floatformat:0 }}</div>
-    <div class="stat-delta up">▲ +3.2% today</div>
+<div class="dashboard-kpis stagger" id="dashboardKpis">
+  <div class="dashboard-kpi-card">
+    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">account_balance</span></div>
+    <div class="dash-kpi-body">
+      <div class="dash-kpi-value" id="dash-balance">${{ balance|floatformat:0 }}</div>
+      <div class="dash-kpi-label">Account Balance</div>
+      <div class="dash-kpi-delta up" id="dash-balance-delta">▲ +3.2% today</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">Win Rate</div>
-    <div class="stat-value">68.4%</div>
-    <div class="stat-delta up">▲ +2.1% this week</div>
+  <div class="dashboard-kpi-card">
+    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">trending_up</span></div>
+    <div class="dash-kpi-body">
+      <div class="dash-kpi-value text-teal" id="dash-win-rate">68.4%</div>
+      <div class="dash-kpi-label">Win Rate</div>
+      <div class="dash-kpi-delta up" id="dash-win-rate-delta">▲ +2.1% this week</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">Open Trades</div>
-    <div class="stat-value">3</div>
-    <div class="stat-delta up">▲ 2 winning</div>
+  <div class="dashboard-kpi-card">
+    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">swap_horiz</span></div>
+    <div class="dash-kpi-body">
+      <div class="dash-kpi-value" id="dash-open-trades">3</div>
+      <div class="dash-kpi-label">Open Trades</div>
+      <div class="dash-kpi-delta up" id="dash-open-trades-delta">▲ 2 winning</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">Monthly PnL</div>
-    <div class="stat-value text-teal">+$840</div>
-    <div class="stat-delta up">▲ +7.3% return</div>
+  <div class="dashboard-kpi-card">
+    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">payments</span></div>
+    <div class="dash-kpi-body">
+      <div class="dash-kpi-value text-teal" id="dash-monthly-pnl">+$840</div>
+      <div class="dash-kpi-label">Monthly PnL</div>
+      <div class="dash-kpi-delta up" id="dash-monthly-pnl-delta">▲ +7.3% return</div>
+    </div>
   </div>
-  <div class="stat-card">
-    <div class="stat-label">Signals Generated</div>
-    <div class="stat-value">127</div>
-    <div class="stat-delta">This month</div>
+  <div class="dashboard-kpi-card">
+    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">insights</span></div>
+    <div class="dash-kpi-body">
+      <div class="dash-kpi-value" id="dash-signals">127</div>
+      <div class="dash-kpi-label">Signals Generated</div>
+      <div class="dash-kpi-delta" id="dash-signals-delta" style="color:var(--text3)">This month</div>
+    </div>
   </div>
-</div>
-
-<div class="forex-art">
-  <div class="section-title">Live <span>Market Overview</span></div>
-  <div class="market-chart-grid" id="marketChartGrid"></div>
 </div>
 
 <div class="section-title">Our <span>AI Services</span></div>
 <div class="services-grid stagger">
-  <div class="service-card" onclick="navigateToPanel('markets')"><span class="service-icon">🧠</span><div class="service-name">AI Market Analysis</div><div class="service-desc">Deep neural models scan 50+ instruments in real time for pattern recognition.</div></div>
-  <div class="service-card" onclick="navigateToPanel('bot')"><span class="service-icon">⚡</span><div class="service-name">Signal Generation</div><div class="service-desc">Entry, TP, and SL levels generated automatically with confidence scoring.</div></div>
-  <div class="service-card" onclick="navigateToPanel('analytics')"><span class="service-icon">📊</span><div class="service-name">Portfolio Monitoring</div><div class="service-desc">Track all open positions, drawdown, and exposure across brokers.</div></div>
-  <div class="service-card" onclick="navigateToPanel('settings')"><span class="service-icon">🛡</span><div class="service-name">Risk Management</div><div class="service-desc">Automated position sizing, max drawdown limits, and daily risk budgets.</div></div>
-  <div class="service-card" onclick="navigateToPanel('analytics')"><span class="service-icon">📈</span><div class="service-name">Performance Analytics</div><div class="service-desc">Detailed win rate, profit factor, Sharpe ratio and trade-by-trade breakdown.</div></div>
-  <div class="service-card" onclick="navigateToPanel('bot')"><span class="service-icon">🤖</span><div class="service-name">Automated Trading</div><div class="service-desc">Bot execution with explicit user authorization and real-time confirmation.</div></div>
+  <div class="service-card" onclick="navigateToPanel('markets')">
+    <div class="service-icon"><span class="material-symbols-outlined">psychology</span></div>
+    <div class="service-name">AI Market Analysis</div>
+    <div class="service-desc">Deep neural models scan 50+ instruments in real time for pattern recognition.</div>
+  </div>
+  <div class="service-card" onclick="navigateToPanel('bot')">
+    <div class="service-icon"><span class="material-symbols-outlined">bolt</span></div>
+    <div class="service-name">Signal Generation</div>
+    <div class="service-desc">Entry, TP, and SL levels generated automatically with confidence scoring.</div>
+  </div>
+  <div class="service-card" onclick="navigateToPanel('analytics')">
+    <div class="service-icon"><span class="material-symbols-outlined">monitoring</span></div>
+    <div class="service-name">Portfolio Monitoring</div>
+    <div class="service-desc">Track all open positions, drawdown, and exposure across brokers.</div>
+  </div>
+  <div class="service-card" onclick="navigateToPanel('settings')">
+    <div class="service-icon"><span class="material-symbols-outlined">shield</span></div>
+    <div class="service-name">Risk Management</div>
+    <div class="service-desc">Automated position sizing, max drawdown limits, and daily risk budgets.</div>
+  </div>
+  <div class="service-card" onclick="navigateToPanel('analytics')">
+    <div class="service-icon"><span class="material-symbols-outlined">bar_chart</span></div>
+    <div class="service-name">Performance Analytics</div>
+    <div class="service-desc">Detailed win rate, profit factor, Sharpe ratio and trade-by-trade breakdown.</div>
+  </div>
+  <div class="service-card" onclick="navigateToPanel('bot')">
+    <div class="service-icon"><span class="material-symbols-outlined">smart_toy</span></div>
+    <div class="service-name">Automated Trading</div>
+    <div class="service-desc">Bot execution with explicit user authorization and real-time confirmation.</div>
+  </div>
 </div>
 
 <div class="section-title">Subscription <span>Plans</span></div>

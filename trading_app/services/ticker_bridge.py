@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import re
+import socket
 import threading
 import time
 from datetime import datetime, timezone
@@ -57,17 +58,20 @@ class TickerBridge:
         credentials = cls._resolve_credentials(user)
 
         if credentials and credentials.get("token") and symbol not in cls._live_unreachable:
-            try:
-                cls._start_live_ticker(symbol, credentials)
-                with cls._lock:
-                    cls._active_subscriptions[symbol] = {
-                        "refcount": 1,
-                        "mode": "live",
-                    }
-                logger.info("TickerBridge: subscribed to %s (live)", symbol)
-                return
-            except Exception as e:
-                logger.warning("TickerBridge: live ticker failed for %s: %s", symbol, e)
+            if not cls._check_deriv_reachable():
+                logger.warning("TickerBridge: Deriv unreachable for %s — using paper", symbol)
+            else:
+                try:
+                    cls._start_live_ticker(symbol, credentials)
+                    with cls._lock:
+                        cls._active_subscriptions[symbol] = {
+                            "refcount": 1,
+                            "mode": "live",
+                        }
+                    logger.info("TickerBridge: subscribed to %s (live)", symbol)
+                    return
+                except Exception as e:
+                    logger.warning("TickerBridge: live ticker failed for %s: %s", symbol, e)
 
         cls._start_paper_ticker(symbol)
 
@@ -120,6 +124,15 @@ class TickerBridge:
         account_id = config("TRADING_ACCOUNT_ID", default="")
         return {"token": token, "account_id": account_id}
 
+    @staticmethod
+    def _check_deriv_reachable() -> bool:
+        """Quick DNS check before attempting a live WebSocket connection."""
+        try:
+            socket.getaddrinfo("ws.deriv.com", 443)
+            return True
+        except socket.gaierror:
+            return False
+
     # ------------------------------------------------------------------
     # Live ticker via Deriv WebSocket
     # ------------------------------------------------------------------
@@ -135,7 +148,7 @@ class TickerBridge:
             try:
                 loop.run_until_complete(cls._live_tick_loop(symbol, credentials, app_id))
             except Exception:
-                logger.exception("Live ticker loop ended for %s", symbol)
+                logger.warning("Live ticker failed for %s (falling back to paper)", symbol)
             finally:
                 with cls._lock:
                     cls._live_unreachable.add(symbol)
