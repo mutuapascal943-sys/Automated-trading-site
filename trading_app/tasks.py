@@ -125,7 +125,7 @@ def check_paper_positions():
                 trade.pnl = pnl
                 trade.closed_at = timezone.now()
                 trade.save()
-                Notification.objects.create(
+                Notification.create_notification(
                     user=user, title=f'Stop Loss Hit — {trade.symbol}',
                     message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
                     notification_type='trade',
@@ -141,7 +141,7 @@ def check_paper_positions():
                 trade.pnl = pnl
                 trade.closed_at = timezone.now()
                 trade.save()
-                Notification.objects.create(
+                Notification.create_notification(
                     user=user, title=f'Take Profit Hit — {trade.symbol}',
                     message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
                     notification_type='trade',
@@ -238,7 +238,7 @@ def _run_single_user_bot(user):
                 source='AI',
                 risk_level='MEDIUM',
             )
-            Notification.objects.create(
+            Notification.create_notification(
                 user=user, title=f'Signal: {signal_type} {symbol}',
                 message=f'Confidence: {confidence}% — {analysis.rationale[:100]}',
                 notification_type='signal',
@@ -336,7 +336,7 @@ def _execute_trade(user, trade, risk):
         trade.executed_at = timezone.now()
         trade.is_live = False
         trade.save()
-        Notification.objects.create(
+        Notification.create_notification(
             user=user, title=f'Paper Trade Opened',
             message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
             notification_type='trade',

@@ -295,6 +295,19 @@ class Notification(models.Model):
             models.Index(fields=['created_at']),
         ]
 
+    @classmethod
+    def create_notification(cls, user, title, message='', notification_type='system'):
+        dup = cls.objects.filter(
+            user=user, title=title, message=message,
+            notification_type=notification_type, is_read=False,
+            created_at__gte=timezone.now() - timezone.timedelta(hours=1),
+        ).exists()
+        if dup:
+            return None
+        return cls.objects.create(
+            user=user, title=title, message=message, notification_type=notification_type
+        )
+
     def __str__(self):
         return f'{self.user.email} - {self.title}'
 
