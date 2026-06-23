@@ -19,16 +19,24 @@ class MarketConsumer(AsyncWebsocketConsumer):
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()
 
+        user = self.scope.get('user')
+        if user and user.is_authenticated:
+            mode = 'live'
+        else:
+            user = None
+            mode = 'paper'
+
         await self.send(text_data=json.dumps({
             'type': 'connected',
             'symbol': normalised,
-            'message': f'Connected to {normalised} market stream',
+            'message': f'Connected to {normalised} market stream ({mode})',
         }))
 
-        TickerBridge.ensure_subscription(normalised)
+        TickerBridge.ensure_subscription(normalised, user=user)
 
     async def disconnect(self, code):
         await self.channel_layer.group_discard(self.group_name, self.channel_name)
+        TickerBridge.remove_subscription(self.symbol, self.channel_name)
 
     async def receive(self, text_data):
         data = json.loads(text_data)

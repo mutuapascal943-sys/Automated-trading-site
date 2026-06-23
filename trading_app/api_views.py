@@ -185,9 +185,6 @@ def market_data_view(request):
     if cached:
         return Response(cached)
 
-    if request.user.paper_mode:
-        return Response({'symbol': symbol, 'price': '0', 'message': 'Paper mode — no live data'})
-
     adapter = _resolve_adapter(request.user)
     creds = build_credentials(request.user)
     try:
@@ -208,6 +205,9 @@ def market_data_view(request):
     except Exception as e:
         logger.warning('Market data fetch failed: %s', e)
 
+    cached = CacheService.get_market_data(symbol)
+    if cached:
+        return Response(cached)
     return Response({'symbol': symbol, 'price': '0', 'message': 'Using simulated data'})
 
 
@@ -825,7 +825,7 @@ def ticker_subscribe_view(request):
     symbol = request.data.get('symbol', '').strip()
     if not symbol:
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
-    TickerBridge.ensure_subscription(symbol)
+    TickerBridge.ensure_subscription(symbol, user=request.user)
     return Response({'status': 'ok', 'symbol': symbol})
 
 
@@ -835,7 +835,7 @@ def ticker_unsubscribe_view(request):
     symbol = request.data.get('symbol', '').strip()
     if not symbol:
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
-    TickerBridge.remove_subscription(symbol)
+    TickerBridge.remove_subscription(symbol, str(request.user.id))
     return Response({'status': 'ok', 'symbol': symbol})
 
 
