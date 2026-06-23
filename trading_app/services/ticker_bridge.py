@@ -30,6 +30,7 @@ class TickerBridge:
     _paper_prices: dict[str, Decimal] = {}
     _paper_thread: threading.Thread | None = None
     _paper_running = False
+    _live_unreachable: set[str] = set()
 
     GROUP_PREFIX = "market_"
 
@@ -55,7 +56,7 @@ class TickerBridge:
 
         credentials = cls._resolve_credentials(user)
 
-        if credentials and credentials.get("token"):
+        if credentials and credentials.get("token") and symbol not in cls._live_unreachable:
             try:
                 cls._start_live_ticker(symbol, credentials)
                 with cls._lock:
@@ -135,6 +136,15 @@ class TickerBridge:
                 loop.run_until_complete(cls._live_tick_loop(symbol, credentials, app_id))
             except Exception:
                 logger.exception("Live ticker loop ended for %s", symbol)
+            finally:
+                with cls._lock:
+                    cls._live_unreachable.add(symbol)
+                    entry = cls._active_subscriptions.get(symbol)
+                    if entry and entry.get("mode") == "live":
+                        entry["mode"] = "paper"
+                        cls._paper_prices.setdefault(symbol, Decimal("1.08000"))
+                        cls._start_paper_ticker(symbol)
+                        logger.info("TickerBridge: fell back to paper for %s", symbol)
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()

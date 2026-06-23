@@ -1,20 +1,54 @@
 <div class="section-title">Performance <span>Analytics</span></div>
-<div class="analytics-kpis stagger">
-  <div class="kpi-card"><div class="kpi-icon">🎯</div><div class="kpi-value text-teal">68.4%</div><div class="kpi-label">Win Rate</div></div>
-  <div class="kpi-card"><div class="kpi-icon">📉</div><div class="kpi-value text-red">31.6%</div><div class="kpi-label">Loss Rate</div></div>
-  <div class="kpi-card"><div class="kpi-icon">⚖</div><div class="kpi-value text-gold">1.84</div><div class="kpi-label">Profit Factor</div></div>
-  <div class="kpi-card"><div class="kpi-icon">📊</div><div class="kpi-value">$42</div><div class="kpi-label">Avg Trade</div></div>
-  <div class="kpi-card"><div class="kpi-icon">📅</div><div class="kpi-value text-teal">+$126</div><div class="kpi-label">Daily PnL</div></div>
-  <div class="kpi-card"><div class="kpi-icon">🗓</div><div class="kpi-value text-teal">+$480</div><div class="kpi-label">Weekly PnL</div></div>
-  <div class="kpi-card"><div class="kpi-icon">📆</div><div class="kpi-value text-teal">+$840</div><div class="kpi-label">Monthly PnL</div></div>
+<div class="analytics-kpis stagger" id="analyticsKpis">
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">trending_up</span>
+    <div class="kpi-value text-teal" id="kpi-win-rate">--</div>
+    <div class="kpi-label">Win Rate</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">block</span>
+    <div class="kpi-value text-red" id="kpi-loss-rate">--</div>
+    <div class="kpi-label">Loss Rate</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">bar_chart</span>
+    <div class="kpi-value text-gold" id="kpi-profit-factor">--</div>
+    <div class="kpi-label">Profit Factor</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">receipt_long</span>
+    <div class="kpi-value" id="kpi-avg-trade">--</div>
+    <div class="kpi-label">Avg Trade</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">today</span>
+    <div class="kpi-value text-teal" id="kpi-daily-pnl">--</div>
+    <div class="kpi-label">Daily PnL</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">date_range</span>
+    <div class="kpi-value text-teal" id="kpi-weekly-pnl">--</div>
+    <div class="kpi-label">Weekly PnL</div>
+  </div>
+  <div class="kpi-card">
+    <span class="kpi-icon material-symbols-outlined">calendar_month</span>
+    <div class="kpi-value text-teal" id="kpi-monthly-pnl">--</div>
+    <div class="kpi-label">Monthly PnL</div>
+  </div>
 </div>
 <div class="charts-row">
   <div class="mini-chart-card">
-    <div class="mini-chart-title">Daily PnL — Last 30 Days</div>
-    <canvas id="pnlChart" height="150"></canvas>
+    <div class="mini-chart-title">
+      <span class="material-symbols-outlined chart-title-icon">show_chart</span>
+      Cumulative PnL — Last 30 Days
+    </div>
+    <div class="analytics-chart-container" id="pnlChartContainer"></div>
   </div>
   <div class="mini-chart-card">
-    <div class="mini-chart-title">Win / Loss Distribution</div>
-    <canvas id="winChart" height="150"></canvas>
+    <div class="mini-chart-title">
+      <span class="material-symbols-outlined chart-title-icon">donut_small</span>
+      Win / Loss Distribution
+    </div>
+    <div class="analytics-chart-container" id="winChartContainer"></div>
   </div>
 </div>

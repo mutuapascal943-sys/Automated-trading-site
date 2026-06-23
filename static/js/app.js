@@ -675,58 +675,161 @@
   };
 
   function initAnalyticsCharts(){
-    var pnlCanvas = document.getElementById('pnlChart');
-    if(pnlCanvas){
-      pnlCanvas.width = pnlCanvas.offsetWidth || 400;
-      var ctx = pnlCanvas.getContext('2d');
-      var w = pnlCanvas.width, h = pnlCanvas.height;
-      var data = [];
-      var running = 0;
-      for(var i=0;i<30;i++){running += (Math.random()-0.4)*60; data.push(running)}
-      var max = Math.max.apply(null, data);
-      var min = Math.min.apply(null, data);
-      var range = max - min || 1;
-      ctx.clearRect(0,0,w,h);
-      ctx.strokeStyle = '#00d4aa';
-      ctx.lineWidth = 2;
-      ctx.beginPath();
-      data.forEach(function(v, i){
-        var x = i * (w / (data.length-1));
-        var y = h - 8 - (h - 16) * (v - min) / range;
-        i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y);
-      });
-      ctx.stroke();
-      ctx.lineTo(w, h); ctx.lineTo(0, h); ctx.closePath();
-      var g = ctx.createLinearGradient(0,0,0,h);
-      g.addColorStop(0, 'rgba(0,212,170,0.15)');
-      g.addColorStop(1, 'rgba(0,212,170,0)');
-      ctx.fillStyle = g;
-      ctx.fill();
-    }
+    fetch('/api/dashboard/stats/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      function setText(id, val, prefix, suffix){
+        var el = document.getElementById(id);
+        if(!el) return;
+        prefix = prefix || '';
+        suffix = suffix || '';
+        el.textContent = prefix + val + suffix;
+      }
 
-    var winCanvas = document.getElementById('winChart');
-    if(winCanvas){
-      winCanvas.width = winCanvas.offsetWidth || 400;
-      var ctx2 = winCanvas.getContext('2d');
-      var w2 = winCanvas.width, h2 = winCanvas.height;
-      ctx2.clearRect(0,0,w2,h2);
-      var cx = w2/2, cy = h2/2, r = Math.min(w2,h2)/2 - 16;
-      var winA = 0.684 * Math.PI * 2;
-      ctx2.lineWidth = 20;
-      ctx2.strokeStyle = 'rgba(255,255,255,0.05)';
-      ctx2.beginPath(); ctx2.arc(cx, cy, r, 0, Math.PI*2); ctx2.stroke();
-      ctx2.strokeStyle = '#00d4aa';
-      ctx2.beginPath(); ctx2.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + winA); ctx2.stroke();
-      ctx2.strokeStyle = '#ff4d6d';
-      ctx2.beginPath(); ctx2.arc(cx, cy, r, -Math.PI/2 + winA, -Math.PI/2 + Math.PI*2); ctx2.stroke();
-      ctx2.fillStyle = '#e8edf5';
-      ctx2.font = 'bold 22px Syne';
-      ctx2.textAlign = 'center';
-      ctx2.fillText('68.4%', cx, cy+4);
-      ctx2.fillStyle = 'rgba(255,255,255,0.4)';
-      ctx2.font = '11px DM Mono';
-      ctx2.fillText('WIN RATE', cx, cy+20);
-    }
+      setText('kpi-win-rate', data.win_rate + '%');
+      setText('kpi-loss-rate', data.loss_rate + '%');
+      setText('kpi-profit-factor', data.profit_factor);
+      setText('kpi-avg-trade', (data.avg_trade >= 0 ? '+$' : '-$') + Math.abs(data.avg_trade).toFixed(2));
+      setText('kpi-daily-pnl', (data.daily_pnl >= 0 ? '+$' : '-$') + Math.abs(data.daily_pnl).toFixed(2));
+      setText('kpi-weekly-pnl', (data.weekly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.weekly_pnl).toFixed(2));
+      setText('kpi-monthly-pnl', (data.monthly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.monthly_pnl).toFixed(2));
+
+      document.querySelectorAll('#kpi-daily-pnl, #kpi-weekly-pnl, #kpi-monthly-pnl').forEach(function(el){
+        var val = parseFloat(el.textContent.replace(/[^-.\d]/g, ''));
+        if(val < 0) el.className = 'kpi-value text-red';
+        else if(val > 0) el.className = 'kpi-value text-teal';
+      });
+      var avgEl = document.getElementById('kpi-avg-trade');
+      if(avgEl){
+        var avgVal = parseFloat(avgEl.textContent.replace(/[^-.\d]/g, ''));
+        if(avgVal < 0) avgEl.className = 'kpi-value text-red';
+        else if(avgVal > 0) avgEl.className = 'kpi-value text-teal';
+      }
+
+      /* ── PnL Line Chart ── */
+      if (typeof LightweightCharts !== 'undefined') {
+        var pnlContainer = document.getElementById('pnlChartContainer');
+        if (pnlContainer) {
+          pnlContainer.innerHTML = '';
+          var pnlChart = LightweightCharts.createChart(pnlContainer, {
+            layout: {
+              background: { type: 'solid', color: 'transparent' },
+              textColor: '#8fa3bf',
+              fontSize: 10,
+              fontFamily: 'DM Mono, monospace',
+            },
+            grid: {
+              vertLines: { color: 'rgba(255,255,255,0.04)' },
+              horzLines: { color: 'rgba(255,255,255,0.04)' },
+            },
+            timeScale: {
+              borderColor: 'rgba(255,255,255,0.08)',
+              timeVisible: false,
+              tickMarkFormatter: function(ts){ var d=new Date(ts*1000); return d.getDate()+'/'+(d.getMonth()+1); },
+            },
+            rightPriceScale: {
+              borderColor: 'rgba(255,255,255,0.08)',
+            },
+            crosshair: {
+              vertLine: { color: 'rgba(245,194,122,0.3)', width: 1, style: LightweightCharts.LineStyle.Dashed, labelVisible: false },
+              horzLine: { color: 'rgba(245,194,122,0.3)', width: 1, style: LightweightCharts.LineStyle.Dashed, labelVisible: false },
+            },
+            handleScroll: false,
+            handleScale: false,
+          });
+
+          var pnlSeries = pnlChart.addAreaSeries({
+            lineColor: '#00d4aa',
+            topColor: 'rgba(0,212,170,0.15)',
+            bottomColor: 'rgba(0,212,170,0)',
+            lineWidth: 2,
+            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
+          });
+
+          var history = data.pnl_history || [];
+          var chartData = [];
+          var baseTime = Math.floor(Date.now() / 1000) - 30 * 86400;
+          if (history.length > 0) {
+            history.forEach(function(entry){
+              var t = Math.floor(new Date(entry.date + 'T00:00:00').getTime() / 1000);
+              if (!isNaN(t)) chartData.push({ time: t, value: entry.pnl });
+            });
+          }
+          if (chartData.length < 2) {
+            for (var i = 30; i >= 0; i--) {
+              chartData.push({ time: baseTime + i * 86400, value: 0 });
+            }
+          }
+          pnlSeries.setData(chartData);
+          pnlChart.timeScale().fitContent();
+        }
+
+        /* ── Win/Loss Donut (Canvas) ── */
+        var winContainer = document.getElementById('winChartContainer');
+        if (winContainer) {
+          winContainer.innerHTML = '<canvas id="winChart" style="width:100%;height:100%"></canvas>';
+          var winCanvas = document.getElementById('winChart');
+          if (winCanvas) {
+            var dpr = window.devicePixelRatio || 1;
+            var rect = winContainer.getBoundingClientRect();
+            winCanvas.width = rect.width * dpr;
+            winCanvas.height = rect.height * dpr;
+            winCanvas.style.width = rect.width + 'px';
+            winCanvas.style.height = rect.height + 'px';
+            var ctx = winCanvas.getContext('2d');
+            var w = winCanvas.width, h = winCanvas.height;
+            var cx = w / 2, cy = h / 2, r = Math.min(w, h) / 2 - 24 * dpr;
+
+            ctx.clearRect(0, 0, w, h);
+
+            var winPct = data.win_rate || 0;
+            var lossPct = data.loss_rate || 0;
+            var winAngle = (winPct / 100) * Math.PI * 2;
+            var lossAngle = (lossPct / 100) * Math.PI * 2;
+
+            var lineW = 18 * dpr;
+            ctx.lineCap = 'round';
+
+            ctx.lineWidth = lineW;
+            ctx.strokeStyle = 'rgba(255,255,255,0.04)';
+            ctx.beginPath();
+            ctx.arc(cx, cy, r, 0, Math.PI * 2);
+            ctx.stroke();
+
+            if (winPct > 0) {
+              ctx.strokeStyle = '#00d4aa';
+              ctx.lineWidth = lineW;
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + winAngle);
+              ctx.stroke();
+            }
+
+            if (lossPct > 0) {
+              ctx.strokeStyle = '#ff4d6d';
+              ctx.lineWidth = lineW;
+              ctx.beginPath();
+              ctx.arc(cx, cy, r, -Math.PI / 2 + winAngle, -Math.PI / 2 + Math.PI * 2);
+              ctx.stroke();
+            }
+
+            ctx.fillStyle = '#e8edf5';
+            ctx.font = 'bold ' + (22 * dpr) + 'px Syne';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText(winPct + '%', cx, cy - 6 * dpr);
+
+            ctx.fillStyle = 'rgba(255,255,255,0.35)';
+            ctx.font = (11 * dpr) + 'px DM Mono';
+            ctx.fillText('WIN RATE', cx, cy + 14 * dpr);
+          }
+        }
+      }
+    })
+    .catch(function(){
+      /* fallback to zeros on error */
+    });
   }
 
   /* ── SETTINGS ── */

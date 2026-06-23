@@ -585,12 +585,51 @@ def subscription_view(request):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def dashboard_stats_view(request):
+    from django.db.models import Sum, Q
+    from django.db.models.functions import TruncDate
+    from datetime import timedelta
+
     user = request.user
     open_trades = Trade.objects.filter(user=user, status='OPEN').count()
     total_trades = Trade.objects.filter(user=user).count()
-    win_trades = Trade.objects.filter(user=user, status='CLOSED', pnl__gt=0).count()
-    closed_trades = Trade.objects.filter(user=user, status='CLOSED').count()
-    win_rate = (win_trades / closed_trades * 100) if closed_trades > 0 else 0
+    closed_trades = Trade.objects.filter(user=user, status='CLOSED')
+    win_trades = closed_trades.filter(pnl__gt=0).count()
+    loss_trades = closed_trades.filter(pnl__lt=0).count()
+    win_rate = (win_trades / closed_trades.count() * 100) if closed_trades.count() > 0 else 0
+
+    closed_pnl = closed_trades.aggregate(total_pnl=Sum('pnl'))
+    total_pnl = float(closed_pnl['total_pnl'] or 0)
+    gross_profit = float(closed_trades.filter(pnl__gt=0).aggregate(s=Sum('pnl'))['s'] or 0)
+    gross_loss = abs(float(closed_trades.filter(pnl__lt=0).aggregate(s=Sum('pnl'))['s'] or 0))
+    profit_factor = round(gross_profit / gross_loss, 2) if gross_loss > 0 else round(gross_profit, 2) if gross_profit > 0 else 0
+
+    avg_trade = round(total_pnl / closed_trades.count(), 2) if closed_trades.count() > 0 else 0
+
+    now = timezone.now()
+    daily_pnl = float(closed_trades.filter(closed_at__date=now.date()).aggregate(s=Sum('pnl'))['s'] or 0)
+    week_start = now - timedelta(days=now.weekday())
+    weekly_pnl = float(closed_trades.filter(closed_at__gte=week_start).aggregate(s=Sum('pnl'))['s'] or 0)
+    month_start = now.replace(day=1)
+    monthly_pnl = float(closed_trades.filter(closed_at__gte=month_start).aggregate(s=Sum('pnl'))['s'] or 0)
+
+    last_30 = now - timedelta(days=30)
+    daily_pnl_series = (
+        closed_trades.filter(closed_at__gte=last_30)
+        .annotate(date=TruncDate('closed_at'))
+        .values('date')
+        .annotate(pnl=Sum('pnl'))
+        .order_by('date')
+    )
+    pnl_history = []
+    running = 0
+    for entry in daily_pnl_series:
+        running += float(entry['pnl'] or 0)
+        pnl_history.append({
+            'date': entry['date'].isoformat(),
+            'pnl': round(running, 2),
+        })
+
+    loss_rate = round(loss_trades / closed_trades.count() * 100, 1) if closed_trades.count() > 0 else 0
 
     risk = RiskConfig.get_for_user(user)
     recent_signals = TradingSignal.objects.filter(user=user).order_by('-created_at')[:5]
@@ -601,6 +640,16 @@ def dashboard_stats_view(request):
         'open_trades': open_trades,
         'total_trades': total_trades,
         'win_rate': round(win_rate, 1),
+        'loss_rate': loss_rate,
+        'profit_factor': profit_factor,
+        'avg_trade': avg_trade,
+        'daily_pnl': round(daily_pnl, 2),
+        'weekly_pnl': round(weekly_pnl, 2),
+        'monthly_pnl': round(monthly_pnl, 2),
+        'total_pnl': round(total_pnl, 2),
+        'win_trades': win_trades,
+        'loss_trades': loss_trades,
+        'pnl_history': pnl_history,
         'daily_trades_count': user.daily_trades_count,
         'paper_mode': user.paper_mode,
         'trading_enabled': risk.trading_enabled,
