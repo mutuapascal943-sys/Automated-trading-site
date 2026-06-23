@@ -87,6 +87,20 @@ class LLMAnalyzer:
             logger.warning("LLM analysis failed: %s", e)
             return LLMAnalysisResult(bias="neutral", confidence=0.0, rationale=f"Analysis error: {e}")
 
+    @staticmethod
+    def _compute_rsi(closes: list[float], period: int = 14) -> float:
+        if len(closes) < period + 1:
+            return 50.0
+        deltas = [closes[i] - closes[i - 1] for i in range(1, len(closes))]
+        gains = [d if d > 0 else 0 for d in deltas]
+        losses = [-d if d < 0 else 0 for d in deltas]
+        avg_gain = sum(gains[-period:]) / period
+        avg_loss = sum(losses[-period:]) / period
+        if avg_loss == 0:
+            return 100.0
+        rs = avg_gain / avg_loss
+        return 100.0 - (100.0 / (1.0 + rs))
+
     def _summarize_candles(self, symbol: str, candles: list[Candle]) -> str:
         if not candles:
             return f"No candle data for {symbol}."
@@ -104,6 +118,7 @@ class LLMAnalyzer:
         sma_short = sum(closes[-min(5, len(closes)):]) / min(5, len(closes))
         sma_long = sum(closes) / len(closes)
         atr = sum(h - l for h, l in zip(highs, lows)) / len(closes)
+        rsi = self._compute_rsi(closes)
 
         body = (
             f"Symbol: {symbol}\n"
@@ -113,6 +128,7 @@ class LLMAnalyzer:
             f"Open: {first.open:.5f}, Close: {last.close:.5f}\n"
             f"Change: {change_pct:+.2f}%\n"
             f"SMA(5): {sma_short:.5f}, SMA({len(closes)}): {sma_long:.5f}\n"
+            f"RSI(14): {rsi:.1f}\n"
             f"ATR: {atr:.5f}\n"
             f"Volume range: {min(vols):.2f} - {max(vols):.2f}\n"
             f"Recent closes: {[f'{c:.5f}' for c in closes[-5:]]}\n"

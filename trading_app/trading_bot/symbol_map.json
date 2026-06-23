@@ -54,9 +54,79 @@
     "binance": "US30",
     "paper": "US30"
   },
+  "R_50": {
+    "deriv": "R_50",
+    "binance": "R_50",
+    "paper": "R_50"
+  },
+  "R_75": {
+    "deriv": "R_75",
+    "binance": "R_75",
+    "paper": "R_75"
+  },
   "R_100": {
     "deriv": "R_100",
     "binance": "R_100",
     "paper": "R_100"
+  },
+  "R_150": {
+    "deriv": "R_150",
+    "binance": "R_150",
+    "paper": "R_150"
+  },
+  "R_200": {
+    "deriv": "R_200",
+    "binance": "R_200",
+    "paper": "R_200"
+  },
+  "R_250": {
+    "deriv": "R_250",
+    "binance": "R_250",
+    "paper": "R_250"
+  },
+  "BOOM300": {
+    "deriv": "BOOM300",
+    "binance": "",
+    "paper": "BOOM300"
+  },
+  "CRASH300": {
+    "deriv": "CRASH300",
+    "binance": "",
+    "paper": "CRASH300"
+  },
+  "BOOM500": {
+    "deriv": "BOOM500",
+    "binance": "",
+    "paper": "BOOM500"
+  },
+  "CRASH500": {
+    "deriv": "CRASH500",
+    "binance": "",
+    "paper": "CRASH500"
+  },
+  "BOOM1000": {
+    "deriv": "BOOM1000",
+    "binance": "",
+    "paper": "BOOM1000"
+  },
+  "CRASH1000": {
+    "deriv": "CRASH1000",
+    "binance": "",
+    "paper": "CRASH1000"
+  },
+  "JP225": {
+    "deriv": "JP225",
+    "binance": "JP225",
+    "paper": "JP225"
+  },
+  "US500": {
+    "deriv": "US500",
+    "binance": "US500",
+    "paper": "US500"
+  },
+  "NAS100": {
+    "deriv": "NAS100",
+    "binance": "NAS100",
+    "paper": "NAS100"
   }
 }

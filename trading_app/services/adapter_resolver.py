@@ -15,9 +15,14 @@ ADAPTER_MAP: dict[str, type[BrokerAdapter]] = {
 
 def get_adapter_for_broker(broker_name: str) -> BrokerAdapter:
     cls = ADAPTER_MAP.get(broker_name)
-    if cls is None:
-        return PaperBrokerAdapter()
-    return cls(app_id=config("DERIV_APP_ID", default="1089"))
+    if cls is not None:
+        return cls(app_id=config("DERIV_APP_ID", default="1089"))
+
+    api_key = config("TRADING_API_KEY", default="")
+    if api_key and api_key != "sk-your-openai-api-key" and not api_key.startswith("sk-your"):
+        return DerivAdapter(app_id=config("DERIV_APP_ID", default="1089"))
+
+    return PaperBrokerAdapter()
 
 
 def build_credentials(user) -> dict[str, str]:

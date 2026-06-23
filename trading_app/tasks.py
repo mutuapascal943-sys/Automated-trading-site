@@ -176,6 +176,23 @@ def _run_single_user_bot(user):
     risk = RiskConfig.get_for_user(user)
     symbols = user.watchlist or ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
 
+    from decouple import config as decouple_config
+    api_key = decouple_config('OPENAI_API_KEY', default='')
+    if not api_key:
+        logger.warning(f'No OPENAI_API_KEY for bot cycle user {user.id}')
+        return
+
+    provider = OpenAIProvider(api_key=api_key)
+    analyzer = LLMAnalyzer(provider=provider)
+
+    adapter = None
+    try:
+        adapter = get_adapter_for_broker(user.broker or '')
+        creds = build_credentials(user)
+        adapter.connect(creds)
+    except Exception as e:
+        logger.warning(f'Could not connect broker adapter for user {user.id}: {e}')
+
     for symbol in symbols:
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
         if existing_open > 0:
@@ -189,23 +206,21 @@ def _run_single_user_bot(user):
         if user.daily_trades_count >= risk.max_daily_trades:
             break
 
-        from decouple import config as decouple_config
-        api_key = decouple_config('OPENAI_API_KEY', default='')
-        if not api_key:
-            logger.warning(f'No OPENAI_API_KEY for bot cycle user {user.id}')
-            continue
-
         try:
             candles = []
-            if not user.paper_mode:
-                adapter = get_adapter_for_broker(user.broker or '')
-                creds = build_credentials(user)
-                adapter.connect(creds)
-                candles = adapter.get_candles(symbol, 3600, 30)
-                adapter.disconnect()
+            if adapter is not None:
+                try:
+                    candles = adapter.get_candles(symbol, 3600, 30)
+                    logger.info(f'Fetched {len(candles)} candles for {symbol} via Deriv')
+                except Exception as e:
+                    logger.warning(f'Failed to fetch candles for {symbol}: {e}')
+                    cached = CacheService.get_market_data(symbol)
+                    if cached and cached.get('price'):
+                        candles = _make_fallback_candle(symbol, cached)
 
-            provider = OpenAIProvider(api_key=api_key)
-            analyzer = LLMAnalyzer(provider=provider)
+            if not candles:
+                continue
+
             analysis = analyzer.analyze(symbol, candles)
 
             if analysis.bias == 'neutral':
@@ -253,6 +268,26 @@ def _run_single_user_bot(user):
 
         except Exception as e:
             logger.error(f'Bot cycle symbol {symbol} failed for user {user.id}: {e}')
+
+    if adapter is not None:
+        try:
+            adapter.disconnect()
+        except Exception:
+            pass
+
+
+def _make_fallback_candle(symbol, cached):
+    from .trading_bot.interface import Candle
+    from decimal import Decimal
+    from datetime import datetime, timezone
+    price = Decimal(str(cached.get('price', 0)))
+    ts_str = cached.get('timestamp')
+    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
+    return [Candle(
+        symbol=symbol,
+        open=price, high=price, low=price, close=price,
+        volume=Decimal('0'), timestamp=ts, granularity=3600,
+    )]
 
 
 def _execute_trade(user, trade, risk):

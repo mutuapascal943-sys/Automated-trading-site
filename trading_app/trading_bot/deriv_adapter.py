@@ -103,10 +103,12 @@ class DerivAdapter(BrokerAdapter):
 
         future = self._call_api("ticks_history", {
             "ticks_history": symbol,
-            "granularity": granularity,
-            "count": count,
+            "adjust_start_time": 1,
+            "start": 1,
             "end": "latest",
             "style": "candles",
+            "granularity": granularity,
+            "count": count,
         })
         result = self._await_future(future)
 
