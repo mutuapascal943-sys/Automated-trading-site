@@ -1,8 +1,8 @@
 import json
 import logging
+import re
 
 from channels.generic.websocket import AsyncWebsocketConsumer
-from channels.layers import get_channel_layer
 
 from .services.ticker_bridge import TickerBridge
 
@@ -14,7 +14,8 @@ class MarketConsumer(AsyncWebsocketConsumer):
         symbol = self.scope['url_route']['kwargs']['symbol']
         normalised = symbol.replace('-', '/')
         self.symbol = normalised
-        self.group_name = f'market_{symbol}'
+        safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', symbol)
+        self.group_name = f'market_{safe}'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
         await self.accept()

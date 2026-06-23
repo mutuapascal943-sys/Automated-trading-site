@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re
 import threading
 import time
 from datetime import datetime, timezone
@@ -31,6 +32,10 @@ class TickerBridge:
     _paper_running = False
 
     GROUP_PREFIX = "market_"
+
+    @staticmethod
+    def _sanitize_group_name(symbol: str) -> str:
+        return re.sub(r'[^a-zA-Z0-9_.-]', '_', symbol)
 
     # ------------------------------------------------------------------
     # Public API
@@ -182,7 +187,7 @@ class TickerBridge:
                 ask = tick.get("ask", tick.get("quote", 0))
                 price = tick.get("quote", bid)
 
-                group_name = f"{cls.GROUP_PREFIX}{symbol.replace('/', '-')}"
+                group_name = f"{cls.GROUP_PREFIX}{cls._sanitize_group_name(symbol)}"
                 try:
                     channel_layer = get_channel_layer()
                     await channel_layer.group_send(
@@ -255,7 +260,7 @@ class TickerBridge:
                     with cls._lock:
                         cls._paper_prices[sym] = price
 
-                    group_name = f"{cls.GROUP_PREFIX}{sym.replace('/', '-')}"
+                    group_name = f"{cls.GROUP_PREFIX}{cls._sanitize_group_name(sym)}"
 
                     try:
                         channel_layer = get_channel_layer()
