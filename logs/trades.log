@@ -1120,3 +1120,14 @@
 [2026-07-14 12:58:05,532] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
 [2026-07-14 12:58:06,535] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
 [2026-07-14 12:58:07,543] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:08,560] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:09,575] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:10,591] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:11,601] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:12,613] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:13,625] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:14,643] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:15,655] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:16,670] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:17,686] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
+[2026-07-14 12:58:18,711] WARNING trading_app.trading_bot.deriv_adapter WebSocket disconnected: [Errno 11001] getaddrinfo failed
