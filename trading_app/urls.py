@@ -33,10 +33,13 @@ urlpatterns = [
 
     # REST API - specific routes before router to avoid conflicts
     path('api/trades/execute/', api_views.execute_trade_view, name='api_execute_trade'),
+    path('api/trades/<int:trade_id>/modify/', api_views.modify_trade_view, name='api_modify_trade'),
     path('api/auth/request-otp/', api_views.request_otp_view, name='api_request_otp'),
     path('api/auth/verify-otp/', api_views.verify_otp_view, name='api_verify_otp'),
     path('api/market-data/', api_views.market_data_view, name='api_market_data'),
     path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
+    path('api/broker/status/', api_views.broker_status_view, name='api_broker_status'),
+    path('api/broker/health/', api_views.broker_health_check_view, name='api_broker_health'),
     path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
@@ -45,12 +48,12 @@ urlpatterns = [
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
     path('api/risk-config/', api_views.risk_config_view, name='api_risk_config'),
     path('api/analyze-signal/', api_views.analyze_and_signal_view, name='api_analyze_signal'),
-    path('api/broker/status/', api_views.broker_status_view, name='api_broker_status'),
     path('api/notifications/', api_views.list_notifications, name='api_notifications'),
     path('api/notifications/<int:notification_id>/read/', api_views.mark_notification_read, name='api_notification_read'),
     path('api/notifications/read-all/', api_views.mark_all_notifications_read, name='api_notifications_read_all'),
     path('api/backtest/', api_views.run_backtest_view, name='api_backtest'),
     path('api/ws/ticker/subscribe/', api_views.ticker_subscribe_view, name='api_ticker_subscribe'),
     path('api/ws/ticker/unsubscribe/', api_views.ticker_unsubscribe_view, name='api_ticker_unsubscribe'),
+    path('api/health/', api_views.health_check_view, name='api_health_check'),
     path('api/', include(router.urls)),
 ]

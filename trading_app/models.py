@@ -45,6 +45,12 @@ class RiskConfig(models.Model):
                                               help_text='Daily profit target %')
     max_position_size = models.DecimalField(max_digits=10, decimal_places=2, default=Decimal('1.0'),
                                             help_text='Max volume per position (lots)')
+    max_exposure_percent = models.DecimalField(max_digits=5, decimal_places=1, default=Decimal('20.0'),
+                                               help_text='Max total exposure as % of balance')
+    min_confidence = models.IntegerField(default=60, help_text='Minimum signal confidence % to auto-execute')
+    trailing_stop_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
+                                                default=None, help_text='Trailing stop % (blank to disable)')
+    max_open_positions = models.IntegerField(default=5, help_text='Max simultaneous open positions')
     auto_execute = models.BooleanField(default=False, help_text='Auto-execute signals without manual confirmation')
     trading_enabled = models.BooleanField(default=True, help_text='Master toggle for all trading')
     updated_at = models.DateTimeField(auto_now=True)
@@ -104,6 +110,7 @@ class Trade(models.Model):
         ('OPEN', 'Open'),
         ('CLOSED', 'Closed'),
         ('CANCELLED', 'Cancelled'),
+        ('FAILED', 'Failed'),
     ])
     order_type = models.CharField(max_length=20, default='MARKET', choices=[
         ('MARKET', 'Market'),

@@ -1,3 +1,4 @@
+import time
 from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
@@ -18,8 +19,13 @@ logger = logging.getLogger(__name__)
 audit = ConsoleAuditLogger()
 
 
-@shared_task
-def send_otp_email_task(user_id: int, purpose: str = '2fa') -> bool:
+@shared_task(
+    bind=True,
+    max_retries=3,
+    default_retry_delay=60,
+    acks_late=True,
+)
+def send_otp_email_task(self, user_id: int, purpose: str = '2fa') -> bool:
     try:
         user = User.objects.get(id=user_id)
         otp_code = generate_otp()
@@ -39,6 +45,10 @@ def send_otp_email_task(user_id: int, purpose: str = '2fa') -> bool:
         return False
     except Exception as e:
         logger.error(f'Failed to send OTP email to user {user_id}: {e}')
+        try:
+            self.retry(exc=e)
+        except self.MaxRetriesExceededError:
+            logger.error(f'Max retries exceeded for OTP email to user {user_id}')
         return False
 
 
@@ -125,6 +135,7 @@ def check_paper_positions():
                 trade.pnl = pnl
                 trade.closed_at = timezone.now()
                 trade.save()
+                _update_user_balance(user, pnl)
                 Notification.create_notification(
                     user=user, title=f'Stop Loss Hit — {trade.symbol}',
                     message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
@@ -141,6 +152,7 @@ def check_paper_positions():
                 trade.pnl = pnl
                 trade.closed_at = timezone.now()
                 trade.save()
+                _update_user_balance(user, pnl)
                 Notification.create_notification(
                     user=user, title=f'Take Profit Hit — {trade.symbol}',
                     message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
@@ -150,6 +162,11 @@ def check_paper_positions():
                 trade.save()
         except Exception as e:
             logger.error(f'Failed to check paper position {trade.id}: {e}')
+
+
+def _update_user_balance(user, pnl):
+    user.balance += pnl
+    user.save(update_fields=['balance'])
 
 
 @shared_task
@@ -185,6 +202,20 @@ def _run_single_user_bot(user):
     provider = OpenAIProvider(api_key=api_key)
     analyzer = LLMAnalyzer(provider=provider)
 
+    open_trades = Trade.objects.filter(user=user, status='OPEN')
+    open_count = open_trades.count()
+    if open_count >= risk.max_open_positions:
+        logger.info(f'User {user.id} hit max open positions ({risk.max_open_positions})')
+        return
+
+    today = timezone.now().date()
+    if user.last_trade_date != today:
+        user.daily_trades_count = 0
+        user.last_trade_date = today
+
+    if user.daily_trades_count >= risk.max_daily_trades:
+        return
+
     adapter = None
     try:
         adapter = get_adapter_for_broker(user.broker or '')
@@ -193,17 +224,17 @@ def _run_single_user_bot(user):
     except Exception as e:
         logger.warning(f'Could not connect broker adapter for user {user.id}: {e}')
 
+    daily_pnl = _get_daily_pnl(user)
+
     for symbol in symbols:
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
         if existing_open > 0:
             continue
 
-        today = timezone.now().date()
-        if user.last_trade_date != today:
-            user.daily_trades_count = 0
-            user.last_trade_date = today
-
         if user.daily_trades_count >= risk.max_daily_trades:
+            break
+
+        if open_count >= risk.max_open_positions:
             break
 
         try:
@@ -211,7 +242,7 @@ def _run_single_user_bot(user):
             if adapter is not None:
                 try:
                     candles = adapter.get_candles(symbol, 3600, 30)
-                    logger.info(f'Fetched {len(candles)} candles for {symbol} via Deriv')
+                    logger.info(f'Fetched {len(candles)} candles for {symbol} via {user.broker}')
                 except Exception as e:
                     logger.warning(f'Failed to fetch candles for {symbol}: {e}')
                     cached = CacheService.get_market_data(symbol)
@@ -221,13 +252,25 @@ def _run_single_user_bot(user):
             if not candles:
                 continue
 
-            analysis = analyzer.analyze(symbol, candles)
+            recent_trades = list(
+                Trade.objects.filter(user=user, symbol=symbol, status='CLOSED')
+                .order_by('-closed_at')[:10]
+                .values('action', 'pnl', 'confidence', 'symbol')
+            )
+
+            analysis = analyzer.analyze(symbol, candles, trade_history=recent_trades)
 
             if analysis.bias == 'neutral':
                 continue
 
-            signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
             confidence = int(analysis.confidence * 100)
+            if confidence < risk.min_confidence:
+                logger.info(
+                    f'Signal for {symbol} confidence {confidence}% below threshold {risk.min_confidence}%'
+                )
+                continue
+
+            signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
 
             signal = TradingSignal.objects.create(
                 user=user,
@@ -258,13 +301,17 @@ def _run_single_user_bot(user):
                 continue
 
             trade = inner_serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
-            _execute_trade(user, trade, risk)
+            trade = _execute_trade(user, trade, risk, daily_pnl=daily_pnl)
 
-            signal.is_executed = True
-            signal.save()
+            if trade.status == 'OPEN':
+                signal.is_executed = True
+                signal.save()
+                user.daily_trades_count += 1
+                user.save()
+                open_count += 1
 
-            user.daily_trades_count += 1
-            user.save()
+                if trade.pnl is not None:
+                    daily_pnl += trade.pnl
 
         except Exception as e:
             logger.error(f'Bot cycle symbol {symbol} failed for user {user.id}: {e}')
@@ -276,9 +323,17 @@ def _run_single_user_bot(user):
             pass
 
 
+def _get_daily_pnl(user):
+    today = timezone.now().date()
+    from django.db.models import Sum
+    result = Trade.objects.filter(
+        user=user, status='CLOSED', closed_at__date=today
+    ).aggregate(total=Sum('pnl'))
+    return result['total'] or Decimal('0')
+
+
 def _make_fallback_candle(symbol, cached):
     from .trading_bot.interface import Candle
-    from decimal import Decimal
     from datetime import datetime, timezone
     price = Decimal(str(cached.get('price', 0)))
     ts_str = cached.get('timestamp')
@@ -290,16 +345,25 @@ def _make_fallback_candle(symbol, cached):
     )]
 
 
-def _execute_trade(user, trade, risk):
-    engine = RiskEngine(
-        sizing=PositionSizing(
-            method='fixed',
-            fixed_volume=Decimal(str(trade.volume)),
-            max_position_size=risk.max_position_size,
-        ),
-        max_exposure_percent=Decimal('50'),
-        max_daily_loss_percent=risk.max_drawdown,
+def _execute_trade(user, trade, risk, daily_pnl=None):
+    open_trades = list(Trade.objects.filter(user=user, status='OPEN'))
+
+    sizing = PositionSizing(
+        method='fixed',
+        fixed_volume=Decimal(str(trade.volume)),
+        max_position_size=risk.max_position_size,
     )
+
+    engine = RiskEngine(
+        sizing=sizing,
+        max_exposure_percent=risk.max_exposure_percent,
+        max_daily_loss_percent=risk.max_drawdown,
+        trailing_stop_percent=risk.trailing_stop_percent,
+        account_balance=user.balance,
+    )
+
+    if daily_pnl is not None:
+        engine.record_trade_pnl(daily_pnl)
 
     fake_signal = OrderRequest(
         symbol=trade.symbol,
@@ -311,37 +375,48 @@ def _execute_trade(user, trade, risk):
         take_profit=trade.take_profit,
     )
 
-    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance)
+    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance, open_trades)
     if risk_signal is None:
         trade.status = 'CANCELLED'
         trade.save()
-        return
+        audit.log_risk('rules_engine', triggered=True, details={
+            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk_rules_rejected',
+        })
+        return trade
 
     if user.paper_mode:
         paper = PaperBrokerAdapter(initial_balance=user.balance)
         paper.connect({})
-        order = paper.place_order(OrderRequest(
-            symbol=trade.symbol,
-            side=trade.action.lower(),
-            order_type=trade.order_type.lower(),
-            volume=Decimal(str(trade.volume)),
-            price=trade.entry_price,
-            stop_loss=risk_signal.stop_loss,
-            take_profit=risk_signal.take_profit,
-        ))
-        trade.status = 'OPEN'
-        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-        trade.current_price = trade.entry_price
-        trade.unrealized_pnl = Decimal('0')
-        trade.executed_at = timezone.now()
-        trade.is_live = False
-        trade.save()
-        Notification.create_notification(
-            user=user, title=f'Paper Trade Opened',
-            message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
-            notification_type='trade',
-        )
-        return
+        try:
+            order = paper.place_order(OrderRequest(
+                symbol=trade.symbol,
+                side=trade.action.lower(),
+                order_type=trade.order_type.lower(),
+                volume=Decimal(str(trade.volume)),
+                price=trade.entry_price,
+                stop_loss=risk_signal.stop_loss,
+                take_profit=risk_signal.take_profit,
+            ))
+            trade.status = 'OPEN'
+            trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+            trade.current_price = trade.entry_price
+            trade.unrealized_pnl = Decimal('0')
+            trade.stop_loss = risk_signal.stop_loss
+            trade.take_profit = risk_signal.take_profit
+            trade.executed_at = timezone.now()
+            trade.is_live = False
+            trade.save()
+            Notification.create_notification(
+                user=user, title='Paper Trade Opened',
+                message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
+                notification_type='trade',
+            )
+            audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
+        except Exception as e:
+            logger.error(f'Paper execution failed for trade {trade.id}: {e}')
+            trade.status = 'FAILED'
+            trade.save()
+        return trade
 
     adapter = get_adapter_for_broker(user.broker or '')
     creds = build_credentials(user)
@@ -360,12 +435,26 @@ def _execute_trade(user, trade, risk):
         trade.status = 'OPEN'
         trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
         trade.broker_trade_id = order.broker_order_id or ''
+        trade.stop_loss = risk_signal.stop_loss
+        trade.take_profit = risk_signal.take_profit
         trade.executed_at = timezone.now()
         trade.is_live = True
         trade.save()
+        Notification.create_notification(
+            user=user, title='Live Trade Opened',
+            message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
+            notification_type='trade',
+        )
+        audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
     except Exception as e:
         logger.error(f'Live execution failed for trade {trade.id}: {e}')
-        trade.status = 'OPEN'
-        trade.executed_at = timezone.now()
-        trade.is_live = False
+        trade.status = 'FAILED'
         trade.save()
+        Notification.create_notification(
+            user=user, title=f'Trade Failed — {trade.symbol}',
+            message=f'{trade.action} {trade.symbol} failed: {str(e)[:200]}',
+            notification_type='trade',
+        )
+        audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
+
+    return trade

@@ -98,5 +98,102 @@ class LLMService:
             logger.error(f'RAG query failed: {e}')
             return f'Error: {str(e)}'
 
+    def analyze_sentiment(self, text: str) -> str:
+        if not self.is_configured():
+            return 'LLM not configured'
+
+        system_prompt = (
+            'You are a financial market sentiment analyst. '
+            'Analyze the provided text for market sentiment indicators. '
+            'Consider: news, social media posts, economic data, or any market-related text. '
+            'Output a JSON object with: '
+            '{"sentiment": "bullish"/"bearish"/"neutral", '
+            '"confidence": 0-100, '
+            '"key_factors": ["factor1", "factor2", ...], '
+            '"impact": "positive"/"negative"/"mixed", '
+            '"summary": "brief 1-2 sentence summary"}'
+        )
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': text}
+                ],
+                temperature=0.3,
+                max_tokens=500,
+                response_format={'type': 'json_object'},
+            )
+            result = json.loads(response.choices[0].message.content)
+            return json.dumps(result)
+        except Exception as e:
+            logger.error(f'Sentiment analysis failed: {e}')
+            return json.dumps({'error': str(e), 'sentiment': 'neutral', 'confidence': 0})
+
+    def analyze_with_feedback(
+        self,
+        symbol: str,
+        candles_text: str,
+        trade_history: list[dict],
+        additional_context: str = '',
+    ) -> dict:
+        if not self.is_configured():
+            return {'error': 'LLM not configured', 'signal': 'NONE', 'confidence': 0}
+
+        feedback_section = ''
+        if trade_history:
+            recent = trade_history[-10:]
+            wins = sum(1 for t in recent if t.get('pnl', 0) > 0)
+            losses = sum(1 for t in recent if t.get('pnl', 0) < 0)
+            avg_pnl = sum(t.get('pnl', 0) for t in recent) / len(recent) if recent else 0
+            feedback_section = (
+                f'\n\nRecent trade history for {symbol}:\n'
+                f'Last 10 trades: {wins} wins, {losses} losses, avg PnL: {avg_pnl:.2f}\n'
+                f'Recent signals and outcomes:\n'
+            )
+            for t in recent[-5:]:
+                outcome = 'WIN' if t.get('pnl', 0) > 0 else 'LOSS'
+                feedback_section += (
+                    f'- {t.get("action", "?")} {t.get("symbol", "?")} '
+                    f'confidence={t.get("confidence", "?")}%, '
+                    f'PnL={t.get("pnl", 0):.2f} ({outcome})\n'
+                )
+
+        system_prompt = (
+            'You are an expert Forex and crypto trading analyst. '
+            'You have access to historical trade outcomes for this symbol. '
+            'Use this feedback to improve your analysis. '
+            'If past signals at similar confidence levels resulted in losses, be more conservative. '
+            'If past signals were profitable, maintain your approach. '
+            'Output a JSON object with: '
+            '{"signal": "BUY"/"SELL"/"HOLD", "confidence": 0-100, "reasoning": "str", '
+            '"stop_loss": "str", "take_profit": "str", "risk_level": "LOW"/"MEDIUM"/"HIGH", '
+            '"lesson_learned": "brief note on what past trades suggest"}'
+        )
+
+        user_content = f'Market Data:\n{candles_text}'
+        if feedback_section:
+            user_content += feedback_section
+        if additional_context:
+            user_content += f'\n\nAdditional context:\n{additional_context}'
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {'role': 'system', 'content': system_prompt},
+                    {'role': 'user', 'content': user_content}
+                ],
+                temperature=0.3,
+                max_tokens=600,
+                response_format={'type': 'json_object'},
+            )
+            result = json.loads(response.choices[0].message.content)
+            return result
+        except Exception as e:
+            logger.error(f'Feedback analysis failed: {e}')
+            return {'error': str(e), 'signal': 'NONE', 'confidence': 0}
+
 
 llm_service = LLMService()

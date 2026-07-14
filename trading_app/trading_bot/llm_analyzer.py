@@ -15,6 +15,7 @@ class LLMAnalysisResult:
     bias: str  # bullish | bearish | neutral
     confidence: float  # 0.0 - 1.0
     rationale: str
+    lesson_learned: str = ""
 
 
 class LLMProvider(Protocol):
@@ -51,6 +52,19 @@ class LLMAnalyzer:
         '"rationale": "brief explanation of key factors"}'
     )
 
+    FEEDBACK_SYSTEM_PROMPT = (
+        "You are a forex and crypto market analyst with access to historical trade outcomes. "
+        "Given recent OHLCV candle data, optional indicators, and past trade performance, "
+        "produce a structured qualitative assessment of the market. "
+        "Use the trade history feedback to adjust your confidence: "
+        "if similar past signals were losses, be more conservative; if profitable, maintain approach. "
+        "Respond ONLY with JSON in this format:\n"
+        '{"bias": "bullish" | "bearish" | "neutral", '
+        '"confidence": 0.0-1.0, '
+        '"rationale": "brief explanation of key factors", '
+        '"lesson_learned": "brief note on what past trades suggest for this symbol"}'
+    )
+
     def __init__(
         self,
         provider: LLMProvider,
@@ -64,9 +78,13 @@ class LLMAnalyzer:
         symbol: str,
         candles: list[Candle],
         additional_context: str | None = None,
+        trade_history: list[dict] | None = None,
     ) -> LLMAnalysisResult:
         recent = candles[-self._max_candles:]
         summary = self._summarize_candles(symbol, recent)
+
+        if trade_history:
+            return self._analyze_with_feedback(symbol, summary, trade_history, additional_context)
 
         user_content = summary
         if additional_context:
@@ -85,6 +103,50 @@ class LLMAnalyzer:
             )
         except Exception as e:
             logger.warning("LLM analysis failed: %s", e)
+            return LLMAnalysisResult(bias="neutral", confidence=0.0, rationale=f"Analysis error: {e}")
+
+    def _analyze_with_feedback(
+        self,
+        symbol: str,
+        summary: str,
+        trade_history: list[dict],
+        additional_context: str | None = None,
+    ) -> LLMAnalysisResult:
+        recent = trade_history[-10:]
+        wins = sum(1 for t in recent if t.get("pnl", 0) > 0)
+        losses = sum(1 for t in recent if t.get("pnl", 0) < 0)
+        avg_pnl = sum(t.get("pnl", 0) for t in recent) / len(recent) if recent else 0
+
+        feedback = (
+            f"\n\nTrade history feedback for {symbol}:\n"
+            f"Last {len(recent)} trades: {wins} wins, {losses} losses, avg PnL: {avg_pnl:.2f}\n"
+            f"Recent outcomes:\n"
+        )
+        for t in recent[-5:]:
+            outcome = "WIN" if t.get("pnl", 0) > 0 else "LOSS"
+            feedback += (
+                f"- {t.get('action', '?')} confidence={t.get('confidence', '?')}%, "
+                f"PnL={t.get('pnl', 0):.2f} ({outcome})\n"
+            )
+
+        user_content = summary + feedback
+        if additional_context:
+            user_content += f"\n\nAdditional context:\n{additional_context}"
+
+        try:
+            raw = self._provider.chat_complete([
+                {"role": "system", "content": self.FEEDBACK_SYSTEM_PROMPT},
+                {"role": "user", "content": user_content},
+            ])
+            parsed = json.loads(raw)
+            return LLMAnalysisResult(
+                bias=parsed.get("bias", "neutral"),
+                confidence=float(parsed.get("confidence", 0)),
+                rationale=parsed.get("rationale", ""),
+                lesson_learned=parsed.get("lesson_learned", ""),
+            )
+        except Exception as e:
+            logger.warning("LLM feedback analysis failed: %s", e)
             return LLMAnalysisResult(bias="neutral", confidence=0.0, rationale=f"Analysis error: {e}")
 
     @staticmethod

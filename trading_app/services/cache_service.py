@@ -9,6 +9,18 @@ class CacheService:
     LLM_CACHE_PREFIX = 'llm_'
 
     @staticmethod
+    def set(key: str, value, timeout: int = 300) -> None:
+        cache.set(key, value, timeout=timeout)
+
+    @staticmethod
+    def get(key: str, default=None):
+        return cache.get(key, default)
+
+    @staticmethod
+    def delete(key: str) -> None:
+        cache.delete(key)
+
+    @staticmethod
     def set_otp(user_id: int, otp_code: str) -> None:
         key = f'{CacheService.OTP_PREFIX}{user_id}'
         cache.set(key, otp_code, timeout=settings.OTP_EXPIRY_SECONDS)

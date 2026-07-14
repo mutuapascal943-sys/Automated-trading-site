@@ -1,3 +1,4 @@
+import secrets
 import time
 import logging
 from decimal import Decimal
@@ -98,12 +99,14 @@ class RAGDocumentViewSet(viewsets.ModelViewSet):
         )
         chunk_objs = []
         for chunk_data in chunks:
+            embedding = rag_engine.get_embedding(chunk_data['text'])
             chunk_objs.append(RAGChunk(
                 document=doc,
                 chunk_id=chunk_data['id'],
                 text=chunk_data['text'],
                 start_pos=chunk_data['start_pos'],
                 end_pos=chunk_data['end_pos'],
+                embedding=embedding,
             ))
         RAGChunk.objects.bulk_create(chunk_objs)
         doc.chunk_count = len(chunks)
@@ -144,12 +147,16 @@ class LLMQueryView(generics.CreateAPIView):
                 for doc in docs:
                     chunks = RAGChunk.objects.filter(document=doc)
                     for c in chunks:
-                        all_chunks.append({'id': c.chunk_id, 'text': c.text})
+                        all_chunks.append({
+                            'id': c.chunk_id,
+                            'text': c.text,
+                            'embedding': c.embedding,
+                        })
                 ranked = rag_engine.rank_chunks(prompt, all_chunks)
                 context_texts = [c['text'] for c in ranked]
                 response_text = llm_service.rag_query(prompt, context_texts)
             elif query_type == 'sentiment':
-                response_text = 'Sentiment analysis not yet implemented'
+                response_text = llm_service.analyze_sentiment(prompt)
             else:
                 response_text = 'Unknown query type'
 
@@ -238,12 +245,20 @@ def execute_trade_view(request):
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
+    open_count = Trade.objects.filter(user=user, status='OPEN').count()
+    if open_count >= risk.max_open_positions:
+        return Response(
+            {'error': f'Max open positions reached ({risk.max_open_positions})'},
+            status=status.HTTP_429_TOO_MANY_REQUESTS,
+        )
+
     trade = serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
 
     trade = _execute_via_adapter(user, trade, risk)
 
-    user.daily_trades_count += 1
-    user.save()
+    if trade.status == 'OPEN':
+        user.daily_trades_count += 1
+        user.save()
 
     return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
@@ -252,15 +267,28 @@ def _execute_via_adapter(user, trade, risk=None):
     if risk is None:
         risk = RiskConfig.get_for_user(user)
 
-    engine = RiskEngine(
-        sizing=PositionSizing(
-            method='fixed',
-            fixed_volume=Decimal(str(trade.volume)),
-            max_position_size=risk.max_position_size,
-        ),
-        max_exposure_percent=Decimal('50'),
-        max_daily_loss_percent=risk.max_drawdown,
+    open_trades = list(Trade.objects.filter(user=user, status='OPEN'))
+
+    sizing = PositionSizing(
+        method='fixed',
+        fixed_volume=Decimal(str(trade.volume)),
+        max_position_size=risk.max_position_size,
     )
+
+    engine = RiskEngine(
+        sizing=sizing,
+        max_exposure_percent=risk.max_exposure_percent,
+        max_daily_loss_percent=risk.max_drawdown,
+        trailing_stop_percent=risk.trailing_stop_percent,
+        account_balance=user.balance,
+    )
+
+    today = timezone.now().date()
+    from django.db.models import Sum
+    daily_pnl = Trade.objects.filter(
+        user=user, status='CLOSED', closed_at__date=today
+    ).aggregate(total=Sum('pnl'))['total'] or Decimal('0')
+    engine.record_trade_pnl(daily_pnl)
 
     fake_signal = RiskOrderRequest(
         symbol=trade.symbol,
@@ -272,38 +300,43 @@ def _execute_via_adapter(user, trade, risk=None):
         take_profit=trade.take_profit,
     )
 
-    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance)
+    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance, open_trades)
     if risk_signal is None:
         trade.status = 'CANCELLED'
         trade.save()
         audit.log_risk('rules_engine', triggered=True, details={
-            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk rules rejected',
+            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk_rules_rejected',
         })
         return trade
 
     if user.paper_mode:
         paper = PaperBrokerAdapter(initial_balance=user.balance)
         paper.connect({})
-        order = paper.place_order(RiskOrderRequest(
-            symbol=trade.symbol,
-            side=trade.action.lower(),
-            order_type=trade.order_type.lower(),
-            volume=Decimal(str(trade.volume)),
-            price=trade.entry_price,
-            stop_loss=risk_signal.stop_loss,
-            take_profit=risk_signal.take_profit,
-        ))
-        trade.status = 'OPEN'
-        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-        trade.current_price = trade.entry_price
-        trade.unrealized_pnl = Decimal('0')
-        trade.stop_loss = risk_signal.stop_loss
-        trade.take_profit = risk_signal.take_profit
-        trade.executed_at = timezone.now()
-        trade.is_live = False
-        trade.save()
-        create_notification(user, 'Paper Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
-        audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
+        try:
+            order = paper.place_order(RiskOrderRequest(
+                symbol=trade.symbol,
+                side=trade.action.lower(),
+                order_type=trade.order_type.lower(),
+                volume=Decimal(str(trade.volume)),
+                price=trade.entry_price,
+                stop_loss=risk_signal.stop_loss,
+                take_profit=risk_signal.take_profit,
+            ))
+            trade.status = 'OPEN'
+            trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
+            trade.current_price = trade.entry_price
+            trade.unrealized_pnl = Decimal('0')
+            trade.stop_loss = risk_signal.stop_loss
+            trade.take_profit = risk_signal.take_profit
+            trade.executed_at = timezone.now()
+            trade.is_live = False
+            trade.save()
+            create_notification(user, 'Paper Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
+            audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
+        except Exception as e:
+            logger.error(f'Paper execution failed for trade {trade.id}: {e}')
+            trade.status = 'FAILED'
+            trade.save()
         return trade
 
     adapter = _resolve_adapter(user)
@@ -332,17 +365,41 @@ def _execute_via_adapter(user, trade, risk=None):
         audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
     except Exception as e:
         logger.error('Live execution failed: %s', e)
-        trade.status = 'OPEN'
-        trade.executed_at = timezone.now()
-        trade.is_live = False
+        trade.status = 'FAILED'
         trade.save()
+        create_notification(user, f'Trade Failed — {trade.symbol}', f'{trade.action} {trade.symbol} failed: {str(e)[:200]}', 'trade')
         audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
 
     return trade
 
 
 # ---------------------------------------------------------------------------
-# Broker Configuration
+# Trade Modification (SL/TP)
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def modify_trade_view(request, trade_id):
+    trade = get_object_or_404(Trade, id=trade_id, user=request.user, status='OPEN')
+
+    stop_loss = request.data.get('stop_loss')
+    take_profit = request.data.get('take_profit')
+
+    if stop_loss is not None:
+        trade.stop_loss = Decimal(str(stop_loss))
+    if take_profit is not None:
+        trade.take_profit = Decimal(str(take_profit))
+
+    trade.save()
+    audit.log_order('trade_modified', str(trade.id), {
+        'stop_loss': str(trade.stop_loss),
+        'take_profit': str(trade.take_profit),
+    })
+    return Response(TradeSerializer(trade).data)
+
+
+# ---------------------------------------------------------------------------
+# Broker Configuration & Health Check
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -364,8 +421,29 @@ def configure_broker_view(request):
         user.broker = serializer.validated_data['broker']
     user.save()
 
-    audit.log_connection(user.broker or 'unknown', 'configured', {'user_id': user.id})
-    return Response({'status': 'Broker configured successfully', 'paper_mode': user.paper_mode})
+    adapter = _resolve_adapter(user)
+    creds = build_credentials(user)
+    connected = False
+    error_msg = ''
+    try:
+        adapter.connect(creds)
+        adapter.disconnect()
+        connected = True
+    except Exception as e:
+        error_msg = str(e)
+        logger.warning(f'Broker connection test failed for user {user.id}: {e}')
+
+    audit.log_connection(user.broker or 'unknown', 'configured', {
+        'user_id': user.id, 'connected': connected,
+    })
+    return Response({
+        'status': 'Broker configured successfully',
+        'paper_mode': user.paper_mode,
+        'connection_test': {
+            'success': connected,
+            'error': error_msg if not connected else '',
+        },
+    })
 
 
 @api_view(['GET'])
@@ -373,12 +451,51 @@ def configure_broker_view(request):
 def broker_status_view(request):
     user = request.user
     configured = bool(user.broker_api_key) and bool(user.broker)
+
+    health = {'reachable': False, 'error': ''}
+    if configured and not user.paper_mode:
+        adapter = _resolve_adapter(user)
+        creds = build_credentials(user)
+        try:
+            adapter.connect(creds)
+            adapter.disconnect()
+            health['reachable'] = True
+        except Exception as e:
+            health['error'] = str(e)
+
     return Response({
         'broker': user.broker,
         'paper_mode': user.paper_mode,
         'configured': configured,
+        'health': health,
         'broker_list': ['Deriv', 'Binance'],
     })
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def broker_health_check_view(request):
+    user = request.user
+    adapter = _resolve_adapter(user)
+    creds = build_credentials(user)
+    start = time.time()
+    try:
+        adapter.connect(creds)
+        latency_ms = int((time.time() - start) * 1000)
+        adapter.disconnect()
+        return Response({
+            'status': 'healthy',
+            'broker': user.broker,
+            'latency_ms': latency_ms,
+        })
+    except Exception as e:
+        latency_ms = int((time.time() - start) * 1000)
+        return Response({
+            'status': 'unhealthy',
+            'broker': user.broker,
+            'error': str(e),
+            'latency_ms': latency_ms,
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
 
 # ---------------------------------------------------------------------------
@@ -448,6 +565,17 @@ def analyze_and_signal_view(request):
 
         risk = RiskConfig.get_for_user(request.user)
         if risk.auto_execute and signal.signal_type != 'HOLD' and risk.trading_enabled:
+            if confidence < risk.min_confidence:
+                return Response({
+                    'signal': TradingSignalSerializer(signal).data,
+                    'analysis': {
+                        'bias': bias,
+                        'confidence': confidence,
+                        'rationale': analysis.rationale if analysis else '',
+                    },
+                    'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
+                })
+
             from decimal import Decimal
             trade_data = {
                 'symbol': symbol,
@@ -462,7 +590,7 @@ def analyze_and_signal_view(request):
             if inner_serializer.is_valid():
                 trade = inner_serializer.save(user=request.user, status='PENDING', is_live=not request.user.paper_mode)
                 _execute_via_adapter(request.user, trade, risk)
-                signal.is_executed = True
+                signal.is_executed = trade.status == 'OPEN'
                 signal.save()
                 return Response({
                     'signal': TradingSignalSerializer(signal).data,
@@ -489,7 +617,7 @@ def analyze_and_signal_view(request):
 
 
 # ---------------------------------------------------------------------------
-# OTP, Password Reset, Dashboard, Notifications (unchanged)
+# OTP, Password Reset, Dashboard, Notifications
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -504,7 +632,7 @@ def request_otp_view(request):
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'status': 'If an account with that email exists, an OTP has been sent.'})
 
     if not CacheService.check_rate_limit(f'otp_{user.id}', max_attempts=3, window=60):
         return Response(
@@ -524,12 +652,7 @@ def request_otp_view(request):
     CacheService.set_otp(user.id, otp_code)
 
     sent = send_otp_email(user, otp_code)
-    if sent:
-        return Response({'status': 'OTP sent to your email'})
-    return Response(
-        {'error': 'Failed to send email. Please try again.'},
-        status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-    )
+    return Response({'status': 'If an account with that email exists, an OTP has been sent.'})
 
 
 @api_view(['POST'])
@@ -548,7 +671,7 @@ def verify_otp_view(request):
     try:
         user = User.objects.get(email=email)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
 
     if CacheService.verify_otp(user.id, code):
         otp = EmailOTP.objects.filter(
@@ -664,16 +787,15 @@ def api_password_reset_request(request):
     if not email:
         return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
 
+    response_msg = {'status': 'If an account with that email exists, a reset code has been sent.'}
+
     try:
         user = User.objects.get(email__iexact=email)
     except User.DoesNotExist:
-        return Response({'error': 'No account found with that email'}, status=status.HTTP_404_NOT_FOUND)
+        return Response(response_msg)
 
     if not CacheService.check_rate_limit(f'api_pwd_reset_{user.id}', max_attempts=3, window=300):
-        return Response(
-            {'error': 'Too many requests. Please try again in 5 minutes.'},
-            status=status.HTTP_429_TOO_MANY_REQUESTS,
-        )
+        return Response(response_msg)
 
     otp_code = generate_otp()
     expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
@@ -683,22 +805,30 @@ def api_password_reset_request(request):
     CacheService.set_otp(user.id, otp_code)
     send_otp_email(user, otp_code)
 
-    return Response({'status': 'OTP sent', 'user_id': user.id})
+    reset_token = secrets.token_urlsafe(32)
+    CacheService.set(f'pwd_reset_token_{reset_token}', user.id, timeout=600)
+
+    return Response({'status': 'OTP sent', 'reset_token': reset_token})
 
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_verify(request):
-    email = request.data.get('email', '')
+    reset_token = request.data.get('reset_token', '')
     code = request.data.get('code', '')
 
-    if not email or not code:
-        return Response({'error': 'Email and code are required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not reset_token or not code:
+        return Response({'error': 'reset_token and code are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    from .services.cache_service import CacheService
+    user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
+    if not user_id:
+        return Response({'error': 'Invalid or expired reset session'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
-        user = User.objects.get(email__iexact=email)
+        user = User.objects.get(id=user_id)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
 
     if CacheService.verify_otp(user.id, code):
         otp = EmailOTP.objects.filter(
@@ -708,7 +838,7 @@ def api_password_reset_verify(request):
             otp.is_used = True
             otp.save()
             CacheService.reset_rate_limit(f'api_pwd_reset_{user.id}')
-            return Response({'status': 'verified', 'reset_token': str(user.id)})
+            return Response({'status': 'verified', 'reset_token': reset_token})
 
     return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -716,22 +846,34 @@ def api_password_reset_verify(request):
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_confirm(request):
-    email = request.data.get('email', '')
+    reset_token = request.data.get('reset_token', '')
     new_password = request.data.get('new_password', '')
 
-    if not email or not new_password:
-        return Response({'error': 'Email and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not reset_token or not new_password:
+        return Response({'error': 'reset_token and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
+    if not user_id:
+        return Response({'error': 'Invalid or expired reset session'}, status=status.HTTP_400_BAD_REQUEST)
 
     if len(new_password) < 8:
         return Response({'error': 'Password must be at least 8 characters'}, status=status.HTTP_400_BAD_REQUEST)
 
+    if new_password.lower() == new_password or new_password.upper() == new_password:
+        return Response({'error': 'Password must contain both uppercase and lowercase letters'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not any(c.isdigit() for c in new_password):
+        return Response({'error': 'Password must contain at least one digit'}, status=status.HTTP_400_BAD_REQUEST)
+
     try:
-        user = User.objects.get(email__iexact=email)
+        user = User.objects.get(id=user_id)
     except User.DoesNotExist:
-        return Response({'error': 'User not found'}, status=status.HTTP_404_NOT_FOUND)
+        return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
 
     user.set_password(new_password)
     user.save()
+
+    CacheService.delete(f'pwd_reset_token_{reset_token}')
 
     from django.contrib.sessions.models import Session
     sessions = Session.objects.filter(expire_date__gte=timezone.now())
@@ -742,6 +884,10 @@ def api_password_reset_confirm(request):
 
     return Response({'status': 'Password reset successful'})
 
+
+# ---------------------------------------------------------------------------
+# Notifications
+# ---------------------------------------------------------------------------
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
@@ -886,6 +1032,46 @@ def ticker_unsubscribe_view(request):
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
     TickerBridge.remove_subscription(symbol, str(request.user.id))
     return Response({'status': 'ok', 'symbol': symbol})
+
+
+# ---------------------------------------------------------------------------
+# Health Check
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def health_check_view(request):
+    from django.db import connection
+    db_ok = True
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+    except Exception:
+        db_ok = False
+
+    cache_ok = True
+    try:
+        CacheService.set('_health_check', 'ok', timeout=10)
+        if CacheService.get('_health_check') != 'ok':
+            cache_ok = False
+    except Exception:
+        cache_ok = False
+
+    redis_status = 'unavailable'
+    try:
+        from django_redis import get_redis_connection
+        conn = get_redis_connection("default")
+        conn.ping()
+        redis_status = 'connected'
+    except Exception:
+        redis_status = 'not_configured'
+
+    return Response({
+        'status': 'healthy' if db_ok else 'degraded',
+        'database': 'ok' if db_ok else 'error',
+        'cache': 'ok' if cache_ok else 'error',
+        'redis': redis_status,
+    })
 
 
 # ---------------------------------------------------------------------------

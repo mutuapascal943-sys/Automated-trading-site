@@ -4,11 +4,16 @@ from decouple import config
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
-SECRET_KEY = config('DJANGO_SECRET_KEY', default='django-insecure-change-me-in-production')
+SECRET_KEY = config('DJANGO_SECRET_KEY', default='')
+if not SECRET_KEY:
+    raise ValueError(
+        'DJANGO_SECRET_KEY environment variable is required. '
+        'Generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"'
+    )
 
-DEBUG = config('DJANGO_DEBUG', default=True, cast=bool)
+DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
 
-ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='*').split(',')
+ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
 INSTALLED_APPS = [
     'daphne',
@@ -56,11 +61,25 @@ TEMPLATES = [
 WSGI_APPLICATION = 'forex_ai_pro.wsgi.application'
 ASGI_APPLICATION = 'forex_ai_pro.asgi.application'
 
-CHANNEL_LAYERS = {
-    'default': {
-        'BACKEND': 'channels.layers.InMemoryChannelLayer',
-    },
-}
+REDIS_URL = config('REDIS_URL', default='')
+
+if REDIS_URL:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels_redis.core.RedisChannelLayer',
+            'CONFIG': {
+                'hosts': [REDIS_URL],
+                'capacity': 1500,
+                'expiry': 10,
+            },
+        },
+    }
+else:
+    CHANNEL_LAYERS = {
+        'default': {
+            'BACKEND': 'channels.layers.InMemoryChannelLayer',
+        },
+    }
 
 # Database - supports SQLite (dev) and PostgreSQL (prod)
 DATABASE_URL = config('DATABASE_URL', default='sqlite:///db.sqlite3')
@@ -182,6 +201,14 @@ SESSION_COOKIE_SECURE = not DEBUG
 CSRF_COOKIE_HTTPONLY = True
 CSRF_COOKIE_SECURE = not DEBUG
 
+# Security headers
+SECURE_BROWSER_XSS_FILTER = not DEBUG
+SECURE_CONTENT_TYPE_NOSNIFF = not DEBUG
+X_FRAME_OPTIONS = 'DENY'
+SECURE_HSTS_SECONDS = 31536000 if not DEBUG else 0
+SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
+SECURE_HSTS_PRELOAD = not DEBUG
+
 # Email Configuration
 if not DEBUG and config('EMAIL_HOST_USER', default=''):
     EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
@@ -261,5 +288,82 @@ CELERY_BEAT_SCHEDULE = {
     'check-paper-positions': {
         'task': 'trading_app.tasks.check_paper_positions',
         'schedule': crontab(minute='*/2'),
+    },
+}
+
+# Logging Configuration
+LOG_DIR = BASE_DIR / 'logs'
+LOG_DIR.mkdir(exist_ok=True)
+
+LOGGING = {
+    'version': 1,
+    'disable_existing_loggers': False,
+    'formatters': {
+        'verbose': {
+            'format': '[{asctime}] {levelname} {name} {message}',
+            'style': '{',
+        },
+    },
+    'filters': {
+        'require_debug_true': {
+            '()': 'django.utils.log.RequireDebugTrue',
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'INFO',
+            'class': 'logging.StreamHandler',
+            'formatter': 'verbose',
+        },
+        'file': {
+            'level': 'WARNING',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'app.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 5,
+            'formatter': 'verbose',
+        },
+        'trade_file': {
+            'level': 'INFO',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'trades.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+        'error_file': {
+            'level': 'ERROR',
+            'class': 'logging.handlers.RotatingFileHandler',
+            'filename': LOG_DIR / 'errors.log',
+            'maxBytes': 10 * 1024 * 1024,
+            'backupCount': 10,
+            'formatter': 'verbose',
+        },
+    },
+    'loggers': {
+        'django': {
+            'handlers': ['console', 'file'],
+            'level': 'INFO',
+            'propagate': True,
+        },
+        'trading_app': {
+            'handlers': ['console', 'trade_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'trading_app.trading_bot': {
+            'handlers': ['console', 'trade_file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+        'celery': {
+            'handlers': ['console', 'file', 'error_file'],
+            'level': 'INFO',
+            'propagate': False,
+        },
+    },
+    'root': {
+        'handlers': ['console', 'file', 'error_file'],
+        'level': 'WARNING',
     },
 }

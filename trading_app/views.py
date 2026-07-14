@@ -399,7 +399,11 @@ def llm_query_view(request):
             for doc in docs:
                 chunks = RAGChunk.objects.filter(document=doc)
                 for c in chunks:
-                    all_chunks.append({'id': c.chunk_id, 'text': c.text})
+                    all_chunks.append({
+                        'id': c.chunk_id,
+                        'text': c.text,
+                        'embedding': c.embedding,
+                    })
             ranked = rag_engine.rank_chunks(prompt, all_chunks)
             context_texts = [c['text'] for c in ranked]
             context['rag_results'] = context_texts
@@ -475,6 +479,7 @@ def upload_document_view(request):
                 text=chunk_data['text'],
                 start_pos=chunk_data['start_pos'],
                 end_pos=chunk_data['end_pos'],
+                embedding=chunk_data.get('embedding'),
             ))
         RAGChunk.objects.bulk_create(chunk_objs)
         doc.chunk_count = len(chunks)
@@ -499,12 +504,12 @@ def password_reset_request_view(request):
             try:
                 user = User.objects.get(email__iexact=email)
             except User.DoesNotExist:
-                messages.error(request, 'No account found with that email address.')
-                return render(request, 'registration/password_reset_request.html', {'form': form})
+                messages.success(request, 'If an account with that email exists, a verification code has been sent.')
+                return redirect('password_reset_verify')
 
             if not CacheService.check_rate_limit(f'pwd_reset_{user.id}', max_attempts=3, window=300):
-                messages.error(request, 'Too many password reset attempts. Please try again in 5 minutes.')
-                return render(request, 'registration/password_reset_request.html', {'form': form})
+                messages.success(request, 'If an account with that email exists, a verification code has been sent.')
+                return redirect('password_reset_verify')
 
             otp_code = generate_otp()
             expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)

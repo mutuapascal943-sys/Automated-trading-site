@@ -24,10 +24,12 @@ class PaperBrokerAdapter(BrokerAdapter):
         self,
         initial_balance: Decimal = Decimal("10000"),
         currency: str = "USD",
+        slippage_bps: int = 5,
         latencies_ms: tuple[int, int] = (50, 200),
     ) -> None:
         self._initial_balance = initial_balance
         self._currency = currency
+        self._slippage_bps = slippage_bps
         self._latencies_ms = latencies_ms
 
         self._connected = False
@@ -89,7 +91,8 @@ class PaperBrokerAdapter(BrokerAdapter):
 
         order_id = str(uuid.uuid4())
         candle = self._last_candle(request.symbol)
-        fill_price = request.price or (candle.close if candle else Decimal("1"))
+        base_price = request.price or (candle.close if candle else Decimal("1"))
+        fill_price = self._apply_slippage(base_price, request.side)
 
         order = Order(
             id=order_id,
@@ -124,6 +127,13 @@ class PaperBrokerAdapter(BrokerAdapter):
         self._balance -= cost
 
         return order
+
+    def _apply_slippage(self, price: Decimal, side: str) -> Decimal:
+        slippage_factor = Decimal(str(self._slippage_bps)) / Decimal("10000")
+        if side == "buy":
+            return price * (Decimal("1") + slippage_factor)
+        else:
+            return price * (Decimal("1") - slippage_factor)
 
     def cancel_order(self, order_id: str) -> None:
         order = self._orders.get(order_id)

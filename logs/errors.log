@@ -1,0 +1,259 @@
+[2026-07-14 12:24:24,227] ERROR trading_app.services.broker_service Failed to execute trade: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:24:26,507] ERROR trading_app.services.broker_service Failed to get market data for EUR/USD: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:32:21,089] ERROR trading_app.services.broker_service Failed to execute trade: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:32:23,513] ERROR trading_app.services.broker_service Failed to get market data for EUR/USD: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:37:28,150] ERROR trading_app.services.broker_service Failed to execute trade: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:37:30,506] ERROR trading_app.services.broker_service Failed to get market data for EUR/USD: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:49:53,847] ERROR django.request Internal Server Error: /api/trades/execute/
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\base.py", line 198, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\generic\base.py", line 106, in view
+    return self.dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\decorators.py", line 50, in handler
+    return func(*args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\api_views.py", line 232, in execute_trade_view
+    risk = RiskConfig.get_for_user(user)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\models.py", line 66, in get_for_user
+    obj, _ = cls.objects.get_or_create(user=user)
+             ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 987, in get_or_create
+    return self.get(**kwargs), False
+           ~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 635, in get
+    num = len(clone)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 372, in __len__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 2000, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 95, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1624, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 122, in execute
+    return super().execute(sql, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\utils.py", line 94, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+[2026-07-14 12:49:56,898] ERROR django.request Internal Server Error: /api/dashboard/stats/
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\base.py", line 198, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\generic\base.py", line 106, in view
+    return self.dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\decorators.py", line 50, in handler
+    return func(*args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\api_views.py", line 757, in dashboard_stats_view
+    risk = RiskConfig.get_for_user(user)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\models.py", line 66, in get_for_user
+    obj, _ = cls.objects.get_or_create(user=user)
+             ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 987, in get_or_create
+    return self.get(**kwargs), False
+           ~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 635, in get
+    num = len(clone)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 372, in __len__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 2000, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 95, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1624, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 122, in execute
+    return super().execute(sql, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\utils.py", line 94, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+[2026-07-14 12:49:59,783] ERROR django.request Internal Server Error: /api/trades/execute/
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+sqlite3.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\core\handlers\base.py", line 198, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\views\generic\base.py", line 106, in view
+    return self.dispatch(request, *args, **kwargs)
+           ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+    ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\rest_framework\decorators.py", line 50, in handler
+    return func(*args, **kwargs)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\api_views.py", line 232, in execute_trade_view
+    risk = RiskConfig.get_for_user(user)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\models.py", line 66, in get_for_user
+    obj, _ = cls.objects.get_or_create(user=user)
+             ~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\manager.py", line 87, in manager_method
+    return getattr(self.get_queryset(), name)(*args, **kwargs)
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 987, in get_or_create
+    return self.get(**kwargs), False
+           ~~~~~~~~^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 635, in get
+    num = len(clone)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 372, in __len__
+    self._fetch_all()
+    ~~~~~~~~~~~~~~~^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 2000, in _fetch_all
+    self._result_cache = list(self._iterable_class(self))
+                         ~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\query.py", line 95, in __iter__
+    results = compiler.execute_sql(
+        chunked_fetch=self.chunked_fetch, chunk_size=self.chunk_size
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\models\sql\compiler.py", line 1624, in execute_sql
+    cursor.execute(sql, params)
+    ~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 122, in execute
+    return super().execute(sql, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 79, in execute
+    return self._execute_with_wrappers(
+           ~~~~~~~~~~~~~~~~~~~~~~~~~~~^
+        sql, params, many=False, executor=self._execute
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 92, in _execute_with_wrappers
+    return executor(sql, params, many, context)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 100, in _execute
+    with self.db.wrap_database_errors:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\utils.py", line 94, in __exit__
+    raise dj_exc_value.with_traceback(traceback) from exc_value
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\utils.py", line 105, in _execute
+    return self.cursor.execute(sql, params)
+           ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\db\backends\sqlite3\base.py", line 359, in execute
+    return super().execute(query, params)
+           ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^
+django.db.utils.OperationalError: no such column: trading_app_riskconfig.max_exposure_percent
+[2026-07-14 12:50:27,222] ERROR trading_app.services.broker_service Failed to execute trade: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:50:29,855] ERROR trading_app.services.broker_service Failed to get market data for EUR/USD: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:57:04,406] ERROR trading_app.services.broker_service Failed to execute trade: Expecting value: line 1 column 1 (char 0)
+[2026-07-14 12:57:07,225] ERROR trading_app.services.broker_service Failed to get market data for EUR/USD: Expecting value: line 1 column 1 (char 0)

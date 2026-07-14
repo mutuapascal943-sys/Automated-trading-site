@@ -70,6 +70,27 @@ class RAGEngine:
             logger.error(f'Embedding generation failed: {e}')
             return None
 
+    def get_embeddings_batch(self, texts: list[str]) -> list[Optional[list[float]]]:
+        if not self.is_configured():
+            return [None] * len(texts)
+
+        results = []
+        batch_size = 20
+        for i in range(0, len(texts), batch_size):
+            batch = [t.replace('\n', ' ')[:8000] for t in texts[i:i + batch_size]]
+            try:
+                response = self.client.embeddings.create(
+                    model=self.embedding_model,
+                    input=batch,
+                )
+                sorted_data = sorted(response.data, key=lambda x: x.index)
+                results.extend([item.embedding for item in sorted_data])
+            except Exception as e:
+                logger.error(f'Batch embedding failed: {e}')
+                results.extend([None] * len(batch))
+
+        return results
+
     def cosine_similarity(self, a: list[float], b: list[float]) -> float:
         dot = sum(x * y for x, y in zip(a, b))
         norm_a = sum(x * x for x in a) ** 0.5
@@ -84,10 +105,13 @@ class RAGEngine:
             return chunks[:self.top_k]
 
         for chunk in chunks:
-            if 'embedding' not in chunk:
-                chunk['embedding'] = self.get_embedding(chunk['text'])
-            if chunk.get('embedding'):
-                chunk['score'] = self.cosine_similarity(query_embedding, chunk['embedding'])
+            embedding = chunk.get('embedding')
+            if embedding is None:
+                embedding = self.get_embedding(chunk['text'])
+                chunk['embedding'] = embedding
+
+            if embedding:
+                chunk['score'] = self.cosine_similarity(query_embedding, embedding)
             else:
                 chunk['score'] = 0
 
@@ -96,9 +120,15 @@ class RAGEngine:
 
     def process_document(self, title: str, content: str, source: str = 'manual') -> list[dict]:
         chunks = self.chunk_text(content)
-        for chunk in chunks:
+
+        texts = [chunk['text'] for chunk in chunks]
+        embeddings = self.get_embeddings_batch(texts)
+
+        for chunk, embedding in zip(chunks, embeddings):
             chunk['title'] = title
             chunk['source'] = source
+            chunk['embedding'] = embedding
+
         return chunks
 
 

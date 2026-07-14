@@ -40,11 +40,48 @@ class MarketConsumer(AsyncWebsocketConsumer):
         TickerBridge.remove_subscription(self.symbol, self.channel_name)
 
     async def receive(self, text_data):
-        data = json.loads(text_data)
+        try:
+            data = json.loads(text_data)
+        except json.JSONDecodeError:
+            return
+
         msg_type = data.get('type')
 
         if msg_type == 'unsubscribe':
             TickerBridge.remove_subscription(self.symbol, self.channel_name)
+            await self.send(text_data=json.dumps({
+                'type': 'unsubscribed',
+                'symbol': self.symbol,
+            }))
+
+        elif msg_type == 'subscribe':
+            new_symbol = data.get('symbol', '').replace('-', '/').strip()
+            if not new_symbol:
+                return
+
+            if new_symbol != self.symbol:
+                TickerBridge.remove_subscription(self.symbol, self.channel_name)
+
+                old_safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', self.symbol)
+                old_group = f'market_{old_safe}'
+                await self.channel_layer.group_discard(old_group, self.channel_name)
+
+                self.symbol = new_symbol
+                new_safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', new_symbol)
+                self.group_name = f'market_{new_safe}'
+                await self.channel_layer.group_add(self.group_name, self.channel_name)
+
+                user = self.scope.get('user')
+                TickerBridge.ensure_subscription(new_symbol, user=user if user and user.is_authenticated else None)
+
+                await self.send(text_data=json.dumps({
+                    'type': 'subscribed',
+                    'symbol': new_symbol,
+                    'message': f'Switched to {new_symbol} market stream',
+                }))
+
+        elif msg_type == 'ping':
+            await self.send(text_data=json.dumps({'type': 'pong'}))
 
     async def tick(self, event):
         await self.send(text_data=json.dumps(event['data']))
