@@ -556,3 +556,9 @@ django.db.utils.OperationalError: no such column: trading_app_riskconfig.max_exp
 [2026-07-14 12:56:31,568] WARNING django.request Too Many Requests: /api/trades/execute/
 [2026-07-14 12:56:55,505] WARNING django.request Bad Request: /api/auth/verify-otp/
 [2026-07-14 12:56:55,505] WARNING django.request Bad Request: /api/auth/verify-otp/
+[2026-07-14 12:58:40,125] WARNING django.request Bad Request: /api/auth/password-reset/confirm/
+[2026-07-14 12:58:40,125] WARNING django.request Bad Request: /api/auth/password-reset/confirm/
+[2026-07-14 12:58:48,969] WARNING django.request Bad Request: /api/auth/password-reset/
+[2026-07-14 12:58:48,969] WARNING django.request Bad Request: /api/auth/password-reset/
+[2026-07-14 12:58:51,811] WARNING django.request Bad Request: /api/auth/password-reset/verify/
+[2026-07-14 12:58:51,811] WARNING django.request Bad Request: /api/auth/password-reset/verify/
