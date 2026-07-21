@@ -66,9 +66,11 @@ REDIS_URL = config('REDIS_URL', default='')
 _use_redis = False
 if REDIS_URL:
     try:
-        import channels_redis  # noqa: F401
+        import redis as _redis_check
+        _check = _redis_check.from_url(REDIS_URL, socket_connect_timeout=2)
+        _check.ping()
         _use_redis = True
-    except ImportError:
+    except Exception:
         pass
 
 if _use_redis:

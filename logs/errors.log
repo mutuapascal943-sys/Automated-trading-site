@@ -4348,3 +4348,1224 @@ TypeError: Candle.__init__() missing 1 required positional argument: 'granularit
 [2026-07-14 22:31:58,357] ERROR trading_app.tasks User 99999 not found for OTP email
 [2026-07-14 22:45:34,553] ERROR django.request Service Unavailable: /api/broker/health/
 [2026-07-14 22:46:16,818] ERROR trading_app.tasks User 99999 not found for OTP email
+[2026-07-21 12:35:28,671] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:32,187] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:37,232] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:41,281] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:46,325] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:50,359] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:55,405] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:35:59,454] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:36:04,497] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 57, in await_many_dispatch
+    await task
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 340, in receive
+    message_channel, message = await self.receive_single(
+                               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+        real_channel
+        ^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 397, in receive_single
+    content = await self._brpop_with_clean(
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        index, channel_key, timeout=self.brpop_timeout
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 231, in _brpop_with_clean
+    await connection.eval(cleanup_script, 0, channel, backup_queue)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:36:08,532] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 12:36:13,565] ERROR daphne.server Exception inside application: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 381, in connect_check_health
+    await self._connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 946, in _connect
+    reader, writer = await asyncio.open_connection(
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        **self._connection_arguments()
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    )
+    ^
+  File "C:\Python314\Lib\asyncio\streams.py", line 48, in open_connection
+    transport, _ = await loop.create_connection(
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+        lambda: protocol, host, port, **kwds)
+        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Python314\Lib\asyncio\base_events.py", line 1176, in create_connection
+    raise OSError('Multiple exceptions: {}'.format(
+        ', '.join(str(exc) for exc in exceptions)))
+OSError: Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379)
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\django\contrib\staticfiles\handlers.py", line 101, in __call__
+    return await self.application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 48, in __call__
+    return await application(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 44, in __call__
+    return await self.inner(dict(scope, cookies=cookies), receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\sessions.py", line 261, in __call__
+    return await self.inner(wrapper.scope, receive, wrapper.send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\auth.py", line 185, in __call__
+    return await super().__call__(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\middleware.py", line 24, in __call__
+    return await self.inner(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\routing.py", line 118, in __call__
+    return await application(
+           ^^^^^^^^^^^^^^^^^^
+    ...<10 lines>...
+    )
+    ^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 95, in app
+    return await consumer(scope, receive, send)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 58, in __call__
+    await await_many_dispatch(
+        [receive, self.channel_receive], self.dispatch
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\utils.py", line 50, in await_many_dispatch
+    await dispatch(result)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\consumer.py", line 74, in dispatch
+    await handler(message)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels\generic\websocket.py", line 180, in websocket_connect
+    await self.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\trading_app\consumers.py", line 20, in connect
+    await self.channel_layer.group_add(self.group_name, self.channel_name)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\channels_redis\core.py", line 493, in group_add
+    await connection.zadd(group_key, {channel: time.time()})
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\client.py", line 822, in execute_command
+    conn = self.connection or await pool.get_connection()
+                              ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\utils.py", line 249, in async_wrapper
+    return await func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1562, in get_connection
+    await self.ensure_connection(connection)
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 1603, in ensure_connection
+    await connection.connect()
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 350, in connect
+    await self.retry.call_with_retry(
+    ...<7 lines>...
+    )
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 81, in call_with_retry
+    raise error
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\retry.py", line 69, in call_with_retry
+    return await do()
+           ^^^^^^^^^^
+  File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
+    raise e
+redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
