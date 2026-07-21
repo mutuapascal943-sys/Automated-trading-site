@@ -521,7 +521,7 @@
     var sel = document.getElementById('bot-tf');
     var volume = 0.01;
 
-    if(!confirm('⚠️ TRADE CONFIRMATION\n\nPair: ' + pair + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
+    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
       return;
     }
 
@@ -541,13 +541,13 @@
     .then(function(r){ return r.json() })
     .then(function(data){
       if(data.id){
-        showToast('✅ Trade executed — ID: ' + data.id + ' [' + data.status + ']', 'success');
+        showToast('Trade executed — ID: ' + data.id + ' [' + data.status + ']', 'success');
       } else {
-        showToast('❌ ' + (data.error || 'Execution failed'), 'error');
+        showToast(data.error || 'Execution failed', 'error');
       }
     })
     .catch(function(err){
-      showToast('❌ Network error: ' + err, 'error');
+      showToast('Network error: ' + err, 'error');
     });
   }
   window.executeTrade = executeTrade;
@@ -1051,9 +1051,9 @@
           list.innerHTML = '<div class="notif-empty">No notifications yet.</div>';
           return;
         }
-        var icons = {system:'📢', trade:'📊', signal:'⚡', account:'🔒'};
+        var icons = {system:'campaign', trade:'candlestick_chart', signal:'bolt', account:'lock'};
         list.innerHTML = data.notifications.map(function(n){
-          var icon = icons[n.type] || '📢';
+          var icon = icons[n.type] || 'notifications';
           var timeAgo = '';
           var d = new Date(n.created_at);
           var diff = Math.floor((Date.now() - d.getTime()) / 1000);
@@ -1062,7 +1062,7 @@
           else if(diff < 86400) timeAgo = Math.floor(diff/3600) + 'h ago';
           else timeAgo = Math.floor(diff/86400) + 'd ago';
           return '<div class="notif-item' + (n.is_read ? '' : ' unread') + '" onclick="markAsRead(' + n.id + ')">' +
-            '<div class="notif-item-icon ' + n.type + '">' + icon + '</div>' +
+            '<div class="notif-item-icon ' + n.type + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span></div>' +
             '<div class="notif-item-content">' +
             '<div class="notif-item-title">' + escapeHtml(n.title) + '</div>' +
             (n.message ? '<div class="notif-item-msg">' + escapeHtml(n.message) + '</div>' : '') +

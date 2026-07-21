@@ -305,7 +305,7 @@ body{
   background:linear-gradient(90deg,rgba(245,194,122,0.12),rgba(245,194,122,0.04));
   color:var(--gold);border-left:2px solid var(--gold);
 }
-.nav-icon{font-size:15px;width:18px;text-align:center;display:inline-block;transition:transform .2s,color .2s}
+.nav-icon{font-size:20px;width:24px;display:inline-flex;align-items:center;justify-content:center;transition:transform .2s,color .2s;line-height:1}
 .nav-item:hover .nav-icon{transform:scale(1.25);color:var(--gold)}
 .nav-item.active .nav-icon{color:var(--gold)}
 

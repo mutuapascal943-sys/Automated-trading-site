@@ -53,6 +53,9 @@ class BrokerService:
                 timeout=10,
             )
             resp.raise_for_status()
+            if not resp.content:
+                logger.warning(f'Empty response for market data {symbol}')
+                return None
             return resp.json()
         except Exception as e:
             logger.error(f'Failed to get market data for {symbol}: {e}')
@@ -84,6 +87,9 @@ class BrokerService:
                 timeout=10,
             )
             resp.raise_for_status()
+            if not resp.content:
+                logger.warning(f'Empty response for trade execution')
+                return None
             return resp.json()
         except Exception as e:
             logger.error(f'Failed to execute trade: {e}')
@@ -105,6 +111,9 @@ class BrokerService:
                 timeout=10,
             )
             resp.raise_for_status()
+            if not resp.content:
+                logger.warning('Empty response for account balance')
+                return None
             data = resp.json()
             return Decimal(str(data.get('balance', 0)))
         except Exception as e:
@@ -127,6 +136,9 @@ class BrokerService:
                 timeout=10,
             )
             resp.raise_for_status()
+            if not resp.content:
+                logger.warning('Empty response for open positions')
+                return []
             data = resp.json()
             return data.get('positions', [])
         except Exception as e:

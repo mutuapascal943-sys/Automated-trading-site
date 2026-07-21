@@ -42,17 +42,17 @@
     </div>
 
     <div class="controls-card mt-2">
-      <div class="analysis-title">⚙ Bot Controls</div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">settings</span> Bot Controls</div>
       <div class="controls-grid">
-        <button class="btn-ctrl start" onclick="startAnalysis()">▶ ANALYZE</button>
-        <button class="btn-ctrl stop" onclick="stopAnalysis()">■ STOP</button>
-        <button class="btn-ctrl refresh" onclick="refreshSignals()">↺ REFRESH</button>
-        <button class="btn-ctrl connect" onclick="location.hash='settings'">⇌ BROKER SETTINGS</button>
-        <button class="btn-ctrl execute" onclick="executeTrade()">⚡ EXECUTE TRADE</button>
-        <button class="btn-ctrl close" onclick="closeAllTrades()">✕ CLOSE ALL</button>
+        <button class="btn-ctrl start" onclick="startAnalysis()"><span class="material-symbols-outlined" style="font-size:14px">play_arrow</span> ANALYZE</button>
+        <button class="btn-ctrl stop" onclick="stopAnalysis()"><span class="material-symbols-outlined" style="font-size:14px">stop</span> STOP</button>
+        <button class="btn-ctrl refresh" onclick="refreshSignals()"><span class="material-symbols-outlined" style="font-size:14px">refresh</span> REFRESH</button>
+        <button class="btn-ctrl connect" onclick="location.hash='settings'"><span class="material-symbols-outlined" style="font-size:14px">sync_alt</span> BROKER SETTINGS</button>
+        <button class="btn-ctrl execute" onclick="executeTrade()"><span class="material-symbols-outlined" style="font-size:14px">bolt</span> EXECUTE TRADE</button>
+        <button class="btn-ctrl close" onclick="closeAllTrades()"><span class="material-symbols-outlined" style="font-size:14px">close</span> CLOSE ALL</button>
       </div>
       <div class="scan-status" id="scanStatus"></div>
-      <div class="analysis-title mt-2">🛡 Risk Management</div>
+      <div class="analysis-title mt-2"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">shield</span> Risk Management</div>
       <div class="risk-grid">
         <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
         <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
@@ -64,7 +64,7 @@
 
   <div class="signals-col">
     <div class="analysis-card">
-      <div class="analysis-title">🧠 AI Analysis</div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">psychology</span> AI Analysis</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
         <span style="font-size:12px;color:var(--text2)">Current Trend:</span>
         <span class="trend-badge bullish" id="trend-badge">▲ BULLISH</span>
@@ -80,7 +80,7 @@
     </div>
 
     <div class="analysis-card">
-      <div class="analysis-title">⚡ Trade Signal</div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Trade Signal</div>
       <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">—</span></div>
       <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">—</span></div>
       <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">—</span></div>
@@ -91,7 +91,7 @@
     </div>
 
     <div class="analysis-card">
-      <div class="analysis-title">📋 Recent Trades</div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">receipt_long</span> Recent Trades</div>
       <div id="bot-recent-trades" style="font-size:12px;color:var(--text2)">
         <span>Open bot panel to load trades...</span>
       </div>

@@ -63,7 +63,15 @@ ASGI_APPLICATION = 'forex_ai_pro.asgi.application'
 
 REDIS_URL = config('REDIS_URL', default='')
 
+_use_redis = False
 if REDIS_URL:
+    try:
+        import channels_redis  # noqa: F401
+        _use_redis = True
+    except ImportError:
+        pass
+
+if _use_redis:
     CHANNEL_LAYERS = {
         'default': {
             'BACKEND': 'channels_redis.core.RedisChannelLayer',

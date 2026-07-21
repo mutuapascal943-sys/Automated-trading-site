@@ -950,10 +950,10 @@ def run_backtest_view(request):
         raw_candles = []
 
     if not raw_candles:
-        from datetime import datetime, timedelta
+        from datetime import datetime as _dt, timedelta, timezone as _tz
         import random
         raw_candles = []
-        now = datetime.now(timezone.utc)
+        now = _dt.now(_tz.utc)
         for i in range(min(days * 24, 720)):
             ts = now - timedelta(hours=days * 24 - i)
             base = Decimal('1.05') if 'EUR' in symbol else Decimal('1.25')
@@ -965,6 +965,7 @@ def run_backtest_view(request):
                 close=base + Decimal(str(random.uniform(-0.01, 0.01))),
                 volume=Decimal(str(random.randint(100, 10000))),
                 timestamp=ts,
+                granularity=3600,
             ))
 
     paper.seed_candles(raw_candles)

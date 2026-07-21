@@ -64,7 +64,7 @@
           <div class="settings-row-label">Two-Factor Authentication (Email OTP)</div>
           <div class="settings-row-sub">
             {% if user.two_factor_enabled %}
-              <span style="color:var(--teal)">✅ Enabled - verification codes sent to your email</span>
+              <span style="color:var(--teal)"><span class="material-symbols-outlined" style="font-size:16px;vertical-align:middle">check_circle</span> Enabled - verification codes sent to your email</span>
             {% else %}
               Protect your account with email-based 2FA
             {% endif %}
@@ -193,21 +193,21 @@ document.getElementById('broker-api-form')?.addEventListener('submit', async fun
       statusEl.style.border = '1px solid rgba(0,212,170,0.15)';
       statusEl.style.color = 'var(--teal)';
       var mode = data.paper_mode ? 'Paper' : 'Live';
-      statusEl.textContent = '✅ Broker configured — ' + mode + ' trading mode';
+      statusEl.textContent = 'Broker configured — ' + mode + ' trading mode';
       var modeLabel = document.getElementById('settings-mode-label');
       if(modeLabel) modeLabel.textContent = data.paper_mode ? 'Paper Trading' : 'Live Trading';
     } else {
       statusEl.style.background = 'rgba(255,77,109,0.08)';
       statusEl.style.border = '1px solid rgba(255,77,109,0.15)';
       statusEl.style.color = 'var(--red)';
-      statusEl.textContent = '❌ Error: ' + (data.error || 'Failed to configure');
+      statusEl.textContent = 'Error: ' + (data.error || 'Failed to configure');
     }
   } catch (err) {
     statusEl.style.display = 'block';
     statusEl.style.background = 'rgba(255,77,109,0.08)';
     statusEl.style.border = '1px solid rgba(255,77,109,0.15)';
     statusEl.style.color = 'var(--red)';
-    statusEl.textContent = '❌ Connection error';
+    statusEl.textContent = 'Connection error';
   }
   btn.disabled = false;
   btn.textContent = 'Save API Configuration';

@@ -1,7 +1,8 @@
 import time
 import json
 from decimal import Decimal
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone as dt_timezone
+from unittest.mock import patch, MagicMock
 from django.test import TestCase, Client, override_settings
 from django.urls import reverse
 from django.utils import timezone
@@ -10,10 +11,10 @@ from django.contrib.auth import get_user_model
 from .models import (
     User, EmailOTP, Trade, TradingSignal,
     RAGDocument, RAGChunk, LLMQuery, Subscription,
-    SecurityQuestion,
+    SecurityQuestion, Notification, RiskConfig,
 )
 from .services.email_service import generate_otp, send_otp_email
-from .services.credential_encrypt import decrypt
+from .services.credential_encrypt import encrypt, decrypt
 from .services.cache_service import CacheService
 from .forms import (
     PasswordResetRequestForm, PasswordResetVerifyForm,
@@ -23,8 +24,20 @@ from .forms import (
 from .services.rag_engine import RAGEngine
 from .services.llm_service import LLMService
 from .services.broker_service import BrokerService
+from .trading_bot.interface import Candle, Order as InterfaceOrder, OrderRequest
 
 User = get_user_model()
+
+
+def setUpModule():
+    from .trading_bot import deriv_adapter
+    deriv_adapter._original_connect = deriv_adapter.DerivAdapter.connect
+    deriv_adapter.DerivAdapter.connect = lambda self, creds: setattr(self, '_connected', True)
+
+
+def tearDownModule():
+    from .trading_bot import deriv_adapter
+    deriv_adapter.DerivAdapter.connect = deriv_adapter._original_connect
 
 
 class UserModelTests(TestCase):
@@ -566,11 +579,23 @@ class APIViewTests(TestCase):
         self.assertIn('open_trades', data)
         self.assertIn('win_rate', data)
 
-    def test_market_data_endpoint(self):
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_market_data_endpoint(self, mock_build_creds, mock_resolve):
+        mock_adapter = MagicMock()
+        mock_resolve.return_value = mock_adapter
+        mock_build_creds.return_value = {}
+        mock_adapter.get_candles.return_value = [
+            Candle(symbol='EUR/USD', open=Decimal('1.08000'), high=Decimal('1.08500'),
+                   low=Decimal('1.07800'), close=Decimal('1.08300'), volume=Decimal('1000'),
+                   timestamp=timezone.now(), granularity=3600),
+        ]
         response = self.client.get(f'{reverse("api_market_data")}?symbol=EUR/USD')
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertIn('symbol', data)
+        mock_adapter.connect.assert_called_once()
+        mock_adapter.disconnect.assert_called_once()
 
     def test_execute_trade(self):
         response = self.client.post(reverse('api_execute_trade'), {
@@ -656,7 +681,12 @@ class APIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['tier'], 'FREE')
 
-    def test_broker_configuration(self):
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_broker_configuration(self, mock_build_creds, mock_resolve):
+        mock_adapter = MagicMock()
+        mock_resolve.return_value = mock_adapter
+        mock_build_creds.return_value = {}
         response = self.client.post(reverse('api_configure_broker'), {
             'api_key': 'test_key_123',
             'api_secret': 'test_secret_456',
@@ -667,6 +697,8 @@ class APIViewTests(TestCase):
         self.assertEqual(decrypt(self.user.broker_api_key), 'test_key_123')
         self.assertEqual(decrypt(self.user.broker_api_secret), 'test_secret_456')
         self.assertEqual(self.user.broker_account_id, 'acc_789')
+        mock_adapter.connect.assert_called_once()
+        mock_adapter.disconnect.assert_called_once()
 
     def test_llm_query_no_api_key(self):
         response = self.client.post(reverse('api_llm_query'), {
@@ -707,7 +739,8 @@ class RateLimitTests(TestCase):
 
 
 class BrokerServiceTests(TestCase):
-    def test_not_configured(self):
+    @patch('trading_app.services.broker_service.config', side_effect=lambda k, default='': default)
+    def test_not_configured(self, mock_config):
         service = BrokerService(api_key='', endpoint='')
         self.assertFalse(service.is_configured())
 
@@ -727,11 +760,13 @@ class BrokerServiceTests(TestCase):
         )
         self.assertFalse(service.is_configured())
 
-    def test_get_market_data_not_configured(self):
+    @patch('trading_app.services.broker_service.config', side_effect=lambda k, default='': default)
+    def test_get_market_data_not_configured(self, mock_config):
         service = BrokerService(api_key='', endpoint='')
         self.assertIsNone(service.get_market_data('EUR/USD'))
 
-    def test_execute_trade_not_configured(self):
+    @patch('trading_app.services.broker_service.config', side_effect=lambda k, default='': default)
+    def test_execute_trade_not_configured(self, mock_config):
         service = BrokerService(api_key='', endpoint='')
         self.assertIsNone(service.execute_trade('EUR/USD', 'BUY', 0.1))
 
@@ -1203,3 +1238,615 @@ class ProfileViewTests(TestCase):
     def test_broker_config_page(self):
         response = self.client.get(reverse('dashboard'))
         self.assertEqual(response.status_code, 200)
+
+
+# ---------------------------------------------------------------------------
+# Missing API endpoint tests
+# ---------------------------------------------------------------------------
+
+
+def _make_candle(symbol='EUR/USD'):
+    return Candle(
+        symbol=symbol, open=Decimal('1.08000'), high=Decimal('1.08500'),
+        low=Decimal('1.07800'), close=Decimal('1.08300'), volume=Decimal('1000'),
+        timestamp=timezone.now(), granularity=3600,
+    )
+
+
+def _make_mock_adapter():
+    adapter = MagicMock()
+    adapter.connect.return_value = None
+    adapter.disconnect.return_value = None
+    adapter.get_candles.return_value = [_make_candle()]
+    adapter.place_order.return_value = InterfaceOrder(
+        id='mock_order_1', symbol='EUR/USD', side='buy', order_type='market',
+        volume=Decimal('0.1'), price=Decimal('1.08300'), status='filled',
+        filled_price=Decimal('1.08300'),
+    )
+    adapter.get_balance.return_value = MagicMock(total=Decimal('10000'))
+    adapter.get_open_positions.return_value = []
+    return adapter
+
+
+class ModifyTradeViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='modify@test.com', username='modifyuser', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+        self.trade = Trade.objects.create(
+            user=self.user, symbol='EUR/USD', action='BUY', volume=Decimal('0.1'),
+            entry_price=Decimal('1.08000'), status='OPEN', order_type='MARKET',
+        )
+
+    def test_modify_trade_sl_tp(self):
+        response = self.client.post(
+            reverse('api_modify_trade', args=[self.trade.id]),
+            {'stop_loss': '1.07000', 'take_profit': '1.09000'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.trade.refresh_from_db()
+        self.assertEqual(self.trade.stop_loss, Decimal('1.07000'))
+        self.assertEqual(self.trade.take_profit, Decimal('1.09000'))
+
+    def test_modify_trade_only_sl(self):
+        response = self.client.post(
+            reverse('api_modify_trade', args=[self.trade.id]),
+            {'stop_loss': '1.07500'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        self.trade.refresh_from_db()
+        self.assertEqual(self.trade.stop_loss, Decimal('1.07500'))
+
+    def test_modify_closed_trade_404(self):
+        self.trade.status = 'CLOSED'
+        self.trade.save()
+        response = self.client.post(
+            reverse('api_modify_trade', args=[self.trade.id]),
+            {'stop_loss': '1.07000'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_modify_other_users_trade_404(self):
+        other = User.objects.create_user(
+            email='other@test.com', username='other', password='Pass123!'
+        )
+        other_trade = Trade.objects.create(
+            user=other, symbol='EUR/USD', action='BUY', volume=Decimal('0.1'),
+            entry_price=Decimal('1.08000'), status='OPEN', order_type='MARKET',
+        )
+        response = self.client.post(
+            reverse('api_modify_trade', args=[other_trade.id]),
+            {'stop_loss': '1.07000'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 404)
+
+
+class BrokerStatusViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='brokerstat@test.com', username='brokerstat', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    def test_broker_status_unconfigured(self):
+        response = self.client.get(reverse('api_broker_status'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertFalse(data['configured'])
+        self.assertIn('broker_list', data)
+
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_broker_status_paper_mode(self, mock_creds, mock_resolve):
+        self.user.paper_mode = True
+        self.user.broker_api_key = encrypt('test')
+        self.user.broker = 'Deriv'
+        self.user.save()
+        response = self.client.get(reverse('api_broker_status'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['configured'])
+        self.assertTrue(data['paper_mode'])
+        mock_resolve.assert_not_called()
+
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_broker_status_live_connected(self, mock_creds, mock_resolve):
+        mock_adapter = MagicMock()
+        mock_resolve.return_value = mock_adapter
+        mock_creds.return_value = {}
+        self.user.paper_mode = False
+        self.user.broker_api_key = encrypt('test')
+        self.user.broker = 'Deriv'
+        self.user.save()
+        response = self.client.get(reverse('api_broker_status'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data['health']['reachable'])
+
+
+class BrokerHealthCheckViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='brokerh@test.com', username='brokerh', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_broker_health_check_healthy(self, mock_creds, mock_resolve):
+        mock_adapter = MagicMock()
+        mock_resolve.return_value = mock_adapter
+        mock_creds.return_value = {}
+        response = self.client.post(reverse('api_broker_health'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['status'], 'healthy')
+        self.assertIn('latency_ms', data)
+
+    @patch('trading_app.api_views._resolve_adapter')
+    @patch('trading_app.api_views.build_credentials')
+    def test_broker_health_check_unhealthy(self, mock_creds, mock_resolve):
+        mock_adapter = MagicMock()
+        mock_adapter.connect.side_effect = Exception('Connection refused')
+        mock_resolve.return_value = mock_adapter
+        mock_creds.return_value = {}
+        response = self.client.post(reverse('api_broker_health'))
+        self.assertEqual(response.status_code, 503)
+        data = response.json()
+        self.assertEqual(data['status'], 'unhealthy')
+
+
+class RiskConfigViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='risk@test.com', username='riskuser', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    def test_get_risk_config_defaults(self):
+        response = self.client.get(reverse('api_risk_config'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('max_daily_trades', data)
+        self.assertIn('trading_enabled', data)
+        self.assertEqual(data['max_daily_trades'], 5)
+
+    def test_update_risk_config(self):
+        response = self.client.put(
+            reverse('api_risk_config'),
+            {'max_daily_trades': 10, 'trading_enabled': False},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['max_daily_trades'], 10)
+        self.assertFalse(data['trading_enabled'])
+
+    def test_risk_config_persists(self):
+        self.client.put(
+            reverse('api_risk_config'),
+            {'max_position_size': '2.5'},
+            content_type='application/json',
+        )
+        risk = RiskConfig.get_for_user(self.user)
+        self.assertEqual(risk.max_position_size, Decimal('2.5'))
+
+
+class NotificationViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='notif@test.com', username='notifuser', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    def test_list_notifications_empty(self):
+        response = self.client.get(reverse('api_notifications'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['unread_count'], 0)
+        self.assertEqual(len(data['notifications']), 0)
+
+    def test_list_notifications_with_data(self):
+        Notification.objects.create(
+            user=self.user, title='Test', message='Hello',
+            notification_type='trade', is_read=False,
+        )
+        Notification.objects.create(
+            user=self.user, title='Read', message='Done',
+            notification_type='system', is_read=True,
+        )
+        response = self.client.get(reverse('api_notifications'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(len(data['notifications']), 2)
+        self.assertEqual(data['unread_count'], 1)
+
+    def test_mark_notification_read(self):
+        n = Notification.objects.create(
+            user=self.user, title='Unread', notification_type='system',
+        )
+        response = self.client.post(reverse('api_notification_read', args=[n.id]))
+        self.assertEqual(response.status_code, 200)
+        n.refresh_from_db()
+        self.assertTrue(n.is_read)
+
+    def test_mark_notification_read_other_user_404(self):
+        other = User.objects.create_user(
+            email='othernotif@test.com', username='othernotif', password='Pass123!'
+        )
+        n = Notification.objects.create(
+            user=other, title='Other', notification_type='system',
+        )
+        response = self.client.post(reverse('api_notification_read', args=[n.id]))
+        self.assertEqual(response.status_code, 404)
+
+    def test_mark_all_read(self):
+        for i in range(3):
+            Notification.objects.create(
+                user=self.user, title=f'N{i}', notification_type='system',
+            )
+        response = self.client.post(reverse('api_notifications_read_all'))
+        self.assertEqual(response.status_code, 200)
+        unread = Notification.objects.filter(user=self.user, is_read=False).count()
+        self.assertEqual(unread, 0)
+
+    def test_notifications_only_own(self):
+        other = User.objects.create_user(
+            email='ownnotif@test.com', username='ownnotif', password='Pass123!'
+        )
+        Notification.objects.create(
+            user=other, title='Other', notification_type='system',
+        )
+        Notification.objects.create(
+            user=self.user, title='Mine', notification_type='system',
+        )
+        response = self.client.get(reverse('api_notifications'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(len(response.json()['notifications']), 1)
+
+
+class HealthCheckViewTests(TestCase):
+    def test_health_check_returns_200(self):
+        response = self.client.get(reverse('api_health_check'))
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('status', data)
+        self.assertIn('database', data)
+        self.assertIn('cache', data)
+        self.assertIn('redis', data)
+
+    def test_health_check_db_ok(self):
+        response = self.client.get(reverse('api_health_check'))
+        data = response.json()
+        self.assertEqual(data['database'], 'ok')
+
+    def test_health_check_no_auth_required(self):
+        self.client.logout()
+        response = self.client.get(reverse('api_health_check'))
+        self.assertEqual(response.status_code, 200)
+
+
+class BacktestViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='bt@test.com', username='btuser', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    def test_backtest_with_defaults(self):
+        response = self.client.post(
+            reverse('api_backtest'),
+            {'symbol': 'EUR/USD'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertIn('total_trades', data)
+        self.assertIn('final_balance', data)
+        self.assertIn('win_rate', data)
+        self.assertEqual(data['symbol'], 'EUR/USD')
+
+    def test_backtest_custom_params(self):
+        response = self.client.post(
+            reverse('api_backtest'),
+            {
+                'symbol': 'GBP/USD',
+                'initial_balance': 5000,
+                'days': 7,
+                'stop_loss_pct': '3',
+                'take_profit_pct': '5',
+            },
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertEqual(data['symbol'], 'GBP/USD')
+
+
+class TickerSubscribeViewTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='ticker@test.com', username='tickeruser', password='Pass123!'
+        )
+        self.client.force_login(self.user)
+
+    @patch('trading_app.api_views.TickerBridge')
+    def test_subscribe(self, mock_bridge):
+        response = self.client.post(
+            reverse('api_ticker_subscribe'),
+            {'symbol': 'EUR/USD'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_bridge.ensure_subscription.assert_called_once_with('EUR/USD', user=self.user)
+
+    @patch('trading_app.api_views.TickerBridge')
+    def test_unsubscribe(self, mock_bridge):
+        response = self.client.post(
+            reverse('api_ticker_unsubscribe'),
+            {'symbol': 'EUR/USD'},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 200)
+        mock_bridge.remove_subscription.assert_called_once()
+
+    def test_subscribe_missing_symbol(self):
+        response = self.client.post(
+            reverse('api_ticker_subscribe'),
+            {'symbol': ''},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+    def test_unsubscribe_missing_symbol(self):
+        response = self.client.post(
+            reverse('api_ticker_unsubscribe'),
+            {'symbol': ''},
+            content_type='application/json',
+        )
+        self.assertEqual(response.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# Credential encrypt tests
+# ---------------------------------------------------------------------------
+
+
+class CredentialEncryptTests(TestCase):
+    def test_encrypt_decrypt_roundtrip(self):
+        from .services.credential_encrypt import encrypt, decrypt
+        plaintext = 'my_secret_api_key_123'
+        ciphertext = encrypt(plaintext)
+        self.assertNotEqual(ciphertext, plaintext)
+        self.assertEqual(decrypt(ciphertext), plaintext)
+
+    def test_encrypt_empty(self):
+        from .services.credential_encrypt import encrypt
+        self.assertEqual(encrypt(''), '')
+
+    def test_decrypt_empty(self):
+        from .services.credential_encrypt import decrypt
+        self.assertEqual(decrypt(''), '')
+
+    def test_decrypt_garbage_returns_input(self):
+        from .services.credential_encrypt import decrypt
+        garbage = 'this_is_not_encrypted'
+        self.assertEqual(decrypt(garbage), garbage)
+
+    def test_encrypt_different_each_time(self):
+        from .services.credential_encrypt import encrypt
+        a = encrypt('test_value')
+        b = encrypt('test_value')
+        self.assertNotEqual(a, b)
+        self.assertEqual(decrypt(a), 'test_value')
+        self.assertEqual(decrypt(b), 'test_value')
+
+
+# ---------------------------------------------------------------------------
+# Adapter resolver tests
+# ---------------------------------------------------------------------------
+
+
+class AdapterResolverTests(TestCase):
+    def test_get_adapter_for_broker_deriv(self):
+        from .services.adapter_resolver import get_adapter_for_broker
+        from .trading_bot.deriv_adapter import DerivAdapter
+        adapter = get_adapter_for_broker('Deriv')
+        self.assertIsInstance(adapter, DerivAdapter)
+
+    def test_get_adapter_for_broker_binance(self):
+        from .services.adapter_resolver import get_adapter_for_broker
+        from .trading_bot.binance_adapter import BinanceAdapter
+        adapter = get_adapter_for_broker('Binance')
+        self.assertIsInstance(adapter, BinanceAdapter)
+
+    @patch('trading_app.services.adapter_resolver.config', side_effect=lambda k, default='': default)
+    def test_get_adapter_for_unknown_falls_back_to_paper(self, mock_config):
+        from .services.adapter_resolver import get_adapter_for_broker
+        from .trading_bot.paper_broker import PaperBrokerAdapter
+        adapter = get_adapter_for_broker('UnknownBroker')
+        self.assertIsInstance(adapter, PaperBrokerAdapter)
+
+    def test_build_credentials_with_user_keys(self):
+        from .services.adapter_resolver import build_credentials
+        user = MagicMock()
+        user.broker_api_key = encrypt('my_key')
+        user.broker_api_secret = encrypt('my_secret')
+        user.broker_account_id = 'acc_123'
+        creds = build_credentials(user)
+        self.assertEqual(creds['token'], 'my_key')
+        self.assertEqual(creds['api_key'], 'my_key')
+        self.assertEqual(creds['api_secret'], 'my_secret')
+        self.assertEqual(creds['account_id'], 'acc_123')
+
+    @patch('trading_app.services.adapter_resolver.config', side_effect=lambda k, default='': default)
+    def test_build_credentials_no_user_keys(self, mock_config):
+        from .services.adapter_resolver import build_credentials
+        user = MagicMock()
+        user.broker_api_key = ''
+        user.broker_api_secret = ''
+        user.broker_account_id = ''
+        creds = build_credentials(user)
+        self.assertEqual(creds['token'], '')
+        self.assertEqual(creds['api_key'], '')
+        self.assertEqual(creds['api_secret'], '')
+
+
+# ---------------------------------------------------------------------------
+# Celery task tests
+# ---------------------------------------------------------------------------
+
+
+class CeleryTaskTests(TestCase):
+    def setUp(self):
+        self.user = User.objects.create_user(
+            email='task@test.com', username='taskuser', password='Pass123!'
+        )
+
+    def test_cleanup_expired_otps(self):
+        from .tasks import cleanup_expired_otps
+        EmailOTP.objects.create(
+            user=self.user, code='111111', purpose='2fa',
+            expires_at=timezone.now() - timedelta(hours=1),
+        )
+        EmailOTP.objects.create(
+            user=self.user, code='222222', purpose='2fa',
+            expires_at=timezone.now() + timedelta(hours=1),
+        )
+        deleted = cleanup_expired_otps()
+        self.assertEqual(deleted, 1)
+        self.assertEqual(EmailOTP.objects.filter(user=self.user).count(), 1)
+
+    def test_cleanup_expired_otps_skips_used(self):
+        from .tasks import cleanup_expired_otps
+        EmailOTP.objects.create(
+            user=self.user, code='333333', purpose='2fa',
+            expires_at=timezone.now() - timedelta(hours=1),
+            is_used=True,
+        )
+        deleted = cleanup_expired_otps()
+        self.assertEqual(deleted, 0)
+
+    def test_reset_daily_trade_counts(self):
+        from .tasks import reset_daily_trade_counts
+        self.user.daily_trades_count = 42
+        self.user.save()
+        reset_daily_trade_counts()
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.daily_trades_count, 0)
+
+    def test_check_paper_positions_no_open(self):
+        from .tasks import check_paper_positions
+        check_paper_positions()
+        self.assertEqual(Trade.objects.filter(user=self.user, status='OPEN').count(), 0)
+
+    def test_check_paper_positions_sl_hit(self):
+        from .tasks import check_paper_positions
+        trade = Trade.objects.create(
+            user=self.user, symbol='EUR/USD', action='BUY', volume=Decimal('1.0'),
+            entry_price=Decimal('1.08000'), stop_loss=Decimal('1.07000'),
+            status='OPEN', order_type='MARKET', is_live=False,
+        )
+        with patch('trading_app.tasks.CacheService') as mock_cache:
+            mock_cache.get_market_data.return_value = {'price': '1.06500'}
+            check_paper_positions()
+        trade.refresh_from_db()
+        self.assertEqual(trade.status, 'CLOSED')
+        self.assertIsNotNone(trade.pnl)
+        self.assertTrue(trade.pnl < 0)
+
+    def test_check_paper_positions_tp_hit(self):
+        from .tasks import check_paper_positions
+        trade = Trade.objects.create(
+            user=self.user, symbol='EUR/USD', action='SELL', volume=Decimal('1.0'),
+            entry_price=Decimal('1.08000'), take_profit=Decimal('1.07000'),
+            status='OPEN', order_type='MARKET', is_live=False,
+        )
+        with patch('trading_app.tasks.CacheService') as mock_cache:
+            mock_cache.get_market_data.return_value = {'price': '1.06500'}
+            check_paper_positions()
+        trade.refresh_from_db()
+        self.assertEqual(trade.status, 'CLOSED')
+        self.assertIsNotNone(trade.pnl)
+        self.assertTrue(trade.pnl > 0)
+
+    def test_send_otp_email_task(self):
+        from .tasks import send_otp_email_task
+        with patch('trading_app.tasks.send_otp_email', return_value=True) as mock_send:
+            result = send_otp_email_task(self.user.id, purpose='2fa')
+            self.assertTrue(result)
+            mock_send.assert_called_once()
+
+    def test_send_otp_email_task_nonexistent_user(self):
+        from .tasks import send_otp_email_task
+        result = send_otp_email_task(99999)
+        self.assertFalse(result)
+
+
+# ---------------------------------------------------------------------------
+# TickerBridge tests
+# ---------------------------------------------------------------------------
+
+
+class TickerBridgeTests(TestCase):
+    def setUp(self):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge._active_subscriptions.clear()
+        TickerBridge._paper_prices.clear()
+        TickerBridge._live_unreachable.clear()
+
+    def test_sanitize_group_name(self):
+        from .services.ticker_bridge import TickerBridge
+        self.assertEqual(TickerBridge._sanitize_group_name('EUR/USD'), 'EUR_USD')
+        self.assertEqual(TickerBridge._sanitize_group_name('Volatility 75 Index'), 'Volatility_75_Index')
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
+    def test_ensure_subscription_paper(self, mock_paper):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        self.assertIn('EUR/USD', TickerBridge._active_subscriptions)
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'paper')
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 1)
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
+    def test_ensure_subscription_increments_refcount(self, mock_paper):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 2)
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
+    def test_remove_subscription_decrements(self, mock_paper):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        TickerBridge.remove_subscription('EUR/USD')
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 1)
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
+    def test_remove_subscription_removes_at_zero(self, mock_paper):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD', user=None)
+        TickerBridge.remove_subscription('EUR/USD')
+        self.assertNotIn('EUR/USD', TickerBridge._active_subscriptions)
+
+    def test_remove_nonexistent_no_error(self):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.remove_subscription('NONEXISTENT')
+        self.assertNotIn('NONEXISTENT', TickerBridge._active_subscriptions)
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._check_deriv_reachable', return_value=False)
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
+    def test_fallback_to_paper_when_deriv_unreachable(self, mock_paper, mock_reach):
+        from .services.ticker_bridge import TickerBridge
+        user = MagicMock()
+        user.broker_api_key = encrypt('fake_token')
+        TickerBridge.ensure_subscription('EUR/USD', user=user)
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'paper')
+        mock_paper.assert_called_once()
