@@ -126,9 +126,19 @@ else:
 
 # Cache - Redis for production, local-memory for development
 CACHE_URL = config('CACHE_URL', default='')
-try:
-    import django_redis
-    if CACHE_URL and 'redis' in CACHE_URL:
+_use_cache_redis = False
+if CACHE_URL and 'redis' in CACHE_URL:
+    try:
+        import redis as _redis_lib
+        _test_conn = _redis_lib.from_url(CACHE_URL, socket_connect_timeout=2)
+        _test_conn.ping()
+        _use_cache_redis = True
+    except Exception:
+        pass
+
+if _use_cache_redis:
+    try:
+        import django_redis
         CACHES = {
             'default': {
                 'BACKEND': 'django_redis.cache.RedisCache',
@@ -147,7 +157,7 @@ try:
                 'TIMEOUT': 300,
             }
         }
-    else:
+    except ImportError:
         CACHES = {
             'default': {
                 'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -155,7 +165,7 @@ try:
                 'TIMEOUT': 300,
             }
         }
-except ImportError:
+else:
     CACHES = {
         'default': {
             'BACKEND': 'django.core.cache.backends.locmem.LocMemCache',
@@ -164,9 +174,12 @@ except ImportError:
         }
     }
 
-# Session - use cache for performance
-SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
-SESSION_CACHE_ALIAS = 'default'
+# Session - use cache for performance, fall back to DB for reliability
+if _use_cache_redis:
+    SESSION_ENGINE = 'django.contrib.sessions.backends.cache'
+    SESSION_CACHE_ALIAS = 'default'
+else:
+    SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
 AUTH_PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptPasswordHasher',

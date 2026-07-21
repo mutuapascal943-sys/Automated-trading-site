@@ -518,10 +518,14 @@
     var sl = document.getElementById('sig-sl') ? document.getElementById('sig-sl').textContent : '';
     var tp1 = document.getElementById('sig-tp1') ? document.getElementById('sig-tp1').textContent : '';
 
-    var sel = document.getElementById('bot-tf');
+    var tb = document.getElementById('trend-badge');
+    var trendText = tb ? tb.textContent.trim() : '';
+    var action = 'BUY';
+    if(trendText.indexOf('BEARISH') !== -1) action = 'SELL';
+
     var volume = 0.01;
 
-    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
+    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nDirection: ' + action + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
       return;
     }
 
@@ -530,7 +534,7 @@
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
       body: JSON.stringify({
         symbol: pair,
-        action: 'BUY',
+        action: action,
         volume: volume,
         entry_price: parseFloat(entry) || 0,
         stop_loss: parseFloat(sl) || null,
@@ -781,13 +785,13 @@
 
       setText('hero-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
       setText('hero-trades', data.open_trades || 0);
-      setText('hero-signals', data.recent_signals || 0);
+      setText('hero-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
 
       setText('dash-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
       setText('dash-win-rate', (data.win_rate || 0) + '%');
       setText('dash-open-trades', data.open_trades || 0);
       setText('dash-monthly-pnl', (data.monthly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.monthly_pnl || 0).toFixed(2));
-      setText('dash-signals', data.recent_signals || 0);
+      setText('dash-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
 
       var dailyPnl = data.daily_pnl || 0;
       var balDelta = document.getElementById('dash-balance-delta');
@@ -1084,6 +1088,7 @@
     xhr.open('POST', '/api/notifications/' + id + '/read/', true);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.setRequestHeader('X-CSRFToken', getCSRF());
     xhr.onload = function(){
       if(xhr.status === 200){loadNotifications()}
     };
@@ -1096,6 +1101,7 @@
     xhr.open('POST', '/api/notifications/read-all/', true);
     xhr.setRequestHeader('X-Requested-With', 'XMLHttpRequest');
     xhr.setRequestHeader('Content-Type', 'application/x-www-form-urlencoded');
+    xhr.setRequestHeader('X-CSRFToken', getCSRF());
     xhr.onload = function(){
       if(xhr.status === 200){loadNotifications()}
     };

@@ -3090,3 +3090,4 @@
 [2026-07-14 22:46:09,912] INFO trading_app.tasks Cleaned up 0 expired OTPs
 [2026-07-14 22:46:12,207] INFO trading_app.tasks Daily trade counts reset
 [2026-07-14 22:46:16,818] ERROR trading_app.tasks User 99999 not found for OTP email
+[2026-07-21 12:32:07,039] WARNING trading_app.services.llm_service OpenAI API key not configured

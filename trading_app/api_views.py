@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from rest_framework import status, viewsets, generics, permissions
-from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
@@ -99,14 +99,13 @@ class RAGDocumentViewSet(viewsets.ModelViewSet):
         )
         chunk_objs = []
         for chunk_data in chunks:
-            embedding = rag_engine.get_embedding(chunk_data['text'])
             chunk_objs.append(RAGChunk(
                 document=doc,
                 chunk_id=chunk_data['id'],
                 text=chunk_data['text'],
                 start_pos=chunk_data['start_pos'],
                 end_pos=chunk_data['end_pos'],
-                embedding=embedding,
+                embedding=chunk_data.get('embedding'),
             ))
         RAGChunk.objects.bulk_create(chunk_objs)
         doc.chunk_count = len(chunks)
@@ -808,6 +807,8 @@ def api_password_reset_request(request):
     reset_token = secrets.token_urlsafe(32)
     CacheService.set(f'pwd_reset_token_{reset_token}', user.id, timeout=600)
 
+    request.session['password_reset_token'] = reset_token
+
     return Response({'status': 'OTP sent', 'reset_token': reset_token})
 
 
@@ -859,11 +860,17 @@ def api_password_reset_confirm(request):
     if len(new_password) < 8:
         return Response({'error': 'Password must be at least 8 characters'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if new_password.lower() == new_password or new_password.upper() == new_password:
-        return Response({'error': 'Password must contain both uppercase and lowercase letters'}, status=status.HTTP_400_BAD_REQUEST)
+    if new_password == new_password.lower():
+        return Response({'error': 'Password must contain at least one uppercase letter'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if new_password == new_password.upper():
+        return Response({'error': 'Password must contain at least one lowercase letter'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not any(c.isdigit() for c in new_password):
         return Response({'error': 'Password must contain at least one digit'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if not any(c in '!@#$%^&*()_+-=[]{}|;:,.<>?' for c in new_password):
+        return Response({'error': 'Password must contain at least one special character'}, status=status.HTTP_400_BAD_REQUEST)
 
     try:
         user = User.objects.get(id=user_id)
