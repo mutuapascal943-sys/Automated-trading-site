@@ -535,12 +535,12 @@ def analyze_and_signal_view(request):
             candles = adapter.get_candles(symbol, 3600, 30)
             adapter.disconnect()
 
-        from trading_app.trading_bot.llm_analyzer import LLMAnalyzer, OpenAIProvider
+        from trading_app.trading_bot.llm_analyzer import LLMAnalyzer, GeminiProvider
         from decouple import config as decouple_config
 
-        api_key = decouple_config('OPENAI_API_KEY', default='')
+        api_key = decouple_config('GEMINI_API_KEY', default='')
         if api_key:
-            provider = OpenAIProvider(api_key=api_key)
+            provider = GeminiProvider(api_key=api_key)
             analyzer = LLMAnalyzer(provider=provider)
             analysis = analyzer.analyze(symbol, candles)
         else:

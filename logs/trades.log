@@ -3091,3 +3091,40 @@
 [2026-07-14 22:46:12,207] INFO trading_app.tasks Daily trade counts reset
 [2026-07-14 22:46:16,818] ERROR trading_app.tasks User 99999 not found for OTP email
 [2026-07-21 12:32:07,039] WARNING trading_app.services.llm_service OpenAI API key not configured
+[2026-07-21 13:11:10,777] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for EUR/USD — using paper
+[2026-07-21 13:11:10,796] INFO trading_app.services.ticker_bridge TickerBridge: paper ticker thread started
+[2026-07-21 13:11:10,806] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to EUR/USD (paper)
+[2026-07-21 13:11:10,930] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for GBP/USD — using paper
+[2026-07-21 13:11:10,932] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to GBP/USD (paper)
+[2026-07-21 13:11:11,161] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for USD/JPY — using paper
+[2026-07-21 13:11:11,163] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to USD/JPY (paper)
+[2026-07-21 13:11:11,667] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for AUD/USD — using paper
+[2026-07-21 13:11:11,669] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to AUD/USD (paper)
+[2026-07-21 13:11:11,821] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for USD/CAD — using paper
+[2026-07-21 13:11:11,824] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to USD/CAD (paper)
+[2026-07-21 13:11:12,536] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for NZD/USD — using paper
+[2026-07-21 13:11:12,537] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to NZD/USD (paper)
+[2026-07-21 13:11:12,663] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for XAU/USD — using paper
+[2026-07-21 13:11:12,663] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to XAU/USD (paper)
+[2026-07-21 13:11:12,740] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for BTC/USD — using paper
+[2026-07-21 13:11:12,740] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to BTC/USD (paper)
+[2026-07-21 13:11:12,770] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for Volatility 100 Index — using paper
+[2026-07-21 13:11:12,771] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to Volatility 100 Index (paper)
+[2026-07-21 13:11:12,830] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for Boom 1000 Index — using paper
+[2026-07-21 13:11:12,830] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to Boom 1000 Index (paper)
+[2026-07-21 13:11:12,872] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for Crash 1000 Index — using paper
+[2026-07-21 13:11:12,874] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to Crash 1000 Index (paper)
+[2026-07-21 13:11:14,572] WARNING trading_app.services.ticker_bridge TickerBridge: Deriv unreachable for Volatility 75 Index — using paper
+[2026-07-21 13:11:14,573] INFO trading_app.services.ticker_bridge TickerBridge: subscribed to Volatility 75 Index (paper)
+[2026-07-21 13:12:03,768] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from AUD/USD
+[2026-07-21 13:12:03,771] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from Volatility 75 Index
+[2026-07-21 13:12:03,773] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from Volatility 100 Index
+[2026-07-21 13:12:03,775] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from USD/CAD
+[2026-07-21 13:12:03,776] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from BTC/USD
+[2026-07-21 13:12:03,777] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from Boom 1000 Index
+[2026-07-21 13:12:03,779] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from Crash 1000 Index
+[2026-07-21 13:12:03,780] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from XAU/USD
+[2026-07-21 13:12:03,781] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from EUR/USD
+[2026-07-21 13:12:03,782] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from GBP/USD
+[2026-07-21 13:12:03,784] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from USD/JPY
+[2026-07-21 13:12:03,787] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from NZD/USD

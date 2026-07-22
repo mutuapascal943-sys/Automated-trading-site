@@ -23,7 +23,7 @@ AI-powered automated forex and crypto trading platform with real-time market ana
 | Frontend | Vanilla JavaScript SPA, custom CSS (dark theme) |
 | Database | SQLite (dev), PostgreSQL (production) |
 | Cache/Queue | Redis, Celery + Celery Beat |
-| AI/LLM | OpenAI API (GPT-4, text-embedding-3-small) |
+| AI/LLM | Google Gemini API (gemini-2.0-flash, text-embedding-004) |
 | Auth | Email OTP 2FA, bcrypt, Fernet credential encryption |
 | Broker APIs | Deriv (WebSocket), Binance (REST + WebSocket) |
 
@@ -104,7 +104,7 @@ trading_app/               # Main Django application
   decorators.py            #   2FA enforcement decorators
 
 trading_app/services/      # Business logic layer
-  llm_service.py           #   OpenAI GPT-4 integration
+  llm_service.py           #   Google Gemini integration
   rag_engine.py            #   Document chunking, embedding, retrieval
   broker_service.py        #   Broker REST API client
   email_service.py         #   OTP generation and email delivery
@@ -141,7 +141,7 @@ Key variables in `.env`:
 | `DJANGO_SECRET_KEY` | Django secret key |
 | `DJANGO_DEBUG` | Debug mode toggle |
 | `EMAIL_HOST*` | SMTP configuration for 2FA email |
-| `OPENAI_API_KEY` | OpenAI API key |
+| `GEMINI_API_KEY` | Google Gemini API key |
 | `TRADING_API_*` | Broker API credentials |
 | `REDIS_URL` | Redis connection for cache/Celery |
 | `DATABASE_URL` | Database connection string |

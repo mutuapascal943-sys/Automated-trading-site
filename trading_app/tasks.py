@@ -12,7 +12,7 @@ from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
-from .trading_bot.llm_analyzer import LLMAnalyzer, OpenAIProvider
+from .trading_bot.llm_analyzer import LLMAnalyzer, GeminiProvider
 import logging
 
 logger = logging.getLogger(__name__)
@@ -194,12 +194,12 @@ def _run_single_user_bot(user):
     symbols = user.watchlist or ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
 
     from decouple import config as decouple_config
-    api_key = decouple_config('OPENAI_API_KEY', default='')
+    api_key = decouple_config('GEMINI_API_KEY', default='')
     if not api_key:
-        logger.warning(f'No OPENAI_API_KEY for bot cycle user {user.id}')
+        logger.warning(f'No GEMINI_API_KEY for bot cycle user {user.id}')
         return
 
-    provider = OpenAIProvider(api_key=api_key)
+    provider = GeminiProvider(api_key=api_key)
     analyzer = LLMAnalyzer(provider=provider)
 
     open_trades = Trade.objects.filter(user=user, status='OPEN')

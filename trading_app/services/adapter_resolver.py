@@ -21,7 +21,7 @@ def get_adapter_for_broker(broker_name: str) -> BrokerAdapter:
         return cls()
 
     api_key = config("TRADING_API_KEY", default="")
-    if api_key and api_key != "sk-your-openai-api-key" and not api_key.startswith("sk-your"):
+    if api_key and not api_key.startswith('your-'):
         return DerivAdapter(app_id=config("DERIV_APP_ID", default="1089"))
 
     return PaperBrokerAdapter()

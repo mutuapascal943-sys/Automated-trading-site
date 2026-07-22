@@ -23,22 +23,40 @@ class LLMProvider(Protocol):
         ...
 
 
-class OpenAIProvider:
-    def __init__(self, api_key: str, model: str = "gpt-4") -> None:
-        from openai import OpenAI
+class GeminiProvider:
+    def __init__(self, api_key: str, model: str = "gemini-2.0-flash") -> None:
+        import google.generativeai as genai
 
-        self._client = OpenAI(api_key=api_key)
-        self._model = model
+        genai.configure(api_key=api_key)
+        self._model_name = model
 
     def chat_complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
-        response = self._client.chat.completions.create(
-            model=self._model,
-            messages=messages,
-            response_format={"type": "json_object"},
-            temperature=kwargs.get("temperature", 0.3),
-            max_tokens=kwargs.get("max_tokens", 500),
+        import google.generativeai as genai
+
+        system_msg = ""
+        user_content = ""
+        for msg in messages:
+            if msg["role"] == "system":
+                system_msg = msg["content"]
+            else:
+                user_content += msg["content"] + "\n"
+
+        model = genai.GenerativeModel(
+            model_name=self._model_name,
+            system_instruction=system_msg if system_msg else None,
         )
-        return response.choices[0].message.content or ""
+
+        generation_config = genai.GenerationConfig(
+            response_mime_type="application/json",
+            temperature=kwargs.get("temperature", 0.3),
+            max_output_tokens=kwargs.get("max_tokens", 500),
+        )
+
+        response = model.generate_content(
+            user_content.strip(),
+            generation_config=generation_config,
+        )
+        return response.text or ""
 
 
 class LLMAnalyzer:

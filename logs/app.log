@@ -6104,3 +6104,7 @@ Traceback (most recent call last):
   File "C:\Users\ADMIN\Documents\GitHub\Automated-trading-site\.venv\Lib\site-packages\redis\asyncio\connection.py", line 407, in connect_check_health
     raise e
 redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Connect call failed ('::1', 6379, 0, 0), [Errno 10061] Connect call failed ('127.0.0.1', 6379) connecting to localhost:6379.
+[2026-07-21 13:11:13,157] WARNING django.request Not Found: /favicon.ico
+[2026-07-21 13:11:13,157] WARNING django.request Not Found: /favicon.ico
+[2026-07-21 13:11:13,159] WARNING django.channels.server [33mHTTP GET /favicon.ico 404 [0.06, 127.0.0.1:50102][0m
+[2026-07-21 13:11:13,159] WARNING django.channels.server [33mHTTP GET /favicon.ico 404 [0.06, 127.0.0.1:50102][0m

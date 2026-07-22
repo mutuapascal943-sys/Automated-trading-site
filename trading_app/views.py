@@ -37,6 +37,13 @@ def register_view(request):
             user = form.save(commit=False)
             user.email = form.cleaned_data['email']
             user.broker = form.cleaned_data['broker']
+            base_username = user.email.split('@')[0]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f'{base_username}{counter}'
+                counter += 1
+            user.username = username
             user.save()
             create_notification(user, 'Account Created', 'Welcome to Forex AI Pro! Please verify your email to get started.', 'account')
             login(request, user)

@@ -3,30 +3,30 @@ import hashlib
 import logging
 from typing import Optional
 from decouple import config
-from openai import OpenAI
+import google.generativeai as genai
 
 logger = logging.getLogger(__name__)
 
 
 class RAGEngine:
     def __init__(self):
-        self.api_key = config('OPENAI_API_KEY', default='')
-        self.embedding_model = config('RAG_EMBEDDING_MODEL', default='text-embedding-3-small')
+        self.api_key = config('GEMINI_API_KEY', default='')
+        self.embedding_model = config('RAG_EMBEDDING_MODEL', default='models/text-embedding-004')
         self.chunk_size = int(config('RAG_CHUNK_SIZE', default=1000))
         self.chunk_overlap = int(config('RAG_CHUNK_OVERLAP', default=200))
         self.top_k = int(config('RAG_TOP_K', default=5))
-        self._client = None
+        self._genai_configured = False
 
-    @property
-    def client(self) -> Optional[OpenAI]:
-        if not self.api_key or self.api_key.startswith('sk-your'):
-            return None
-        if self._client is None:
-            self._client = OpenAI(api_key=self.api_key)
-        return self._client
+    def _ensure_configured(self):
+        if not self._genai_configured:
+            if not self.api_key or self.api_key.startswith('your-'):
+                return False
+            genai.configure(api_key=self.api_key)
+            self._genai_configured = True
+        return True
 
     def is_configured(self) -> bool:
-        return self.client is not None
+        return self._ensure_configured()
 
     def chunk_text(self, text: str) -> list[dict]:
         chunks = []
@@ -61,11 +61,11 @@ class RAGEngine:
             return None
         try:
             text = text.replace('\n', ' ')[:8000]
-            response = self.client.embeddings.create(
+            result = genai.embed_content(
                 model=self.embedding_model,
-                input=text,
+                content=text,
             )
-            return response.data[0].embedding
+            return result['embedding']
         except Exception as e:
             logger.error(f'Embedding generation failed: {e}')
             return None
@@ -79,12 +79,11 @@ class RAGEngine:
         for i in range(0, len(texts), batch_size):
             batch = [t.replace('\n', ' ')[:8000] for t in texts[i:i + batch_size]]
             try:
-                response = self.client.embeddings.create(
+                result = genai.embed_content(
                     model=self.embedding_model,
-                    input=batch,
+                    content=batch,
                 )
-                sorted_data = sorted(response.data, key=lambda x: x.index)
-                results.extend([item.embedding for item in sorted_data])
+                results.extend(result['embedding'])
             except Exception as e:
                 logger.error(f'Batch embedding failed: {e}')
                 results.extend([None] * len(batch))
