@@ -6442,3 +6442,15 @@ redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Conne
 [2026-07-22 17:22:38,287] WARNING django.request Bad Request: /api/auth/verify-otp/
 [2026-07-22 17:22:52,984] ERROR django.request Service Unavailable: /api/broker/health/
 [2026-07-22 17:22:52,984] ERROR django.request Service Unavailable: /api/broker/health/
+[2026-07-22 17:34:05,626] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:05,626] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:05,628] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:54151][0m
+[2026-07-22 17:34:05,628] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:54151][0m
+[2026-07-22 17:34:20,631] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:20,631] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:20,633] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:54151][0m
+[2026-07-22 17:34:20,633] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:54151][0m
+[2026-07-22 17:34:35,684] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:35,684] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 17:34:35,686] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:54151][0m
+[2026-07-22 17:34:35,686] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:54151][0m
