@@ -38,6 +38,7 @@
             <select name="broker" class="form-input" style="margin-top:6px">
               <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
               <option value="Binance" {% if user.broker == 'Binance' %}selected{% endif %}>Binance</option>
+              <option value="MetaTrader5" {% if user.broker == 'MetaTrader5' %}selected{% endif %}>MetaTrader 5</option>
             </select>
           </div>
         </div>
@@ -98,6 +99,7 @@
             <select id="broker-select" class="form-input" style="margin-top:6px">
               <option value="Deriv" {% if user.broker == 'Deriv' %}selected{% endif %}>Deriv</option>
               <option value="Binance" {% if user.broker == 'Binance' %}selected{% endif %}>Binance</option>
+              <option value="MetaTrader5" {% if user.broker == 'MetaTrader5' %}selected{% endif %}>MetaTrader 5</option>
             </select>
             <span style="font-size:11px;color:var(--text3);display:block;margin-top:4px">More brokers coming soon</span>
           </div>

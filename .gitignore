@@ -33,3 +33,7 @@ Thumbs.db
 *.env.local
 
 logs/
+*.log
+app.log
+error.log
+trade.log

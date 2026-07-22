@@ -728,8 +728,10 @@ body{
 .risk-field input{
   width:100%;padding:8px 10px;border-radius:8px;
   background:rgba(255,255,255,0.04);border:1px solid var(--border2);
-  color:var(--text);font-size:13px;font-family:'DM Mono',monospace;outline:none;
+  color:var(--text);font-size:13px;font-family:'Outfit',sans-serif;outline:none;
+  transition:border-color .2s;
 }
+.risk-field input:focus{border-color:rgba(245,194,122,0.3)}
 
 .stake-group{margin-left:auto}
 .stake-input-wrap{
@@ -744,8 +746,8 @@ body{
 }
 .stake-input{
   width:80px;padding:6px 10px;border:none;background:transparent;
-  color:var(--text);font-size:13px;font-family:'DM Mono',monospace;outline:none;
-  -moz-appearance:textfield;
+  color:var(--text);font-size:13px;font-family:'Outfit',sans-serif;outline:none;
+  -moz-appearance:textfield;transition:border-color .2s;
 }
 .stake-input::-webkit-outer-spin-button,.stake-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
 

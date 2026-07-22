@@ -7,6 +7,8 @@ This module pages backward through time to collect years of history.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import time
 from datetime import datetime, timezone
@@ -204,6 +206,3 @@ def collect_from_adapter(
 
     all_candles.sort(key=lambda c: c["time"])
     return all_candles
-
-
-import json

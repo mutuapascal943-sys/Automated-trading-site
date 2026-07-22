@@ -10,7 +10,7 @@ from django.conf import settings
 from django.contrib.auth import get_user_model
 from .models import (
     User, EmailOTP, Trade, TradingSignal,
-    RAGDocument, RAGChunk, LLMQuery, Subscription,
+    Subscription,
     SecurityQuestion, Notification, RiskConfig,
 )
 from .services.email_service import generate_otp, send_otp_email
@@ -21,8 +21,6 @@ from .forms import (
     SetNewPasswordForm, ProfileForm, ProfilePictureForm,
     RegisterForm,
 )
-from .services.rag_engine import RAGEngine
-from .services.llm_service import LLMService
 from .services.broker_service import BrokerService
 from .trading_bot.interface import Candle, Order as InterfaceOrder, OrderRequest
 
@@ -186,66 +184,6 @@ class CacheServiceTests(TestCase):
         self.assertEqual(CacheService.get_market_data('EUR/USD'), data)
 
 
-class RAGEngineTests(TestCase):
-    def setUp(self):
-        self.engine = RAGEngine()
-
-    def test_chunk_text_small(self):
-        text = 'This is a small text.'
-        chunks = self.engine.chunk_text(text)
-        self.assertEqual(len(chunks), 1)
-        self.assertEqual(chunks[0]['text'], text)
-
-    def test_chunk_text_large(self):
-        text = 'Paragraph one. ' * 200 + '\n\n' + 'Paragraph two. ' * 200
-        chunks = self.engine.chunk_text(text)
-        self.assertGreater(len(chunks), 1)
-        for chunk in chunks:
-            self.assertIn('id', chunk)
-            self.assertIn('text', chunk)
-            self.assertIn('start_pos', chunk)
-            self.assertIn('end_pos', chunk)
-
-    def test_chunk_id_uniqueness(self):
-        text = 'Hello world. ' * 50
-        chunks = self.engine.chunk_text(text)
-        ids = [c['id'] for c in chunks]
-        self.assertEqual(len(ids), len(set(ids)))
-
-    def test_cosine_similarity(self):
-        a = [1.0, 0.0, 0.0]
-        b = [1.0, 0.0, 0.0]
-        self.assertAlmostEqual(self.engine.cosine_similarity(a, b), 1.0)
-
-    def test_cosine_similarity_orthogonal(self):
-        a = [1.0, 0.0]
-        b = [0.0, 1.0]
-        self.assertAlmostEqual(self.engine.cosine_similarity(a, b), 0.0)
-
-    def test_cosine_similarity_zero_vector(self):
-        a = [0.0, 0.0]
-        b = [1.0, 0.0]
-        self.assertEqual(self.engine.cosine_similarity(a, b), 0.0)
-
-    def test_process_document(self):
-        chunks = self.engine.process_document(
-            title='Test Doc',
-            content='Test content here. ' * 50,
-            source='manual',
-        )
-        for chunk in chunks:
-            self.assertEqual(chunk['title'], 'Test Doc')
-            self.assertEqual(chunk['source'], 'manual')
-
-    def test_chunk_respects_chunk_size(self):
-        original_size = self.engine.chunk_size
-        self.engine.chunk_size = 100
-        text = 'A' * 500
-        chunks = self.engine.chunk_text(text)
-        self.assertGreater(len(chunks), 1)
-        self.engine.chunk_size = original_size
-
-
 class TradeModelTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
@@ -313,61 +251,6 @@ class TradingSignalTests(TestCase):
 
     def test_signal_str(self):
         self.assertIn('GBP/USD BUY', str(self.signal))
-
-
-class RAGDocumentTests(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='rag@example.com', username='raguser', password='pass123'
-        )
-        self.doc = RAGDocument.objects.create(
-            user=self.user,
-            title='Trading Strategy Guide',
-            content='This is a comprehensive trading strategy document. ' * 100,
-            source='manual',
-            file_size=5000,
-        )
-
-    def test_document_creation(self):
-        self.assertEqual(self.doc.title, 'Trading Strategy Guide')
-        self.assertEqual(self.doc.source, 'manual')
-        self.assertEqual(self.doc.file_size, 5000)
-        self.assertFalse(self.doc.is_indexed)
-
-    def test_document_str(self):
-        self.assertEqual(str(self.doc), 'Trading Strategy Guide')
-
-    def test_chunk_creation(self):
-        chunk = RAGChunk.objects.create(
-            document=self.doc,
-            chunk_id='abc123',
-            text='Sample chunk text',
-            start_pos=0,
-            end_pos=50,
-        )
-        self.assertEqual(chunk.chunk_id, 'abc123')
-        self.assertEqual(chunk.document, self.doc)
-
-
-class LLMQueryTests(TestCase):
-    def setUp(self):
-        self.user = User.objects.create_user(
-            email='llm@example.com', username='llmuser', password='pass123'
-        )
-        self.query = LLMQuery.objects.create(
-            user=self.user,
-            query_type='market_analysis',
-            prompt='Analyze EUR/USD',
-            response='Bullish signal detected',
-            tokens_used=150,
-            latency_ms=1200,
-            success=True,
-        )
-
-    def test_query_creation(self):
-        self.assertEqual(self.query.query_type, 'market_analysis')
-        self.assertTrue(self.query.success)
-        self.assertEqual(self.query.tokens_used, 150)
 
 
 class SubscriptionTests(TestCase):

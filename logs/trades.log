@@ -3239,3 +3239,7 @@
 [2026-07-22 16:38:32,806] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from XAU/USD
 [2026-07-22 16:38:32,808] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from EUR/USD
 [2026-07-22 16:38:32,809] INFO trading_app.services.ticker_bridge TickerBridge: unsubscribed from Boom 1000 Index
+[2026-07-22 17:23:26,002] INFO trading_app.tasks Cleaned up 1 expired OTPs
+[2026-07-22 17:23:28,308] INFO trading_app.tasks Cleaned up 0 expired OTPs
+[2026-07-22 17:23:30,557] INFO trading_app.tasks Daily trade counts reset
+[2026-07-22 17:23:35,146] ERROR trading_app.tasks User 99999 not found for OTP email

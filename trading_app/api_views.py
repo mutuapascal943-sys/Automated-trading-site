@@ -410,7 +410,7 @@ def broker_status_view(request):
         'paper_mode': user.paper_mode,
         'configured': configured,
         'health': health,
-        'broker_list': ['Deriv', 'Binance'],
+        'broker_list': ['Deriv', 'Binance', 'MetaTrader5'],
     })
 
 
@@ -459,7 +459,7 @@ def risk_config_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Market Analysis (wired to LLM + signal creation)
+# Market Analysis (technical analyzer + signal creation)
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -1127,6 +1127,92 @@ def ticker_unsubscribe_view(request):
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
     TickerBridge.remove_subscription(symbol, str(request.user.id))
     return Response({'status': 'ok', 'symbol': symbol})
+
+
+# ---------------------------------------------------------------------------
+# ML Model Export — serves latest trained model for MQL5 EA
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def model_export_view(request):
+    """
+    Return metadata + download URL for the latest trained model.
+    The MQL5 EA calls this endpoint to fetch feature columns, thresholds,
+    and model file path for on-device inference.
+    """
+    import json
+    from pathlib import Path
+
+    ml_output = Path(settings.BASE_DIR) / "ml_output"
+    results_path = ml_output / "pipeline_results.json"
+
+    if not results_path.exists():
+        return Response(
+            {'error': 'No trained model found. Run: python manage.py train_model'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        with open(results_path, "r") as f:
+            results = json.load(f)
+    except Exception as e:
+        return Response({'error': f'Failed to load results: {e}'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # Find the latest model + metadata files
+    model_files = sorted(ml_output.glob("*_model.pkl"), reverse=True)
+    onnx_files = sorted(ml_output.glob("*_model.onnx"), reverse=True)
+    meta_files = sorted(ml_output.glob("*_metadata.json"), reverse=True)
+
+    model_info = {
+        'symbol': results.get('symbol', 'EURUSD'),
+        'granularity': results.get('granularity', 900),
+        'metrics': results.get('metrics', {}),
+        'has_onnx': len(onnx_files) > 0,
+        'model_file': str(model_files[0].name) if model_files else None,
+        'onnx_file': str(onnx_files[0].name) if onnx_files else None,
+        'metadata_file': str(meta_files[0].name) if meta_files else None,
+    }
+
+    # Load metadata for feature columns
+    if meta_files:
+        try:
+            with open(meta_files[0], "r") as f:
+                meta = json.load(f)
+            model_info['feature_columns'] = meta.get('feature_columns', [])
+            model_info['model_type'] = meta.get('model_type', '')
+            model_info['trained_at'] = meta.get('timestamp', '')
+        except Exception:
+            pass
+
+    return Response(model_info)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def model_download_view(request, filename):
+    """
+    Serve a trained model file for download.
+    MQL5 EA downloads the .onnx or .pkl file from here.
+    """
+    import os
+    from pathlib import Path
+    from django.http import FileResponse, Http404
+
+    ml_output = Path(settings.BASE_DIR) / "ml_output"
+    file_path = ml_output / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise Http404("Model file not found")
+
+    # Prevent path traversal
+    try:
+        file_path.resolve().relative_to(ml_output.resolve())
+    except ValueError:
+        raise Http404("Invalid path")
+
+    return FileResponse(open(file_path, 'rb'), as_attachment=True, name=filename)
 
 
 # ---------------------------------------------------------------------------

@@ -55,6 +55,8 @@ urlpatterns = [
     path('api/backtest/', api_views.run_backtest_view, name='api_backtest'),
     path('api/ws/ticker/subscribe/', api_views.ticker_subscribe_view, name='api_ticker_subscribe'),
     path('api/ws/ticker/unsubscribe/', api_views.ticker_unsubscribe_view, name='api_ticker_unsubscribe'),
+    path('api/models/latest/', api_views.model_export_view, name='api_model_export'),
+    path('api/models/download/<str:filename>/', api_views.model_download_view, name='api_model_download'),
     path('api/health/', api_views.health_check_view, name='api_health_check'),
     path('api/', include(router.urls)),
 ]

@@ -50,6 +50,7 @@ BROKER_CHOICES = [
     ('', 'Choose your broker'),
     ('Deriv', 'Deriv'),
     ('Binance', 'Binance'),
+    ('MetaTrader5', 'MetaTrader 5'),
 ]
 
 
