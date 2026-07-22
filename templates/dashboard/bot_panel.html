@@ -20,7 +20,14 @@
       <option>M30</option><option>H1</option><option>H4</option><option>D1</option>
     </select>
   </div>
-  <div class="filter-group" style="margin-left:auto;display:flex;align-items:center;gap:8px">
+  <div class="filter-group stake-group">
+    <div class="filter-label">Stake</div>
+    <div class="stake-input-wrap">
+      <span class="stake-currency">$</span>
+      <input type="number" id="stake-amount" class="stake-input" value="{{ user.stake_amount }}" min="1" step="0.01" onchange="saveStakeConfig()" onblur="saveStakeConfig()">
+    </div>
+  </div>
+  <div class="filter-group" style="display:flex;align-items:center;gap:8px">
     <label style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Paper Mode</label>
     <div class="toggle {% if user.paper_mode %}on{% endif %}" id="paper-mode-toggle" onclick="togglePaperMode()"></div>
   </div>
@@ -38,6 +45,11 @@
       </div>
       <div class="chart-canvas-wrap">
         <canvas id="botChart" height="260" style="width:100%;display:block"></canvas>
+      </div>
+      <div class="chart-levels-legend" id="chart-levels-legend" style="display:none">
+        <span class="legend-item"><span class="legend-dot" style="background:#00d4aa"></span> Entry</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#ff4d6d"></span> Stop Loss</span>
+        <span class="legend-item"><span class="legend-dot" style="background:#f5c27a"></span> Take Profit</span>
       </div>
     </div>
 
@@ -67,27 +79,49 @@
       <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">psychology</span> AI Analysis</div>
       <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
         <span style="font-size:12px;color:var(--text2)">Current Trend:</span>
-        <span class="trend-badge bullish" id="trend-badge">▲ BULLISH</span>
+        <span class="trend-badge bullish" id="trend-badge">BULLISH</span>
       </div>
       <div class="score-bar-wrap">
         <div class="score-bar-label"><span>Signal Confidence</span><span id="conf-val">74%</span></div>
         <div class="score-bar"><div class="score-bar-fill" id="conf-bar" style="width:74%"></div></div>
       </div>
-      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">—</span></div>
-      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">—</span></div>
-      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">—</span></div>
-      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">—</span></div>
+      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">--</span></div>
+      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">--</span></div>
+      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">--</span></div>
+      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">--</span></div>
     </div>
 
-    <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Trade Signal</div>
-      <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">—</span></div>
-      <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 2</span><span class="signal-val green" id="sig-tp2">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 3</span><span class="signal-val green" id="sig-tp3">—</span></div>
-      <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold">—</span></div>
-      <div class="signal-row"><span class="signal-key">Signal Strength</span><span class="signal-val green">—</span></div>
+    <div class="analysis-card signal-card" id="signal-card">
+      <div class="signal-card-header">
+        <div class="analysis-title" style="margin-bottom:0"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Trade Signal</div>
+        <span class="signal-state-badge" id="signal-state-badge">NO SIGNAL</span>
+      </div>
+
+      <div class="signal-body" id="signal-body-empty" style="padding:16px 0;text-align:center;color:var(--text3);font-size:12px">
+        Click ANALYZE to generate a bot-calculated signal
+      </div>
+
+      <div class="signal-body" id="signal-body-content" style="display:none">
+        <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">--</span></div>
+        <div class="signal-row">
+          <span class="signal-key">Stop Loss <span class="sl-tp-tag">BOT</span></span>
+          <span class="signal-val red" id="sig-sl">--</span>
+        </div>
+        <div class="signal-row">
+          <span class="signal-key">Take Profit <span class="sl-tp-tag">BOT</span></span>
+          <span class="signal-val green" id="sig-tp">--</span>
+        </div>
+        <div class="signal-row"><span class="signal-key">SL Distance</span><span class="signal-val" id="sig-sl-dist" style="color:var(--text2)">--</span></div>
+        <div class="signal-row"><span class="signal-key">TP Distance</span><span class="signal-val" id="sig-tp-dist" style="color:var(--text2)">--</span></div>
+        <div class="signal-row"><span class="signal-key">ATR (14)</span><span class="signal-val" id="sig-atr" style="color:var(--text2)">--</span></div>
+        <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold" id="sig-rr">--</span></div>
+        <div class="signal-row"><span class="signal-key">Stake</span><span class="signal-val gold" id="sig-stake">--</span></div>
+
+        <div class="signal-reasoning" id="signal-reasoning">
+          <div class="reasoning-title">Bot Reasoning</div>
+          <div class="reasoning-text" id="reasoning-text">--</div>
+        </div>
+      </div>
     </div>
 
     <div class="analysis-card">
@@ -117,6 +151,25 @@ function togglePaperMode(){
     toggle.classList.toggle('on', !newMode);
     showToast('Failed to toggle paper mode', 'error');
   });
+}
+
+function saveStakeConfig(){
+  var input = document.getElementById('stake-amount');
+  if(!input) return;
+  var val = parseFloat(input.value);
+  if(isNaN(val) || val <= 0) return;
+  fetch('/api/stake-config/', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({stake_amount: val}),
+  }).then(function(r){ return r.json() }).then(function(data){
+    if(data.stake_amount){
+      input.value = data.stake_amount;
+      showToast('Stake updated to $' + data.stake_amount, 'success');
+    } else if(data.error){
+      showToast(data.error, 'error');
+    }
+  }).catch(function(){ showToast('Failed to save stake', 'error'); });
 }
 
 function loadRecentTrades(){
@@ -156,11 +209,10 @@ function closeAllTrades(){
   .catch(function(){});
 }
 
-// Load trades when bot panel becomes visible
 var _origNav = window.navigateToPanel;
 window.navigateToPanel = function(panelId){
   if(panelId === 'bot'){
-    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); }, 100);
+    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); loadStakeConfig(); }, 100);
   }
   if(_origNav) _origNav(panelId);
 };

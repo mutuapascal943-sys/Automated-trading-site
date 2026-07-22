@@ -224,19 +224,62 @@ def market_data_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def execute_trade_view(request):
-    serializer = TradeCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+    data = request.data.copy()
+
+    if not data.get('volume') or float(data.get('volume', 0)) <= 0:
+        data['volume'] = float(request.user.stake_amount)
 
     user = request.user
     risk = RiskConfig.get_for_user(user)
 
-    if not risk.trading_enabled:
-        return Response({'error': 'Trading is disabled in your risk settings'}, status=status.HTTP_403_FORBIDDEN)
+    if not data.get('stop_loss') or not data.get('take_profit'):
+        signal_type = data.get('action', 'BUY').upper()
+        confidence = float(data.get('confidence', 0.65))
+        current_price = float(data.get('entry_price', 0)) or float(data.get('current_price', 0))
 
-    today = timezone.now().date()
-    if user.last_trade_date != today:
+        candles = []
+        try:
+            if not user.paper_mode:
+                adapter = _resolve_adapter(user)
+                creds = build_credentials(user)
+                adapter.connect(creds)
+                candles = adapter.get_candles(data.get('symbol', 'EUR/USD'), 3600, 50)
+                adapter.disconnect()
+        except Exception:
+            pass
+
+        if not candles and current_price > 0:
+            import random
+            now_ts = timezone.now().timestamp()
+            p = current_price
+            for i in range(50):
+                o = p
+                c = p * (1 + (random.random() - 0.5) * 0.002)
+                h = max(o, c) * (1 + random.random() * 0.001)
+                l = min(o, c) * (1 - random.random() * 0.001)
+                candles.append({'open': o, 'high': h, 'low': l, 'close': c, 'time': int(now_ts - (50 - i) * 3600)})
+                p = c
+
+        from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+        proposal = compute_sl_tp(
+            candles=candles,
+            signal_type=signal_type,
+            confidence=confidence,
+            current_price=current_price or (float(candles[-1]['close']) if candles else None),
+            risk_per_trade_pct=float(risk.risk_per_trade),
+            account_balance=float(user.balance),
+        )
+        if not data.get('stop_loss'):
+            data['stop_loss'] = str(proposal.stop_loss)
+        if not data.get('take_profit'):
+            data['take_profit'] = str(proposal.take_profit)
+
+    serializer = TradeCreateSerializer(data=data)
+    serializer.is_valid(raise_exception=True)
+
+    if user.last_trade_date != timezone.now().date():
         user.daily_trades_count = 0
-        user.last_trade_date = today
+        user.last_trade_date = timezone.now().date()
 
     if user.daily_trades_count >= risk.max_daily_trades:
         return Response(
@@ -252,12 +295,11 @@ def execute_trade_view(request):
         )
 
     trade = serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
-
     trade = _execute_via_adapter(user, trade, risk)
 
     if trade.status == 'OPEN':
         user.daily_trades_count += 1
-        user.save()
+        user.save(update_fields=['daily_trades_count', 'last_trade_date'])
 
     return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
@@ -613,6 +655,132 @@ def analyze_and_signal_view(request):
     except Exception as e:
         logger.error('Analysis failed: %s', e)
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# Stake Configuration
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def stake_config_view(request):
+    user = request.user
+
+    if request.method == 'GET':
+        return Response({
+            'stake_amount': str(user.stake_amount),
+            'balance': str(user.balance),
+            'max_position_size': str(RiskConfig.get_for_user(user).max_position_size),
+        })
+
+    raw = request.data.get('stake_amount')
+    if raw is None:
+        return Response({'error': 'stake_amount is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        amount = Decimal(str(raw))
+    except Exception:
+        return Response({'error': 'Invalid stake_amount'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if amount <= 0:
+        return Response({'error': 'Stake must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
+    risk = RiskConfig.get_for_user(user)
+    if amount > risk.max_position_size:
+        return Response(
+            {'error': f'Stake exceeds max position size ({risk.max_position_size})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_risk_amount = user.balance * (risk.risk_per_trade / Decimal('100'))
+    if amount > max_risk_amount * 10:
+        return Response(
+            {'error': f'Stake seems too large for your risk settings (max risk per trade: {max_risk_amount})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.stake_amount = amount
+    user.save(update_fields=['stake_amount'])
+
+    return Response({
+        'stake_amount': str(user.stake_amount),
+        'balance': str(user.balance),
+        'max_position_size': str(risk.max_position_size),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Signal Propose — bot-calculated SL/TP before execution
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def signal_propose_view(request):
+    """
+    Given a symbol and optional signal_type, compute bot-calculated SL/TP
+    using ATR + confidence scaling. Returns the proposed levels with reasoning
+    so the frontend can display them before the user confirms execution.
+    """
+    symbol = request.data.get('symbol', 'EUR/USD')
+    signal_type = request.data.get('signal_type', 'BUY').upper()
+    confidence = float(request.data.get('confidence', 0.65))
+
+    user = request.user
+    risk = RiskConfig.get_for_user(user)
+
+    candles = []
+    try:
+        if not user.paper_mode:
+            adapter = _resolve_adapter(user)
+            creds = build_credentials(user)
+            adapter.connect(creds)
+            candles = adapter.get_candles(symbol, 3600, 50)
+            adapter.disconnect()
+    except Exception as e:
+        logger.warning('Could not fetch candles for SL/TP calc: %s', e)
+
+    if not candles:
+        base_price = float(request.data.get('current_price', 1.08))
+        import random
+        now_ts = timezone.now().timestamp()
+        candles = []
+        p = base_price
+        for i in range(50):
+            o = p
+            c = p * (1 + (random.random() - 0.5) * 0.002)
+            h = max(o, c) * (1 + random.random() * 0.001)
+            l = min(o, c) * (1 - random.random() * 0.001)
+            candles.append({
+                'open': o, 'high': h, 'low': l, 'close': c,
+                'time': int(now_ts - (50 - i) * 3600),
+            })
+            p = c
+
+    from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+
+    proposal = compute_sl_tp(
+        candles=candles,
+        signal_type=signal_type,
+        confidence=confidence,
+        current_price=float(candles[-1]['close']) if candles else None,
+        risk_per_trade_pct=float(risk.risk_per_trade),
+        account_balance=float(user.balance),
+    )
+
+    return Response({
+        'symbol': symbol,
+        'signal_type': signal_type,
+        'confidence': confidence,
+        'current_price': str(candles[-1]['close']) if candles else '0',
+        'stop_loss': str(proposal.stop_loss),
+        'take_profit': str(proposal.take_profit),
+        'sl_distance': str(proposal.sl_distance),
+        'tp_distance': str(proposal.tp_distance),
+        'atr': str(proposal.atr_value),
+        'reasoning': proposal.reasoning,
+        'method': proposal.method,
+        'stake_amount': str(user.stake_amount),
+    })
 
 
 # ---------------------------------------------------------------------------

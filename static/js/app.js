@@ -21,6 +21,14 @@
   var botChartContainer = null;
   var marketChartInstances = [];
 
+  var botEntryLine = null;
+  var botSLLine = null;
+  var botTPLine = null;
+  var botEntryMarker = null;
+  var botSLMarker = null;
+  var botTPMarker = null;
+  var lastProposedSignal = null;
+
   var loadingSteps = [
     'Connecting Broker...',
     'Loading Market Data...',
@@ -286,26 +294,20 @@
     var p = pairs[pair] || 1.0;
     var priceEl = document.getElementById('bot-price');
     if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
-    updateSignals(pair, p);
+    clearChartOverlay();
+    var stateBadge = document.getElementById('signal-state-badge');
+    if(stateBadge){ stateBadge.textContent = 'NO SIGNAL'; stateBadge.className = 'signal-state-badge'; }
+    var emptyBody = document.getElementById('signal-body-empty');
+    var contentBody = document.getElementById('signal-body-content');
+    if(emptyBody) emptyBody.style.display = 'block';
+    if(contentBody) contentBody.style.display = 'none';
+    lastProposedSignal = null;
     initBotChart();
   }
   window.updateBotMarket = updateBotMarket;
 
   function updateSignals(pair, price){
-    var spread = price * 0.002;
-    function setText(id, val){
-      var el = document.getElementById(id);
-      if(el){el.textContent = val > 100 ? val.toFixed(2) : val.toFixed(5)}
-    }
-    setText('sig-entry', price);
-    setText('sig-sl', price - spread * 1.2);
-    setText('sig-tp1', price + spread);
-    setText('sig-tp2', price + spread * 2);
-    setText('sig-tp3', price + spread * 3.5);
-    setText('sup1', price - spread * 0.8);
-    setText('sup2', price - spread * 1.6);
-    setText('res1', price + spread * 0.9);
-    setText('res2', price + spread * 1.8);
+    /* Kept for backward compatibility — SL/TP now come from backend */
   }
 
   /* ── PRICE TICKER (WebSocket driven) ── */
@@ -396,13 +398,15 @@
     .then(function(r){ return r.json() })
     .then(function(data){
       ss.textContent += '> Analysis complete.\n';
+      var bias = 'neutral';
+      var conf = 0;
       if(data.analysis){
-        var trend = data.analysis.bias || 'neutral';
-        var conf = data.analysis.confidence || 0;
+        bias = data.analysis.bias || 'neutral';
+        conf = data.analysis.confidence || 0;
         var tb = document.getElementById('trend-badge');
         if(tb){
-          tb.className = 'trend-badge ' + trend;
-          tb.textContent = trend === 'bullish' ? '▲ BULLISH' : trend === 'bearish' ? '▼ BEARISH' : '◆ SIDEWAYS';
+          tb.className = 'trend-badge ' + bias;
+          tb.textContent = bias === 'bullish' ? 'BULLISH' : bias === 'bearish' ? 'BEARISH' : 'SIDEWAYS';
         }
         var confVal = document.getElementById('conf-val');
         var confBar = document.getElementById('conf-bar');
@@ -410,15 +414,63 @@
         if(confBar) confBar.style.width = Math.min(conf, 100) + '%';
         ss.textContent += '> ' + (data.analysis.rationale || '') + '\n';
       }
-      if(data.signal){
-        ss.textContent += '> Signal: ' + data.signal.signal_type + ' (' + data.signal.confidence + '% confidence)\n';
-        var sigEntry = document.getElementById('sig-entry');
-        var sigSl = document.getElementById('sig-sl');
-        var sigTp1 = document.getElementById('sig-tp1');
-        if(sigEntry && data.signal.entry_price) sigEntry.textContent = data.signal.entry_price;
-        if(sigSl && data.signal.stop_loss) sigSl.textContent = data.signal.stop_loss;
-        if(sigTp1 && data.signal.take_profit) sigTp1.textContent = data.signal.take_profit;
+
+      var signalType = bias === 'bullish' ? 'BUY' : bias === 'bearish' ? 'SELL' : 'BUY';
+      var currentPrice = pairs[pair] || 0;
+
+      return fetch('/api/signal/propose/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+        body: JSON.stringify({
+          symbol: pair,
+          signal_type: signalType,
+          confidence: conf / 100,
+          current_price: currentPrice,
+        }),
+      });
+    })
+    .then(function(r){ return r.json() })
+    .then(function(proposal){
+      ss.textContent += '> Bot calculated SL/TP (ATR-based)\n';
+      ss.textContent += '> ' + proposal.reasoning + '\n';
+
+      lastProposedSignal = proposal;
+
+      var sigEntry = document.getElementById('sig-entry');
+      var sigSl = document.getElementById('sig-sl');
+      var sigTp = document.getElementById('sig-tp');
+      var sigSlDist = document.getElementById('sig-sl-dist');
+      var sigTpDist = document.getElementById('sig-tp-dist');
+      var sigAtr = document.getElementById('sig-atr');
+      var sigRr = document.getElementById('sig-rr');
+      var sigStake = document.getElementById('sig-stake');
+      var reasoningEl = document.getElementById('reasoning-text');
+      var stateBadge = document.getElementById('signal-state-badge');
+      var emptyBody = document.getElementById('signal-body-empty');
+      var contentBody = document.getElementById('signal-body-content');
+
+      if(sigEntry) sigEntry.textContent = proposal.current_price;
+      if(sigSl) sigSl.textContent = proposal.stop_loss;
+      if(sigTp) sigTp.textContent = proposal.take_profit;
+      if(sigSlDist) sigSlDist.textContent = proposal.sl_distance;
+      if(sigTpDist) sigTpDist.textContent = proposal.tp_distance;
+      if(sigAtr) sigAtr.textContent = proposal.atr;
+      if(sigRr){
+        var slD = parseFloat(proposal.sl_distance) || 1;
+        var tpD = parseFloat(proposal.tp_distance) || 1;
+        sigRr.textContent = (tpD / slD).toFixed(2) + ':1';
       }
+      if(sigStake) sigStake.textContent = '$' + proposal.stake_amount;
+      if(reasoningEl) reasoningEl.textContent = proposal.reasoning;
+      if(stateBadge){
+        stateBadge.textContent = 'PROPOSED';
+        stateBadge.className = 'signal-state-badge proposed';
+      }
+      if(emptyBody) emptyBody.style.display = 'none';
+      if(contentBody) contentBody.style.display = 'block';
+
+      updateChartOverlay(proposal);
+
       ss.textContent += '> Awaiting user authorization to execute...\n';
       botRunning = false;
     })
@@ -462,16 +514,40 @@
         if(tb){
           var trend = s.signal_type === 'BUY' ? 'bullish' : s.signal_type === 'SELL' ? 'bearish' : 'sideways';
           tb.className = 'trend-badge ' + trend;
-          tb.textContent = s.signal_type === 'BUY' ? '▲ BULLISH' : s.signal_type === 'SELL' ? '▼ BEARISH' : '◆ SIDEWAYS';
+          tb.textContent = s.signal_type === 'BUY' ? 'BULLISH' : s.signal_type === 'SELL' ? 'BEARISH' : 'SIDEWAYS';
         }
-        var sigEntry = document.getElementById('sig-entry');
-        var sigSl = document.getElementById('sig-sl');
-        var sigTp1 = document.getElementById('sig-tp1');
-        if(sigEntry && s.entry_price) sigEntry.textContent = s.entry_price;
-        if(sigSl && s.stop_loss) sigSl.textContent = s.stop_loss;
-        if(sigTp1 && s.take_profit) sigTp1.textContent = s.take_profit;
-        var reasoning = document.getElementById('scanStatus');
-        if(reasoning && s.reasoning) reasoning.textContent = '> ' + s.reasoning;
+        if(s.entry_price){
+          var proposal = {
+            current_price: s.entry_price,
+            stop_loss: s.stop_loss || '0',
+            take_profit: s.take_profit || '0',
+            sl_distance: '0',
+            tp_distance: '0',
+            atr: '0',
+            reasoning: s.reasoning || '',
+            confidence: s.confidence / 100,
+            stake_amount: '0',
+          };
+          lastProposedSignal = proposal;
+          var sigEntry = document.getElementById('sig-entry');
+          var sigSl = document.getElementById('sig-sl');
+          var sigTp = document.getElementById('sig-tp');
+          var reasoningEl = document.getElementById('reasoning-text');
+          var stateBadge = document.getElementById('signal-state-badge');
+          var emptyBody = document.getElementById('signal-body-empty');
+          var contentBody = document.getElementById('signal-body-content');
+          if(sigEntry) sigEntry.textContent = s.entry_price;
+          if(sigSl) sigSl.textContent = s.stop_loss;
+          if(sigTp) sigTp.textContent = s.take_profit;
+          if(reasoningEl && s.reasoning) reasoningEl.textContent = s.reasoning;
+          if(stateBadge){
+            stateBadge.textContent = s.is_executed ? 'EXECUTED' : 'PROPOSED';
+            stateBadge.className = 'signal-state-badge ' + (s.is_executed ? 'executed' : 'proposed');
+          }
+          if(emptyBody) emptyBody.style.display = 'none';
+          if(contentBody) contentBody.style.display = 'block';
+          if(s.stop_loss && s.take_profit) updateChartOverlay(proposal);
+        }
       }
     })
     .catch(function(){});
@@ -495,6 +571,19 @@
     .catch(function(){});
   }
 
+  function loadStakeConfig(){
+    fetch('/api/stake-config/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      var input = document.getElementById('stake-amount');
+      if(input && data.stake_amount) input.value = data.stake_amount;
+    })
+    .catch(function(){});
+  }
+  window.loadStakeConfig = loadStakeConfig;
+
   function saveRiskConfig(){
     var inputs = document.querySelectorAll('.risk-field input[type="number"]');
     fetch('/api/risk-config/', {
@@ -516,16 +605,19 @@
     var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
     var entry = document.getElementById('sig-entry') ? document.getElementById('sig-entry').textContent : '0';
     var sl = document.getElementById('sig-sl') ? document.getElementById('sig-sl').textContent : '';
-    var tp1 = document.getElementById('sig-tp1') ? document.getElementById('sig-tp1').textContent : '';
+    var tp = document.getElementById('sig-tp') ? document.getElementById('sig-tp').textContent : '';
+    var stakeInput = document.getElementById('stake-amount');
+    var stake = stakeInput ? parseFloat(stakeInput.value) : 0.01;
 
     var tb = document.getElementById('trend-badge');
     var trendText = tb ? tb.textContent.trim() : '';
     var action = 'BUY';
     if(trendText.indexOf('BEARISH') !== -1) action = 'SELL';
 
-    var volume = 0.01;
+    var conf = 0;
+    if(lastProposedSignal && lastProposedSignal.confidence) conf = lastProposedSignal.confidence;
 
-    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nDirection: ' + action + '\nEntry: ' + entry + '\n\nPlease confirm this trade. All trading carries substantial risk.')){
+    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nDirection: ' + action + '\nStake: $' + stake + '\nEntry: ' + entry + '\nStop Loss: ' + sl + '\nTake Profit: ' + tp + '\n\nPlease confirm this trade.')){
       return;
     }
 
@@ -535,17 +627,25 @@
       body: JSON.stringify({
         symbol: pair,
         action: action,
-        volume: volume,
+        volume: stake,
         entry_price: parseFloat(entry) || 0,
         stop_loss: parseFloat(sl) || null,
-        take_profit: parseFloat(tp1) || null,
+        take_profit: parseFloat(tp) || null,
         order_type: 'MARKET',
+        confidence: conf,
+        current_price: pairs[pair] || 0,
       }),
     })
     .then(function(r){ return r.json() })
     .then(function(data){
       if(data.id){
-        showToast('Trade executed — ID: ' + data.id + ' [' + data.status + ']', 'success');
+        showToast('Trade executed -- ID: ' + data.id + ' [' + data.status + ']', 'success');
+        var stateBadge = document.getElementById('signal-state-badge');
+        if(stateBadge){
+          stateBadge.textContent = data.status;
+          stateBadge.className = 'signal-state-badge ' + data.status.toLowerCase();
+        }
+        loadRecentTrades();
       } else {
         showToast(data.error || 'Execution failed', 'error');
       }
@@ -643,6 +743,7 @@
     if (!wrap) return;
 
     if (botChartInstance) {
+      botEntryLine = null; botSLLine = null; botTPLine = null;
       botChartInstance.remove();
       botChartInstance = null;
       botCandleSeries = null;
@@ -771,6 +872,71 @@
       }
     }
   };
+
+  function updateChartOverlay(proposal){
+    if(!botChartInstance || !botCandleSeries) return;
+
+    if(botEntryLine){ try{ botChartInstance.removeSeries(botEntryLine); }catch(e){} botEntryLine = null; }
+    if(botSLLine){ try{ botChartInstance.removeSeries(botSLLine); }catch(e){} botSLLine = null; }
+    if(botTPLine){ try{ botChartInstance.removeSeries(botTPLine); }catch(e){} botTPLine = null; }
+
+    var entry = parseFloat(proposal.current_price);
+    var sl = parseFloat(proposal.stop_loss);
+    var tp = parseFloat(proposal.take_profit);
+
+    if(isNaN(entry) || isNaN(sl) || isNaN(tp)) return;
+
+    botEntryLine = botChartInstance.addLineSeries({
+      color: '#00d4aa',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Solid,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    botEntryLine.setData([
+      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: entry},
+      {time: Math.floor(Date.now()/1000), value: entry},
+    ]);
+
+    botSLLine = botChartInstance.addLineSeries({
+      color: '#ff4d6d',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    botSLLine.setData([
+      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: sl},
+      {time: Math.floor(Date.now()/1000), value: sl},
+    ]);
+
+    botTPLine = botChartInstance.addLineSeries({
+      color: '#f5c27a',
+      lineWidth: 1,
+      lineStyle: LightweightCharts.LineStyle.Dashed,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    botTPLine.setData([
+      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: tp},
+      {time: Math.floor(Date.now()/1000), value: tp},
+    ]);
+
+    var legend = document.getElementById('chart-levels-legend');
+    if(legend) legend.style.display = 'flex';
+  }
+  window.updateChartOverlay = updateChartOverlay;
+
+  function clearChartOverlay(){
+    if(botEntryLine){ try{ botChartInstance.removeSeries(botEntryLine); }catch(e){} botEntryLine = null; }
+    if(botSLLine){ try{ botChartInstance.removeSeries(botSLLine); }catch(e){} botSLLine = null; }
+    if(botTPLine){ try{ botChartInstance.removeSeries(botTPLine); }catch(e){} botTPLine = null; }
+    var legend = document.getElementById('chart-levels-legend');
+    if(legend) legend.style.display = 'none';
+  }
 
   function fetchDashboardStats(){
     fetch('/api/dashboard/stats/', {
