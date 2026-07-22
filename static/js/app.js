@@ -385,7 +385,7 @@
     var ss = document.getElementById('scanStatus');
     if(!ss) return;
     ss.style.display = 'block';
-    ss.textContent = '> Connecting to AI engine...\n';
+    ss.textContent = '> Running technical analysis...\n';
 
     var sel = document.getElementById('bot-market');
     var pair = sel ? sel.value : 'EUR/USD';
@@ -412,6 +412,8 @@
         var confBar = document.getElementById('conf-bar');
         if(confVal) confVal.textContent = conf + '%';
         if(confBar) confBar.style.width = Math.min(conf, 100) + '%';
+        if(data.analysis.rsi) ss.textContent += '> RSI: ' + data.analysis.rsi + '\n';
+        if(data.analysis.atr) ss.textContent += '> ATR: ' + data.analysis.atr + '\n';
         ss.textContent += '> ' + (data.analysis.rationale || '') + '\n';
       }
 

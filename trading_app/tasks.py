@@ -12,7 +12,6 @@ from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
-from .trading_bot.llm_analyzer import LLMAnalyzer, GeminiProvider
 import logging
 
 logger = logging.getLogger(__name__)
@@ -193,15 +192,6 @@ def _run_single_user_bot(user):
     risk = RiskConfig.get_for_user(user)
     symbols = user.watchlist or ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
 
-    from decouple import config as decouple_config
-    api_key = decouple_config('GEMINI_API_KEY', default='')
-    if not api_key:
-        logger.warning(f'No GEMINI_API_KEY for bot cycle user {user.id}')
-        return
-
-    provider = GeminiProvider(api_key=api_key)
-    analyzer = LLMAnalyzer(provider=provider)
-
     open_trades = Trade.objects.filter(user=user, status='OPEN')
     open_count = open_trades.count()
     if open_count >= risk.max_open_positions:
@@ -226,6 +216,8 @@ def _run_single_user_bot(user):
 
     daily_pnl = _get_daily_pnl(user)
 
+    from trading_app.trading_bot.technical_analyzer import analyze_technical
+
     for symbol in symbols:
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
         if existing_open > 0:
@@ -241,7 +233,7 @@ def _run_single_user_bot(user):
             candles = []
             if adapter is not None:
                 try:
-                    candles = adapter.get_candles(symbol, 3600, 30)
+                    candles = adapter.get_candles(symbol, 3600, 50)
                     logger.info(f'Fetched {len(candles)} candles for {symbol} via {user.broker}')
                 except Exception as e:
                     logger.warning(f'Failed to fetch candles for {symbol}: {e}')
@@ -258,7 +250,15 @@ def _run_single_user_bot(user):
                 .values('action', 'pnl', 'confidence', 'symbol')
             )
 
-            analysis = analyzer.analyze(symbol, candles, trade_history=recent_trades)
+            candle_dicts = []
+            for c in candles:
+                candle_dicts.append({
+                    'open': float(c.open), 'high': float(c.high),
+                    'low': float(c.low), 'close': float(c.close),
+                    'volume': float(c.volume),
+                })
+
+            analysis = analyze_technical(symbol, candle_dicts, trade_history=recent_trades)
 
             if analysis.bias == 'neutral':
                 continue
@@ -278,8 +278,8 @@ def _run_single_user_bot(user):
                 signal_type=signal_type,
                 confidence=confidence,
                 reasoning=analysis.rationale,
-                source='AI',
-                risk_level='MEDIUM',
+                source='SYSTEM',
+                risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
             )
             Notification.create_notification(
                 user=user, title=f'Signal: {signal_type} {symbol}',
@@ -458,3 +458,134 @@ def _execute_trade(user, trade, risk, daily_pnl=None):
         audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
 
     return trade
+
+
+# ---------------------------------------------------------------------------
+# Position Monitoring — SL/TP hit detection + trailing stops
+# ---------------------------------------------------------------------------
+
+@shared_task
+def monitor_live_positions():
+    """
+    Check all open trades (paper + live) against current price.
+    Closes trades when SL/TP is hit, applies trailing stops,
+    updates unrealized P&L, and notifies the user.
+    """
+    open_trades = Trade.objects.filter(status='OPEN').select_related('user')
+    for trade in open_trades:
+        try:
+            _monitor_single_trade(trade)
+        except Exception as e:
+            logger.error(f'Position monitor failed for trade {trade.id}: {e}')
+
+
+def _monitor_single_trade(trade):
+    user = trade.user
+    current_price = _fetch_current_price(trade.symbol, user)
+    if current_price is None:
+        return
+
+    side = trade.action.lower()
+    entry = trade.entry_price
+    sl = trade.stop_loss
+    tp = trade.take_profit
+
+    if side == 'buy':
+        unrealized = (current_price - entry) * Decimal(str(trade.volume))
+        sl_hit = sl is not None and current_price <= sl
+        tp_hit = tp is not None and current_price >= tp
+    else:
+        unrealized = (entry - current_price) * Decimal(str(trade.volume))
+        sl_hit = sl is not None and current_price >= sl
+        tp_hit = tp is not None and current_price <= tp
+
+    trade.current_price = current_price
+    trade.unrealized_pnl = unrealized
+
+    if sl_hit:
+        _close_trade(trade, sl, 'Stop Loss Hit', unrealized)
+        return
+
+    if tp_hit:
+        _close_trade(trade, tp, 'Take Profit Hit', unrealized)
+        return
+
+    # Trailing stop: move SL in profit direction if price has moved enough
+    risk = RiskConfig.get_for_user(user)
+    if risk.trailing_stop_percent and risk.trailing_stop_percent > 0:
+        _apply_trailing_stop(trade, current_price, risk.trailing_stop_percent)
+
+    trade.save()
+
+
+def _fetch_current_price(symbol, user):
+    """Fetch current price from broker adapter or cache."""
+    try:
+        adapter = get_adapter_for_broker(user.broker or '')
+        creds = build_credentials(user)
+        adapter.connect(creds)
+        candles = adapter.get_candles(symbol, 3600, 1)
+        adapter.disconnect()
+        if candles:
+            return Decimal(str(candles[-1].close))
+    except Exception as e:
+        logger.warning(f'Price fetch failed for {symbol}: {e}')
+
+    cached = CacheService.get_market_data(symbol)
+    if cached and cached.get('price'):
+        return Decimal(cached['price'])
+
+    return None
+
+
+def _close_trade(trade, exit_price, reason, pnl):
+    """Close a trade, update balance, and notify user."""
+    user = trade.user
+    trade.status = 'CLOSED'
+    trade.exit_price = exit_price
+    trade.pnl = pnl
+    trade.closed_at = timezone.now()
+    trade.save()
+
+    _update_user_balance(user, pnl)
+
+    emoji = '+' if pnl >= 0 else ''
+    Notification.create_notification(
+        user=user,
+        title=f'{reason} — {trade.symbol}',
+        message=f'{trade.action} {trade.symbol} closed at {exit_price}, PnL: {emoji}{pnl}',
+        notification_type='trade',
+    )
+    audit.log_order('position_closed', str(trade.id), {
+        'symbol': trade.symbol, 'exit_price': str(exit_price),
+        'pnl': str(pnl), 'reason': reason,
+    })
+
+
+def _apply_trailing_stop(trade, current_price, trailing_pct):
+    """
+    Move stop loss in the profitable direction when price has moved
+    beyond entry by at least 1x the initial SL distance.
+    """
+    if trade.stop_loss is None or trade.entry_price is None:
+        return
+
+    side = trade.action.lower()
+    trail_frac = Decimal(str(trailing_pct)) / Decimal('100')
+
+    if side == 'buy':
+        initial_sl_dist = trade.entry_price - trade.stop_loss
+        if initial_sl_dist <= 0:
+            return
+        new_sl = current_price - (current_price * trail_frac)
+        if new_sl > trade.stop_loss and current_price > trade.entry_price + initial_sl_dist:
+            trade.stop_loss = new_sl.quantize(Decimal('0.00001'))
+            logger.info(f'Trailing stop moved to {trade.stop_loss} for trade {trade.id}')
+    else:
+        initial_sl_dist = trade.stop_loss - trade.entry_price
+        if initial_sl_dist <= 0:
+            return
+        new_sl = current_price + (current_price * trail_frac)
+        if new_sl < trade.stop_loss and current_price < trade.entry_price - initial_sl_dist:
+            trade.stop_loss = new_sl.quantize(Decimal('0.00001'))
+            logger.info(f'Trailing stop moved to {trade.stop_loss} for trade {trade.id}')

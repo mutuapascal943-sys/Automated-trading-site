@@ -296,9 +296,13 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading_app.tasks.run_bot_cycle',
         'schedule': crontab(minute='*/5'),
     },
+    'monitor-positions': {
+        'task': 'trading_app.tasks.monitor_live_positions',
+        'schedule': crontab(minute='*/1'),
+    },
     'sync-live-trades': {
         'task': 'trading_app.tasks.sync_live_trades',
-        'schedule': crontab(minute='*'),
+        'schedule': crontab(minute='*/5'),
     },
     'reset-daily-trade-counts': {
         'task': 'trading_app.tasks.reset_daily_trade_counts',
@@ -307,10 +311,6 @@ CELERY_BEAT_SCHEDULE = {
     'cleanup-expired-otps': {
         'task': 'trading_app.tasks.cleanup_expired_otps',
         'schedule': crontab(hour='*/1'),
-    },
-    'check-paper-positions': {
-        'task': 'trading_app.tasks.check_paper_positions',
-        'schedule': crontab(minute='*/2'),
     },
 }
 

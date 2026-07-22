@@ -4,7 +4,7 @@ from .paper_broker import PaperBrokerAdapter
 from .deriv_adapter import DerivAdapter
 from .binance_adapter import BinanceAdapter
 from .risk_engine import RiskEngine, RiskRule, PositionSizing
-from .llm_analyzer import LLMAnalyzer, LLMAnalysisResult
+from .technical_analyzer import analyze_technical, TechnicalResult
 from .symbol_map import SymbolMap, load_symbol_map
 from .logging_utils import AuditLogger, NullAuditLogger
 
@@ -13,7 +13,7 @@ __all__ = [
     "BrokerError", "InsufficientFunds", "InvalidSymbol", "RateLimited", "ConnectionLost", "OrderRejected",
     "PaperBrokerAdapter", "DerivAdapter",
     "RiskEngine", "RiskRule", "PositionSizing",
-    "LLMAnalyzer", "LLMAnalysisResult",
+    "analyze_technical", "TechnicalResult",
     "SymbolMap", "load_symbol_map",
     "AuditLogger", "NullAuditLogger",
 ]
