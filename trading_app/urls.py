@@ -7,7 +7,7 @@ router = DefaultRouter()
 router.register(r'users', api_views.UserViewSet, basename='api_user')
 router.register(r'trades', api_views.TradeViewSet, basename='api_trade')
 router.register(r'signals', api_views.SignalViewSet, basename='api_signal')
-router.register(r'documents', api_views.RAGDocumentViewSet, basename='api_document')
+
 
 urlpatterns = [
     # Web UI
@@ -21,8 +21,7 @@ urlpatterns = [
     path('resend-otp/', views.resend_otp_view, name='resend_otp'),
     path('settings/profile/', views.profile_view, name='settings_profile'),
     path('settings/toggle-2fa/', views.toggle_2fa_view, name='toggle_2fa'),
-    path('llm/query/', views.llm_query_view, name='llm_query'),
-    path('documents/upload/', views.upload_document_view, name='upload_document'),
+
     path('password-reset/', views.password_reset_request_view, name='password_reset_request'),
     path('password-reset/verify/', views.password_reset_verify_view, name='password_reset_verify'),
     path('password-reset/confirm/', views.password_reset_confirm_view, name='password_reset_confirm'),
@@ -40,7 +39,7 @@ urlpatterns = [
     path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
     path('api/broker/status/', api_views.broker_status_view, name='api_broker_status'),
     path('api/broker/health/', api_views.broker_health_check_view, name='api_broker_health'),
-    path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
+
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),

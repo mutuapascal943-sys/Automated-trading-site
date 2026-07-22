@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, Subscription
+from .models import User, EmailOTP, Trade, TradingSignal, Subscription
 
 
 class CustomUserAdmin(UserAdmin):
@@ -32,26 +32,6 @@ class TradingSignalAdmin(admin.ModelAdmin):
     list_display = ['symbol', 'signal_type', 'confidence', 'risk_level', 'user', 'created_at']
     list_filter = ['signal_type', 'risk_level', 'source']
     search_fields = ['symbol', 'user__email']
-
-
-@admin.register(RAGDocument)
-class RAGDocumentAdmin(admin.ModelAdmin):
-    list_display = ['title', 'source', 'chunk_count', 'is_indexed', 'user', 'created_at']
-    list_filter = ['source', 'is_indexed']
-    search_fields = ['title', 'user__email']
-
-
-@admin.register(RAGChunk)
-class RAGChunkAdmin(admin.ModelAdmin):
-    list_display = ['document', 'chunk_id', 'created_at']
-    list_filter = ['document']
-
-
-@admin.register(LLMQuery)
-class LLMQueryAdmin(admin.ModelAdmin):
-    list_display = ['user', 'query_type', 'success', 'latency_ms', 'tokens_used', 'created_at']
-    list_filter = ['query_type', 'success']
-    search_fields = ['user__email', 'prompt']
 
 
 @admin.register(Subscription)

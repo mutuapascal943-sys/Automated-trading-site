@@ -11,17 +11,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
-    Trade, TradingSignal, RAGDocument, RAGChunk,
-    LLMQuery, Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
+    Trade, TradingSignal,
+    Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
-    RAGDocumentSerializer, LLMQuerySerializer, LLMQueryCreateSerializer,
     SubscriptionSerializer, MarketDataSerializer, BrokerConfigSerializer,
     OTPVerifySerializer, UserSerializer, RiskConfigSerializer,
 )
-from .services.llm_service import llm_service
-from .services.rag_engine import rag_engine
 from .services.cache_service import CacheService
 from .services.email_service import generate_otp, send_otp_email
 from .services.credential_encrypt import encrypt, decrypt
@@ -81,102 +78,6 @@ class SignalViewSet(viewsets.ModelViewSet):
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-
-
-class RAGDocumentViewSet(viewsets.ModelViewSet):
-    serializer_class = RAGDocumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return RAGDocument.objects.filter(user=self.request.user).order_by('-created_at')
-
-    def perform_create(self, serializer):
-        doc = serializer.save(user=self.request.user)
-        chunks = rag_engine.process_document(
-            title=doc.title,
-            content=doc.content,
-            source=doc.source,
-        )
-        chunk_objs = []
-        for chunk_data in chunks:
-            chunk_objs.append(RAGChunk(
-                document=doc,
-                chunk_id=chunk_data['id'],
-                text=chunk_data['text'],
-                start_pos=chunk_data['start_pos'],
-                end_pos=chunk_data['end_pos'],
-                embedding=chunk_data.get('embedding'),
-            ))
-        RAGChunk.objects.bulk_create(chunk_objs)
-        doc.chunk_count = len(chunks)
-        doc.is_indexed = True
-        doc.save()
-
-
-class LLMQueryView(generics.CreateAPIView):
-    serializer_class = LLMQueryCreateSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        serializer = LLMQueryCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        query_type = serializer.validated_data['query_type']
-        prompt = serializer.validated_data['prompt']
-        market_data = serializer.validated_data.get('market_data', '')
-
-        start_time = time.time()
-        query = LLMQuery.objects.create(
-            user=request.user,
-            query_type=query_type,
-            prompt=prompt,
-            context_used={'market_data': market_data} if market_data else None,
-        )
-
-        try:
-            if query_type == 'market_analysis':
-                result = llm_service.analyze_market(market_data or prompt)
-                response_text = str(result)
-            elif query_type == 'trading_idea':
-                result = llm_service.generate_trading_idea(prompt)
-                response_text = str(result)
-            elif query_type == 'rag_query':
-                docs = RAGDocument.objects.filter(user=request.user)
-                all_chunks = []
-                for doc in docs:
-                    chunks = RAGChunk.objects.filter(document=doc)
-                    for c in chunks:
-                        all_chunks.append({
-                            'id': c.chunk_id,
-                            'text': c.text,
-                            'embedding': c.embedding,
-                        })
-                ranked = rag_engine.rank_chunks(prompt, all_chunks)
-                context_texts = [c['text'] for c in ranked]
-                response_text = llm_service.rag_query(prompt, context_texts)
-            elif query_type == 'sentiment':
-                response_text = llm_service.analyze_sentiment(prompt)
-            else:
-                response_text = 'Unknown query type'
-
-            latency = int((time.time() - start_time) * 1000)
-            query.response = response_text
-            query.latency_ms = latency
-            query.success = True
-            query.save()
-
-            return Response(LLMQuerySerializer(query).data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            latency = int((time.time() - start_time) * 1000)
-            query.response = f'Error: {str(e)}'
-            query.latency_ms = latency
-            query.success = False
-            query.save()
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
 
 
 # ---------------------------------------------------------------------------
@@ -564,10 +465,7 @@ def risk_config_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def analyze_and_signal_view(request):
-    serializer = LLMQueryCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-
-    symbol = serializer.validated_data.get('prompt', 'EUR/USD')
+    symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
     try:
         candles = []
         if not request.user.paper_mode:

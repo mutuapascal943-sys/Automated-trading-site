@@ -6344,3 +6344,95 @@ redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Conne
 [2026-07-22 16:18:32,686] WARNING django.request Forbidden: /api/notifications/
 [2026-07-22 16:18:32,687] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:52647][0m
 [2026-07-22 16:18:32,687] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:52647][0m
+[2026-07-22 16:33:12,724] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:12,724] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:12,730] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.05, 127.0.0.1:49672][0m
+[2026-07-22 16:33:12,730] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.05, 127.0.0.1:49672][0m
+[2026-07-22 16:33:27,702] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:27,702] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:27,705] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:33:27,705] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:33:37,773] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:37,773] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:37,775] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.04, 127.0.0.1:62732][0m
+[2026-07-22 16:33:37,775] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.04, 127.0.0.1:62732][0m
+[2026-07-22 16:33:38,567] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:38,567] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:38,569] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.03, 127.0.0.1:62732][0m
+[2026-07-22 16:33:38,569] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.03, 127.0.0.1:62732][0m
+[2026-07-22 16:33:42,698] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:42,698] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:42,701] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:33:42,701] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:33:42,919] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:42,919] WARNING django.request Forbidden: /api/risk-config/
+[2026-07-22 16:33:42,921] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.04, 127.0.0.1:62732][0m
+[2026-07-22 16:33:42,921] WARNING django.channels.server [31;1mHTTP PUT /api/risk-config/ 403 [0.04, 127.0.0.1:62732][0m
+[2026-07-22 16:33:56,766] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:56,766] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:33:56,769] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.03, 127.0.0.1:49672][0m
+[2026-07-22 16:33:56,769] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.03, 127.0.0.1:49672][0m
+[2026-07-22 16:34:11,759] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:11,759] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:11,760] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:11,760] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:26,743] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:26,743] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:26,745] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:26,745] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:41,753] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:41,753] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:41,754] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:41,754] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:34:56,760] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:56,760] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:34:56,762] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:34:56,762] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:35:11,744] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:11,744] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:11,745] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:35:11,745] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:35:26,747] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:26,747] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:26,748] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:35:26,748] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:35:41,782] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:41,782] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:41,784] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.03, 127.0.0.1:49672][0m
+[2026-07-22 16:35:41,784] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.03, 127.0.0.1:49672][0m
+[2026-07-22 16:35:56,756] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:56,756] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:35:56,757] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:35:56,757] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:11,757] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:11,757] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:11,758] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:11,758] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:26,753] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:26,753] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:26,754] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:26,754] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:41,751] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:41,751] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:41,753] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:36:41,753] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:36:56,743] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:56,743] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:36:56,744] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:36:56,744] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:37:11,750] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:11,750] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:11,752] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:37:11,752] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:37:26,815] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:26,815] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:26,816] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.04, 127.0.0.1:49672][0m
+[2026-07-22 16:37:26,816] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.04, 127.0.0.1:49672][0m
+[2026-07-22 16:37:41,756] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:41,756] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:41,757] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:37:41,757] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.02, 127.0.0.1:49672][0m
+[2026-07-22 16:37:56,744] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:56,744] WARNING django.request Forbidden: /api/notifications/
+[2026-07-22 16:37:56,746] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m
+[2026-07-22 16:37:56,746] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:49672][0m

@@ -5,7 +5,7 @@
     <button class="settings-nav-item" onclick="settingsTab(this,'notifications')">Notifications</button>
     <button class="settings-nav-item" onclick="settingsTab(this,'security')">Security</button>
     <button class="settings-nav-item" onclick="settingsTab(this,'broker')">Broker API</button>
-    <button class="settings-nav-item" onclick="settingsTab(this,'ai')">AI Config</button>
+
   </div>
   <div>
     <div class="settings-section" id="settings-profile">
@@ -134,31 +134,7 @@
       <div id="broker-status" style="display:none;margin-top:12px;padding:10px 14px;border-radius:6px;font-size:13px"></div>
     </div>
 
-    <div class="settings-section" id="settings-ai" style="display:none">
-      <div class="settings-title">AI Configuration</div>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:16px">Configure your AI trading assistant. API keys are stored in the server environment.</p>
-      <div class="settings-row">
-        <div>
-          <div class="settings-row-label">AI Model</div>
-          <div class="settings-row-sub">GPT-4 (primary) / GPT-3.5-Turbo (fallback)</div>
-        </div>
-        <div><span style="color:var(--teal);font-size:13px;font-family:'DM Mono',monospace">● Connected</span></div>
-      </div>
-      <div class="settings-row">
-        <div>
-          <div class="settings-row-label">RAG Knowledge Base</div>
-          <div class="settings-row-sub">{{ user.rag_documents.count }} documents indexed</div>
-        </div>
-        <a href="#" class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px;text-decoration:none">Manage</a>
-      </div>
-      <div class="settings-row">
-        <div>
-          <div class="settings-row-label">Trading Signals</div>
-          <div class="settings-row-sub">AI-generated trade recommendations</div>
-        </div>
-        <div class="toggle on" onclick="this.classList.toggle('on')"></div>
-      </div>
-    </div>
+
   </div>
 </div>
 
