@@ -31,7 +31,6 @@ from trading_app.trading_bot.errors import (
 from trading_app.trading_bot.paper_broker import PaperBrokerAdapter
 from trading_app.trading_bot.symbol_map import SymbolMap, load_symbol_map
 from trading_app.trading_bot.risk_engine import RiskEngine, PositionSizing, RiskRule
-from trading_app.trading_bot.llm_analyzer import LLMAnalyzer, LLMAnalysisResult
 from trading_app.trading_bot.logging_utils import ConsoleAuditLogger, NullAuditLogger
 from trading_app.trading_bot.backtest import BacktestResult, run_backtest
 
@@ -328,68 +327,6 @@ class RiskEngineTests(TestCase):
         self.assertEqual(result.volume, Decimal("2"))
 
 
-class LLMAnalyzerTests(TestCase):
-    def test_summarize_candles_empty(self) -> None:
-        provider = MockLLMProvider("{}")
-        analyzer = LLMAnalyzer(provider=provider)
-        summary = analyzer._summarize_candles("EURUSD", [])
-        self.assertIn("No candle data", summary)
-
-    def test_summarize_candles_with_data(self) -> None:
-        provider = MockLLMProvider("{}")
-        analyzer = LLMAnalyzer(provider=provider)
-        candles = [make_candle(ts=datetime(2024, 1, 1, tzinfo=timezone.utc))]
-        summary = analyzer._summarize_candles("EURUSD", candles)
-        self.assertIn("EURUSD", summary)
-        self.assertIn("1.1020", summary)
-
-    def test_analyze_returns_result_object(self) -> None:
-        provider = MockLLMProvider(json.dumps({
-            "bias": "bullish",
-            "confidence": 0.85,
-            "rationale": "Strong upward momentum",
-        }))
-        analyzer = LLMAnalyzer(provider=provider)
-        candles = [make_candle(ts=datetime(2024, 1, 1, tzinfo=timezone.utc))]
-
-        result = analyzer.analyze("EURUSD", candles)
-        self.assertEqual(result.bias, "bullish")
-        self.assertEqual(result.confidence, 0.85)
-        self.assertEqual(result.rationale, "Strong upward momentum")
-
-    def test_analyze_fallback_on_error(self) -> None:
-        provider = MockLLMProvider("not valid json")
-        analyzer = LLMAnalyzer(provider=provider)
-        candles = [make_candle(ts=datetime(2024, 1, 1, tzinfo=timezone.utc))]
-
-        result = analyzer.analyze("EURUSD", candles)
-        self.assertEqual(result.bias, "neutral")
-        self.assertEqual(result.confidence, 0.0)
-
-    def test_analyze_with_additional_context(self) -> None:
-        provider = MockLLMProvider(json.dumps({
-            "bias": "bearish",
-            "confidence": 0.7,
-            "rationale": "Resistance level holding",
-        }))
-        analyzer = LLMAnalyzer(provider=provider)
-        candles = [make_candle(ts=datetime(2024, 1, 1, tzinfo=timezone.utc))]
-
-        result = analyzer.analyze("EURUSD", candles, additional_context="Key resistance at 1.1050")
-        self.assertEqual(result.bias, "bearish")
-        self.assertEqual(result.confidence, 0.7)
-
-    def test_respects_max_candles(self) -> None:
-        provider = MockLLMProvider(json.dumps({
-            "bias": "neutral", "confidence": 0.5, "rationale": "Mixed signals",
-        }))
-        analyzer = LLMAnalyzer(provider=provider, max_candles_in_context=5)
-        candles = [make_candle(ts=datetime(2024, 1, i, tzinfo=timezone.utc)) for i in range(1, 20)]
-
-        result = analyzer.analyze("EURUSD", candles)
-        self.assertEqual(result.bias, "neutral")
-
-
 class BacktestTests(TestCase):
     def test_empty_candles(self) -> None:
         broker = PaperBrokerAdapter(initial_balance=Decimal("10000"))
@@ -445,14 +382,6 @@ class AuditLoggerTests(TestCase):
         with self.assertLogs("trading_bot", level="INFO") as logs:
             logger.log_order("placed", "order-1", {"symbol": "EURUSD"})
             self.assertTrue(any("order-1" in log for log in logs.output))
-
-
-class MockLLMProvider:
-    def __init__(self, response: str) -> None:
-        self._response = response
-
-    def chat_complete(self, messages: list[dict[str, str]], **kwargs: Any) -> str:
-        return self._response
 
 
 class FullIntegrationTests(TestCase):

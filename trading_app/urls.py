@@ -7,7 +7,7 @@ router = DefaultRouter()
 router.register(r'users', api_views.UserViewSet, basename='api_user')
 router.register(r'trades', api_views.TradeViewSet, basename='api_trade')
 router.register(r'signals', api_views.SignalViewSet, basename='api_signal')
-router.register(r'documents', api_views.RAGDocumentViewSet, basename='api_document')
+
 
 urlpatterns = [
     # Web UI
@@ -21,8 +21,7 @@ urlpatterns = [
     path('resend-otp/', views.resend_otp_view, name='resend_otp'),
     path('settings/profile/', views.profile_view, name='settings_profile'),
     path('settings/toggle-2fa/', views.toggle_2fa_view, name='toggle_2fa'),
-    path('llm/query/', views.llm_query_view, name='llm_query'),
-    path('documents/upload/', views.upload_document_view, name='upload_document'),
+
     path('password-reset/', views.password_reset_request_view, name='password_reset_request'),
     path('password-reset/verify/', views.password_reset_verify_view, name='password_reset_verify'),
     path('password-reset/confirm/', views.password_reset_confirm_view, name='password_reset_confirm'),
@@ -40,13 +39,15 @@ urlpatterns = [
     path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
     path('api/broker/status/', api_views.broker_status_view, name='api_broker_status'),
     path('api/broker/health/', api_views.broker_health_check_view, name='api_broker_health'),
-    path('api/llm/query/', api_views.LLMQueryView.as_view(), name='api_llm_query'),
+
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
     path('api/risk-config/', api_views.risk_config_view, name='api_risk_config'),
+    path('api/stake-config/', api_views.stake_config_view, name='api_stake_config'),
+    path('api/signal/propose/', api_views.signal_propose_view, name='api_signal_propose'),
     path('api/analyze-signal/', api_views.analyze_and_signal_view, name='api_analyze_signal'),
     path('api/notifications/', api_views.list_notifications, name='api_notifications'),
     path('api/notifications/<int:notification_id>/read/', api_views.mark_notification_read, name='api_notification_read'),
@@ -54,6 +55,8 @@ urlpatterns = [
     path('api/backtest/', api_views.run_backtest_view, name='api_backtest'),
     path('api/ws/ticker/subscribe/', api_views.ticker_subscribe_view, name='api_ticker_subscribe'),
     path('api/ws/ticker/unsubscribe/', api_views.ticker_unsubscribe_view, name='api_ticker_unsubscribe'),
+    path('api/models/latest/', api_views.model_export_view, name='api_model_export'),
+    path('api/models/download/<str:filename>/', api_views.model_download_view, name='api_model_download'),
     path('api/health/', api_views.health_check_view, name='api_health_check'),
     path('api/', include(router.urls)),
 ]

@@ -6,10 +6,12 @@ from trading_app.trading_bot.interface import BrokerAdapter
 from trading_app.trading_bot.paper_broker import PaperBrokerAdapter
 from trading_app.trading_bot.deriv_adapter import DerivAdapter
 from trading_app.trading_bot.binance_adapter import BinanceAdapter
+from trading_app.trading_bot.mt5_adapter import MT5Adapter
 
 ADAPTER_MAP: dict[str, type[BrokerAdapter]] = {
     "Deriv": DerivAdapter,
     "Binance": BinanceAdapter,
+    "MetaTrader5": MT5Adapter,
 }
 
 
@@ -21,7 +23,7 @@ def get_adapter_for_broker(broker_name: str) -> BrokerAdapter:
         return cls()
 
     api_key = config("TRADING_API_KEY", default="")
-    if api_key and api_key != "sk-your-openai-api-key" and not api_key.startswith("sk-your"):
+    if api_key and not api_key.startswith('your-'):
         return DerivAdapter(app_id=config("DERIV_APP_ID", default="1089"))
 
     return PaperBrokerAdapter()
@@ -33,6 +35,15 @@ def build_credentials(user) -> dict[str, str]:
     creds: dict[str, str] = {}
     key_raw = user.broker_api_key or ""
     secret_raw = user.broker_api_secret or ""
+
+    broker = user.broker or ""
+
+    if broker == "MetaTrader5":
+        creds["login"] = config("MT5_LOGIN", default=user.broker_account_id or "")
+        creds["password"] = config("MT5_PASSWORD", default=decrypt(secret_raw) if secret_raw else "")
+        creds["server"] = config("MT5_SERVER", default="DerivSVG-Server")
+        creds["path"] = config("MT5_PATH", default="")
+        return creds
 
     creds["token"] = decrypt(key_raw) if key_raw else config("TRADING_API_KEY", default="")
     creds["api_key"] = decrypt(key_raw) if key_raw else config("TRADING_API_KEY", default="")

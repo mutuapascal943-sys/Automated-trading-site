@@ -11,17 +11,14 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
-    Trade, TradingSignal, RAGDocument, RAGChunk,
-    LLMQuery, Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
+    Trade, TradingSignal,
+    Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
-    RAGDocumentSerializer, LLMQuerySerializer, LLMQueryCreateSerializer,
     SubscriptionSerializer, MarketDataSerializer, BrokerConfigSerializer,
     OTPVerifySerializer, UserSerializer, RiskConfigSerializer,
 )
-from .services.llm_service import llm_service
-from .services.rag_engine import rag_engine
 from .services.cache_service import CacheService
 from .services.email_service import generate_otp, send_otp_email
 from .services.credential_encrypt import encrypt, decrypt
@@ -83,102 +80,6 @@ class SignalViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
 
-class RAGDocumentViewSet(viewsets.ModelViewSet):
-    serializer_class = RAGDocumentSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get_queryset(self):
-        return RAGDocument.objects.filter(user=self.request.user).order_by('-created_at')
-
-    def perform_create(self, serializer):
-        doc = serializer.save(user=self.request.user)
-        chunks = rag_engine.process_document(
-            title=doc.title,
-            content=doc.content,
-            source=doc.source,
-        )
-        chunk_objs = []
-        for chunk_data in chunks:
-            chunk_objs.append(RAGChunk(
-                document=doc,
-                chunk_id=chunk_data['id'],
-                text=chunk_data['text'],
-                start_pos=chunk_data['start_pos'],
-                end_pos=chunk_data['end_pos'],
-                embedding=chunk_data.get('embedding'),
-            ))
-        RAGChunk.objects.bulk_create(chunk_objs)
-        doc.chunk_count = len(chunks)
-        doc.is_indexed = True
-        doc.save()
-
-
-class LLMQueryView(generics.CreateAPIView):
-    serializer_class = LLMQueryCreateSerializer
-    permission_classes = [permissions.IsAuthenticated]
-
-    def create(self, request, *args, **kwargs):
-        serializer = LLMQueryCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        query_type = serializer.validated_data['query_type']
-        prompt = serializer.validated_data['prompt']
-        market_data = serializer.validated_data.get('market_data', '')
-
-        start_time = time.time()
-        query = LLMQuery.objects.create(
-            user=request.user,
-            query_type=query_type,
-            prompt=prompt,
-            context_used={'market_data': market_data} if market_data else None,
-        )
-
-        try:
-            if query_type == 'market_analysis':
-                result = llm_service.analyze_market(market_data or prompt)
-                response_text = str(result)
-            elif query_type == 'trading_idea':
-                result = llm_service.generate_trading_idea(prompt)
-                response_text = str(result)
-            elif query_type == 'rag_query':
-                docs = RAGDocument.objects.filter(user=request.user)
-                all_chunks = []
-                for doc in docs:
-                    chunks = RAGChunk.objects.filter(document=doc)
-                    for c in chunks:
-                        all_chunks.append({
-                            'id': c.chunk_id,
-                            'text': c.text,
-                            'embedding': c.embedding,
-                        })
-                ranked = rag_engine.rank_chunks(prompt, all_chunks)
-                context_texts = [c['text'] for c in ranked]
-                response_text = llm_service.rag_query(prompt, context_texts)
-            elif query_type == 'sentiment':
-                response_text = llm_service.analyze_sentiment(prompt)
-            else:
-                response_text = 'Unknown query type'
-
-            latency = int((time.time() - start_time) * 1000)
-            query.response = response_text
-            query.latency_ms = latency
-            query.success = True
-            query.save()
-
-            return Response(LLMQuerySerializer(query).data, status=status.HTTP_200_OK)
-
-        except Exception as e:
-            latency = int((time.time() - start_time) * 1000)
-            query.response = f'Error: {str(e)}'
-            query.latency_ms = latency
-            query.success = False
-            query.save()
-            return Response(
-                {'error': str(e)},
-                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            )
-
-
 # ---------------------------------------------------------------------------
 # Market Data
 # ---------------------------------------------------------------------------
@@ -224,19 +125,62 @@ def market_data_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def execute_trade_view(request):
-    serializer = TradeCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
+    data = request.data.copy()
+
+    if not data.get('volume') or float(data.get('volume', 0)) <= 0:
+        data['volume'] = float(request.user.stake_amount)
 
     user = request.user
     risk = RiskConfig.get_for_user(user)
 
-    if not risk.trading_enabled:
-        return Response({'error': 'Trading is disabled in your risk settings'}, status=status.HTTP_403_FORBIDDEN)
+    if not data.get('stop_loss') or not data.get('take_profit'):
+        signal_type = data.get('action', 'BUY').upper()
+        confidence = float(data.get('confidence', 0.65))
+        current_price = float(data.get('entry_price', 0)) or float(data.get('current_price', 0))
 
-    today = timezone.now().date()
-    if user.last_trade_date != today:
+        candles = []
+        try:
+            if not user.paper_mode:
+                adapter = _resolve_adapter(user)
+                creds = build_credentials(user)
+                adapter.connect(creds)
+                candles = adapter.get_candles(data.get('symbol', 'EUR/USD'), 3600, 50)
+                adapter.disconnect()
+        except Exception:
+            pass
+
+        if not candles and current_price > 0:
+            import random
+            now_ts = timezone.now().timestamp()
+            p = current_price
+            for i in range(50):
+                o = p
+                c = p * (1 + (random.random() - 0.5) * 0.002)
+                h = max(o, c) * (1 + random.random() * 0.001)
+                l = min(o, c) * (1 - random.random() * 0.001)
+                candles.append({'open': o, 'high': h, 'low': l, 'close': c, 'time': int(now_ts - (50 - i) * 3600)})
+                p = c
+
+        from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+        proposal = compute_sl_tp(
+            candles=candles,
+            signal_type=signal_type,
+            confidence=confidence,
+            current_price=current_price or (float(candles[-1]['close']) if candles else None),
+            risk_per_trade_pct=float(risk.risk_per_trade),
+            account_balance=float(user.balance),
+        )
+        if not data.get('stop_loss'):
+            data['stop_loss'] = str(proposal.stop_loss)
+        if not data.get('take_profit'):
+            data['take_profit'] = str(proposal.take_profit)
+
+    serializer = TradeCreateSerializer(data=data)
+    serializer.is_valid(raise_exception=True)
+
+    if user.last_trade_date != timezone.now().date():
         user.daily_trades_count = 0
-        user.last_trade_date = today
+        user.last_trade_date = timezone.now().date()
 
     if user.daily_trades_count >= risk.max_daily_trades:
         return Response(
@@ -252,12 +196,11 @@ def execute_trade_view(request):
         )
 
     trade = serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
-
     trade = _execute_via_adapter(user, trade, risk)
 
     if trade.status == 'OPEN':
         user.daily_trades_count += 1
-        user.save()
+        user.save(update_fields=['daily_trades_count', 'last_trade_date'])
 
     return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
 
@@ -467,7 +410,7 @@ def broker_status_view(request):
         'paper_mode': user.paper_mode,
         'configured': configured,
         'health': health,
-        'broker_list': ['Deriv', 'Binance'],
+        'broker_list': ['Deriv', 'Binance', 'MetaTrader5'],
     })
 
 
@@ -516,47 +459,53 @@ def risk_config_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Market Analysis (wired to LLM + signal creation)
+# Market Analysis (technical analyzer + signal creation)
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def analyze_and_signal_view(request):
-    serializer = LLMQueryCreateSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-
-    symbol = serializer.validated_data.get('prompt', 'EUR/USD')
+    symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
     try:
         candles = []
         if not request.user.paper_mode:
             adapter = _resolve_adapter(request.user)
             creds = build_credentials(request.user)
             adapter.connect(creds)
-            candles = adapter.get_candles(symbol, 3600, 30)
+            candles = adapter.get_candles(symbol, 3600, 50)
             adapter.disconnect()
 
-        from trading_app.trading_bot.llm_analyzer import LLMAnalyzer, OpenAIProvider
-        from decouple import config as decouple_config
+        if not candles:
+            import random
+            base = 1.08 if 'USD' in symbol else 50000 if 'BTC' in symbol else 2000 if 'XAU' in symbol else 1.0
+            now_ts = timezone.now().timestamp()
+            p = base
+            for i in range(50):
+                o = p
+                c = p * (1 + (random.random() - 0.5) * 0.002)
+                h = max(o, c) * (1 + random.random() * 0.001)
+                l = min(o, c) * (1 - random.random() * 0.001)
+                candles.append({'open': o, 'high': h, 'low': l, 'close': c, 'volume': 1000, 'time': int(now_ts - (50 - i) * 3600)})
+                p = c
 
-        api_key = decouple_config('OPENAI_API_KEY', default='')
-        if api_key:
-            provider = OpenAIProvider(api_key=api_key)
-            analyzer = LLMAnalyzer(provider=provider)
-            analysis = analyzer.analyze(symbol, candles)
-        else:
-            analysis = None
+        recent_trades = list(Trade.objects.filter(
+            user=request.user, symbol=symbol, status='CLOSED'
+        ).values('pnl', 'action')[:10])
 
-        bias = analysis.bias if analysis else 'neutral'
-        confidence = int((analysis.confidence if analysis else 0) * 100)
+        from trading_app.trading_bot.technical_analyzer import analyze_technical
+        analysis = analyze_technical(symbol, candles, trade_history=recent_trades)
+
+        bias = analysis.bias
+        confidence = int(analysis.confidence * 100)
 
         signal = TradingSignal.objects.create(
             user=request.user,
             symbol=symbol,
             signal_type='BUY' if bias == 'bullish' else 'SELL' if bias == 'bearish' else 'HOLD',
             confidence=confidence,
-            reasoning=analysis.rationale if analysis else 'LLM not configured',
-            source='AI',
-            risk_level='MEDIUM',
+            reasoning=analysis.rationale,
+            source='SYSTEM',
+            risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
         )
         audit.log_signal(symbol, signal.signal_type, confidence, {
             'signal_id': signal.id, 'rationale': signal.reasoning,
@@ -570,7 +519,11 @@ def analyze_and_signal_view(request):
                     'analysis': {
                         'bias': bias,
                         'confidence': confidence,
-                        'rationale': analysis.rationale if analysis else '',
+                        'rationale': analysis.rationale,
+                        'rsi': analysis.rsi,
+                        'sma_short': analysis.sma_short,
+                        'sma_long': analysis.sma_long,
+                        'atr': analysis.atr,
                     },
                     'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
                 })
@@ -597,7 +550,11 @@ def analyze_and_signal_view(request):
                     'analysis': {
                         'bias': bias,
                         'confidence': confidence,
-                        'rationale': analysis.rationale if analysis else '',
+                        'rationale': analysis.rationale,
+                        'rsi': analysis.rsi,
+                        'sma_short': analysis.sma_short,
+                        'sma_long': analysis.sma_long,
+                        'atr': analysis.atr,
                     },
                 })
 
@@ -606,13 +563,143 @@ def analyze_and_signal_view(request):
             'analysis': {
                 'bias': bias,
                 'confidence': confidence,
-                'rationale': analysis.rationale if analysis else '',
+                'rationale': analysis.rationale,
+                'rsi': analysis.rsi,
+                'sma_short': analysis.sma_short,
+                'sma_long': analysis.sma_long,
+                'atr': analysis.atr,
             },
         })
 
     except Exception as e:
         logger.error('Analysis failed: %s', e)
         return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# ---------------------------------------------------------------------------
+# Stake Configuration
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'PUT'])
+@permission_classes([permissions.IsAuthenticated])
+def stake_config_view(request):
+    user = request.user
+
+    if request.method == 'GET':
+        return Response({
+            'stake_amount': str(user.stake_amount),
+            'balance': str(user.balance),
+            'max_position_size': str(RiskConfig.get_for_user(user).max_position_size),
+        })
+
+    raw = request.data.get('stake_amount')
+    if raw is None:
+        return Response({'error': 'stake_amount is required'}, status=status.HTTP_400_BAD_REQUEST)
+
+    try:
+        amount = Decimal(str(raw))
+    except Exception:
+        return Response({'error': 'Invalid stake_amount'}, status=status.HTTP_400_BAD_REQUEST)
+
+    if amount <= 0:
+        return Response({'error': 'Stake must be positive'}, status=status.HTTP_400_BAD_REQUEST)
+
+    risk = RiskConfig.get_for_user(user)
+    if amount > risk.max_position_size:
+        return Response(
+            {'error': f'Stake exceeds max position size ({risk.max_position_size})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    max_risk_amount = user.balance * (risk.risk_per_trade / Decimal('100'))
+    if amount > max_risk_amount * 10:
+        return Response(
+            {'error': f'Stake seems too large for your risk settings (max risk per trade: {max_risk_amount})'},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    user.stake_amount = amount
+    user.save(update_fields=['stake_amount'])
+
+    return Response({
+        'stake_amount': str(user.stake_amount),
+        'balance': str(user.balance),
+        'max_position_size': str(risk.max_position_size),
+    })
+
+
+# ---------------------------------------------------------------------------
+# Signal Propose — bot-calculated SL/TP before execution
+# ---------------------------------------------------------------------------
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def signal_propose_view(request):
+    """
+    Given a symbol and optional signal_type, compute bot-calculated SL/TP
+    using ATR + confidence scaling. Returns the proposed levels with reasoning
+    so the frontend can display them before the user confirms execution.
+    """
+    symbol = request.data.get('symbol', 'EUR/USD')
+    signal_type = request.data.get('signal_type', 'BUY').upper()
+    confidence = float(request.data.get('confidence', 0.65))
+
+    user = request.user
+    risk = RiskConfig.get_for_user(user)
+
+    candles = []
+    try:
+        if not user.paper_mode:
+            adapter = _resolve_adapter(user)
+            creds = build_credentials(user)
+            adapter.connect(creds)
+            candles = adapter.get_candles(symbol, 3600, 50)
+            adapter.disconnect()
+    except Exception as e:
+        logger.warning('Could not fetch candles for SL/TP calc: %s', e)
+
+    if not candles:
+        base_price = float(request.data.get('current_price', 1.08))
+        import random
+        now_ts = timezone.now().timestamp()
+        candles = []
+        p = base_price
+        for i in range(50):
+            o = p
+            c = p * (1 + (random.random() - 0.5) * 0.002)
+            h = max(o, c) * (1 + random.random() * 0.001)
+            l = min(o, c) * (1 - random.random() * 0.001)
+            candles.append({
+                'open': o, 'high': h, 'low': l, 'close': c,
+                'time': int(now_ts - (50 - i) * 3600),
+            })
+            p = c
+
+    from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+
+    proposal = compute_sl_tp(
+        candles=candles,
+        signal_type=signal_type,
+        confidence=confidence,
+        current_price=float(candles[-1]['close']) if candles else None,
+        risk_per_trade_pct=float(risk.risk_per_trade),
+        account_balance=float(user.balance),
+    )
+
+    return Response({
+        'symbol': symbol,
+        'signal_type': signal_type,
+        'confidence': confidence,
+        'current_price': str(candles[-1]['close']) if candles else '0',
+        'stop_loss': str(proposal.stop_loss),
+        'take_profit': str(proposal.take_profit),
+        'sl_distance': str(proposal.sl_distance),
+        'tp_distance': str(proposal.tp_distance),
+        'atr': str(proposal.atr_value),
+        'reasoning': proposal.reasoning,
+        'method': proposal.method,
+        'stake_amount': str(user.stake_amount),
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -1040,6 +1127,92 @@ def ticker_unsubscribe_view(request):
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
     TickerBridge.remove_subscription(symbol, str(request.user.id))
     return Response({'status': 'ok', 'symbol': symbol})
+
+
+# ---------------------------------------------------------------------------
+# ML Model Export — serves latest trained model for MQL5 EA
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def model_export_view(request):
+    """
+    Return metadata + download URL for the latest trained model.
+    The MQL5 EA calls this endpoint to fetch feature columns, thresholds,
+    and model file path for on-device inference.
+    """
+    import json
+    from pathlib import Path
+
+    ml_output = Path(settings.BASE_DIR) / "ml_output"
+    results_path = ml_output / "pipeline_results.json"
+
+    if not results_path.exists():
+        return Response(
+            {'error': 'No trained model found. Run: python manage.py train_model'},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    try:
+        with open(results_path, "r") as f:
+            results = json.load(f)
+    except Exception as e:
+        return Response({'error': f'Failed to load results: {e}'},
+                        status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+    # Find the latest model + metadata files
+    model_files = sorted(ml_output.glob("*_model.pkl"), reverse=True)
+    onnx_files = sorted(ml_output.glob("*_model.onnx"), reverse=True)
+    meta_files = sorted(ml_output.glob("*_metadata.json"), reverse=True)
+
+    model_info = {
+        'symbol': results.get('symbol', 'EURUSD'),
+        'granularity': results.get('granularity', 900),
+        'metrics': results.get('metrics', {}),
+        'has_onnx': len(onnx_files) > 0,
+        'model_file': str(model_files[0].name) if model_files else None,
+        'onnx_file': str(onnx_files[0].name) if onnx_files else None,
+        'metadata_file': str(meta_files[0].name) if meta_files else None,
+    }
+
+    # Load metadata for feature columns
+    if meta_files:
+        try:
+            with open(meta_files[0], "r") as f:
+                meta = json.load(f)
+            model_info['feature_columns'] = meta.get('feature_columns', [])
+            model_info['model_type'] = meta.get('model_type', '')
+            model_info['trained_at'] = meta.get('timestamp', '')
+        except Exception:
+            pass
+
+    return Response(model_info)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.AllowAny])
+def model_download_view(request, filename):
+    """
+    Serve a trained model file for download.
+    MQL5 EA downloads the .onnx or .pkl file from here.
+    """
+    import os
+    from pathlib import Path
+    from django.http import FileResponse, Http404
+
+    ml_output = Path(settings.BASE_DIR) / "ml_output"
+    file_path = ml_output / filename
+
+    if not file_path.exists() or not file_path.is_file():
+        raise Http404("Model file not found")
+
+    # Prevent path traversal
+    try:
+        file_path.resolve().relative_to(ml_output.resolve())
+    except ValueError:
+        raise Http404("Invalid path")
+
+    return FileResponse(open(file_path, 'rb'), as_attachment=True, name=filename)
 
 
 # ---------------------------------------------------------------------------

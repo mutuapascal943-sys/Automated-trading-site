@@ -1,9 +1,5 @@
 <div class="bot-filters">
   <div class="filter-group">
-    <div class="filter-label">Broker</div>
-    <select class="filter-select" id="bot-broker"><option>{{ user.broker|default:"Deriv" }}</option><option>Binance</option></select>
-  </div>
-  <div class="filter-group">
     <div class="filter-label">Market</div>
     <select class="filter-select" id="bot-market" onchange="updateBotMarket()">
       <option>EUR/USD</option><option>GBP/USD</option><option>USD/JPY</option>
@@ -16,84 +12,70 @@
   <div class="filter-group">
     <div class="filter-label">Timeframe</div>
     <select class="filter-select" id="bot-tf">
-      <option>M1</option><option>M5</option><option>M15</option>
-      <option>M30</option><option>H1</option><option>H4</option><option>D1</option>
+      <option>M5</option><option>M15</option>
+      <option>M30</option><option selected>H1</option><option>H4</option>
     </select>
   </div>
-  <div class="filter-group" style="margin-left:auto;display:flex;align-items:center;gap:8px">
-    <label style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Paper Mode</label>
+  <div class="filter-group stake-group">
+    <div class="filter-label">Stake</div>
+    <div class="stake-input-wrap">
+      <span class="stake-currency">$</span>
+      <input type="number" id="stake-amount" class="stake-input" value="{{ user.stake_amount }}" min="1" step="0.01" onchange="saveStakeConfig()" onblur="saveStakeConfig()">
+    </div>
+  </div>
+  <div class="filter-group" style="display:flex;align-items:center;gap:8px">
+    <label style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Paper</label>
     <div class="toggle {% if user.paper_mode %}on{% endif %}" id="paper-mode-toggle" onclick="togglePaperMode()"></div>
   </div>
 </div>
 
-<div class="bot-grid">
-  <div>
-    <div class="chart-panel">
-      <div class="chart-header">
-        <div>
-          <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
-          <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">{% if user.paper_mode %}PAPER{% else %}LIVE{% endif %}</div>
-        </div>
-        <div class="chart-price" id="bot-price">1.08432</div>
+<div class="bot-layout">
+  <div class="chart-panel">
+    <div class="chart-header">
+      <div>
+        <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
+        <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">{% if user.paper_mode %}PAPER{% else %}LIVE{% endif %}</div>
       </div>
-      <div class="chart-canvas-wrap">
-        <canvas id="botChart" height="260" style="width:100%;display:block"></canvas>
-      </div>
+      <div class="chart-price" id="bot-price">1.08432</div>
     </div>
+    <div class="chart-canvas-wrap">
+      <canvas id="botChart" height="260" style="width:100%;display:block"></canvas>
+    </div>
+    <div class="chart-levels-legend" id="chart-levels-legend" style="display:none">
+      <span class="legend-item"><span class="legend-dot" style="background:#00d4aa"></span> Entry</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#ff4d6d"></span> Stop Loss</span>
+      <span class="legend-item"><span class="legend-dot" style="background:#f5c27a"></span> Take Profit</span>
+    </div>
+  </div>
 
-    <div class="controls-card mt-2">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">settings</span> Bot Controls</div>
-      <div class="controls-grid">
-        <button class="btn-ctrl start" onclick="startAnalysis()"><span class="material-symbols-outlined" style="font-size:14px">play_arrow</span> ANALYZE</button>
-        <button class="btn-ctrl stop" onclick="stopAnalysis()"><span class="material-symbols-outlined" style="font-size:14px">stop</span> STOP</button>
-        <button class="btn-ctrl refresh" onclick="refreshSignals()"><span class="material-symbols-outlined" style="font-size:14px">refresh</span> REFRESH</button>
-        <button class="btn-ctrl connect" onclick="location.hash='settings'"><span class="material-symbols-outlined" style="font-size:14px">sync_alt</span> BROKER SETTINGS</button>
-        <button class="btn-ctrl execute" onclick="executeTrade()"><span class="material-symbols-outlined" style="font-size:14px">bolt</span> EXECUTE TRADE</button>
-        <button class="btn-ctrl close" onclick="closeAllTrades()"><span class="material-symbols-outlined" style="font-size:14px">close</span> CLOSE ALL</button>
-      </div>
-      <div class="scan-status" id="scanStatus"></div>
-      <div class="analysis-title mt-2"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">shield</span> Risk Management</div>
-      <div class="risk-grid">
+  <div class="bot-sidebar">
+    <div class="analysis-card">
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">shield</span> Risk Settings</div>
+      <div class="risk-stack">
         <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
         <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
         <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50" onchange="saveRiskConfig()"></div>
         <div class="risk-field"><label>Daily profit target %</label><input type="number" value="5" min="1" max="100" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Trailing stop %</label><input type="number" id="trailing-stop" value="" min="0" max="10" step="0.5" placeholder="Off" onchange="saveRiskConfig()"></div>
       </div>
-    </div>
-  </div>
-
-  <div class="signals-col">
-    <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">psychology</span> AI Analysis</div>
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-        <span style="font-size:12px;color:var(--text2)">Current Trend:</span>
-        <span class="trend-badge bullish" id="trend-badge">▲ BULLISH</span>
-      </div>
-      <div class="score-bar-wrap">
-        <div class="score-bar-label"><span>Signal Confidence</span><span id="conf-val">74%</span></div>
-        <div class="score-bar"><div class="score-bar-fill" id="conf-bar" style="width:74%"></div></div>
-      </div>
-      <div class="level-row"><span class="level-key">Support 1</span><span class="level-val" id="sup1">—</span></div>
-      <div class="level-row"><span class="level-key">Support 2</span><span class="level-val" id="sup2">—</span></div>
-      <div class="level-row"><span class="level-key">Resistance 1</span><span class="level-val" id="res1">—</span></div>
-      <div class="level-row"><span class="level-key">Resistance 2</span><span class="level-val" id="res2">—</span></div>
     </div>
 
     <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Trade Signal</div>
-      <div class="signal-row"><span class="signal-key">Entry Price</span><span class="signal-val gold" id="sig-entry">—</span></div>
-      <div class="signal-row"><span class="signal-key">Stop Loss</span><span class="signal-val red" id="sig-sl">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 1</span><span class="signal-val green" id="sig-tp1">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 2</span><span class="signal-val green" id="sig-tp2">—</span></div>
-      <div class="signal-row"><span class="signal-key">Take Profit 3</span><span class="signal-val green" id="sig-tp3">—</span></div>
-      <div class="signal-row"><span class="signal-key">R:R Ratio</span><span class="signal-val gold">—</span></div>
-      <div class="signal-row"><span class="signal-key">Signal Strength</span><span class="signal-val green">—</span></div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Bot Status</div>
+      <div class="bot-status-row">
+        <span class="status-dot" id="bot-status-dot"></span>
+        <span id="bot-status-text">Idle</span>
+      </div>
+      <div class="scan-status" id="scanStatus"></div>
+      <button class="btn-full" id="bot-toggle-btn" onclick="toggleBot()">
+        <span class="material-symbols-outlined" style="font-size:16px">play_arrow</span> START BOT
+      </button>
     </div>
 
     <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">receipt_long</span> Recent Trades</div>
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">receipt_long</span> Open Trades</div>
       <div id="bot-recent-trades" style="font-size:12px;color:var(--text2)">
-        <span>Open bot panel to load trades...</span>
+        <span>No open trades</span>
       </div>
     </div>
   </div>
@@ -119,48 +101,195 @@ function togglePaperMode(){
   });
 }
 
+function saveStakeConfig(){
+  var input = document.getElementById('stake-amount');
+  if(!input) return;
+  var val = parseFloat(input.value);
+  if(isNaN(val) || val <= 0) return;
+  fetch('/api/stake-config/', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({stake_amount: val}),
+  }).then(function(r){ return r.json() }).then(function(data){
+    if(data.stake_amount){
+      input.value = data.stake_amount;
+      showToast('Stake updated to $' + data.stake_amount, 'success');
+    } else if(data.error){
+      showToast(data.error, 'error');
+    }
+  }).catch(function(){ showToast('Failed to save stake', 'error'); });
+}
+
+function saveRiskConfig(){
+  var inputs = document.querySelectorAll('.risk-field input[type="number"]');
+  var payload = {};
+  if(inputs[0]) payload.risk_per_trade = parseFloat(inputs[0].value) || 2;
+  if(inputs[1]) payload.max_daily_trades = parseInt(inputs[1].value) || 5;
+  if(inputs[2]) payload.max_drawdown = parseFloat(inputs[2].value) || 10;
+  if(inputs[3]) payload.daily_profit_target = parseFloat(inputs[3].value) || 5;
+  var ts = document.getElementById('trailing-stop');
+  payload.trailing_stop_percent = ts && ts.value ? parseFloat(ts.value) : null;
+  fetch('/api/risk-config/', {
+    method: 'PUT',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify(payload),
+  }).then(function(r){ return r.json() }).then(function(data){
+    showToast('Risk settings saved', 'success');
+  }).catch(function(){ showToast('Failed to save risk settings', 'error'); });
+}
+
+function loadRiskConfig(){
+  fetch('/api/risk-config/', {
+    headers: {'X-Requested-With': 'XMLHttpRequest'},
+  })
+  .then(function(r){ return r.json() })
+  .then(function(data){
+    var inputs = document.querySelectorAll('.risk-field input[type="number"]');
+    if(inputs[0] && data.risk_per_trade !== undefined) inputs[0].value = data.risk_per_trade;
+    if(inputs[1] && data.max_daily_trades !== undefined) inputs[1].value = data.max_daily_trades;
+    if(inputs[2] && data.max_drawdown !== undefined) inputs[2].value = data.max_drawdown;
+    if(inputs[3] && data.daily_profit_target !== undefined) inputs[3].value = data.daily_profit_target;
+    var ts = document.getElementById('trailing-stop');
+    if(ts && data.trailing_stop_percent !== undefined && data.trailing_stop_percent !== null) ts.value = data.trailing_stop_percent;
+  })
+  .catch(function(){});
+}
+
+function loadStakeConfig(){
+  fetch('/api/stake-config/', {
+    headers: {'X-Requested-With': 'XMLHttpRequest'},
+  })
+  .then(function(r){ return r.json() })
+  .then(function(data){
+    var input = document.getElementById('stake-amount');
+    if(input && data.stake_amount) input.value = data.stake_amount;
+  })
+  .catch(function(){});
+}
+
+function toggleBot(){
+  var btn = document.getElementById('bot-toggle-btn');
+  if(!btn) return;
+  var isRunning = btn.classList.contains('running');
+  if(isRunning){
+    stopBot();
+  } else {
+    startBot();
+  }
+}
+
+function startBot(){
+  var btn = document.getElementById('bot-toggle-btn');
+  var dot = document.getElementById('bot-status-dot');
+  var txt = document.getElementById('bot-status-text');
+  if(btn){ btn.classList.add('running'); btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">stop</span> STOP BOT'; }
+  if(dot){ dot.className = 'status-dot running'; }
+  if(txt){ txt.textContent = 'Scanning...'; }
+
+  fetch('/api/stake-config/', {headers:{'X-Requested-With':'XMLHttpRequest'}})
+  .then(function(r){return r.json()})
+  .then(function(cfg){
+    var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+    return fetch('/api/analyze-signal/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
+    });
+  })
+  .then(function(r){return r.json()})
+  .then(function(data){
+    if(data.signal && data.signal.signal_type !== 'HOLD'){
+      var s = data.signal;
+      var stake = document.getElementById('stake-amount');
+      var stakeVal = stake ? parseFloat(stake.value) : 10;
+      return fetch('/api/signal/propose/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+        body: JSON.stringify({
+          symbol: document.getElementById('bot-market').value,
+          signal_type: s.signal_type,
+          confidence: s.confidence / 100,
+          current_price: pairs[document.getElementById('bot-market').value] || 0,
+        }),
+      }).then(function(r){return r.json()}).then(function(proposal){
+        return fetch('/api/trades/execute/', {
+          method: 'POST',
+          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+          body: JSON.stringify({
+            symbol: proposal.symbol,
+            action: s.signal_type,
+            volume: stakeVal,
+            entry_price: parseFloat(proposal.current_price) || 0,
+            stop_loss: parseFloat(proposal.stop_loss) || null,
+            take_profit: parseFloat(proposal.take_profit) || null,
+            order_type: 'MARKET',
+            confidence: s.confidence,
+            current_price: parseFloat(proposal.current_price) || 0,
+          }),
+        }).then(function(r){return r.json()});
+      });
+    }
+    return null;
+  })
+  .then(function(tradeResult){
+    if(tradeResult && tradeResult.id){
+      showToast('Trade opened: ' + tradeResult.symbol + ' ' + tradeResult.action + ' [' + tradeResult.status + ']', 'success');
+    } else if(tradeResult && tradeResult.error){
+      showToast(tradeResult.error, 'error');
+    } else {
+      showToast('No actionable signal this cycle', 'info');
+    }
+    stopBot();
+    loadRecentTrades();
+    if(typeof updateChartOverlay === 'function' && tradeResult && tradeResult.status === 'OPEN'){
+      updateChartOverlay({
+        current_price: tradeResult.entry_price,
+        stop_loss: tradeResult.stop_loss,
+        take_profit: tradeResult.take_profit,
+      });
+    }
+  })
+  .catch(function(err){
+    showToast('Bot error: ' + err, 'error');
+    stopBot();
+  });
+}
+
+function stopBot(){
+  var btn = document.getElementById('bot-toggle-btn');
+  var dot = document.getElementById('bot-status-dot');
+  var txt = document.getElementById('bot-status-text');
+  if(btn){ btn.classList.remove('running'); btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span> START BOT'; }
+  if(dot){ dot.className = 'status-dot'; }
+  if(txt){ txt.textContent = 'Idle'; }
+}
+
 function loadRecentTrades(){
   fetch('/api/trades/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
   .then(function(r){ return r.json() })
   .then(function(data){
     var trades = data.results || data || [];
+    var open = trades.filter(function(t){ return t.status === 'OPEN'; });
     var el = document.getElementById('bot-recent-trades');
     if(!el) return;
-    if(trades.length === 0){
-      el.innerHTML = '<span style="color:var(--text3)">No trades yet</span>';
+    if(open.length === 0){
+      el.innerHTML = '<span style="color:var(--text3)">No open trades</span>';
       return;
     }
-    el.innerHTML = trades.slice(0, 5).map(function(t){
-      var cls = t.status === 'OPEN' ? 'teal' : t.pnl > 0 ? 'green' : 'red';
-      return '<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid rgba(255,255,255,0.04)">' +
+    el.innerHTML = open.slice(0, 5).map(function(t){
+      var cls = t.action === 'BUY' ? 'teal' : 'red';
+      return '<div class="trade-row">' +
         '<span>' + t.symbol + ' ' + t.action + '</span>' +
-        '<span style="color:var(--' + cls + ')">' + (t.pnl ? (t.pnl > 0 ? '+' : '') + t.pnl : t.status) + '</span></div>';
+        '<span style="color:var(--' + cls + ')">' + (t.unrealized_pnl ? (t.unrealized_pnl > 0 ? '+' : '') + t.unrealized_pnl : t.status) + '</span></div>';
     }).join('');
   })
   .catch(function(){});
 }
 
-function closeAllTrades(){
-  if(!confirm('Close all open positions?')) return;
-  fetch('/api/trades/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
-  .then(function(r){ return r.json() })
-  .then(function(data){
-    var trades = data.results || data || [];
-    var openTrades = trades.filter(function(t){ return t.status === 'OPEN' });
-    if(openTrades.length === 0){
-      showToast('No open trades to close', 'info');
-      return;
-    }
-    showToast('Close all trades feature requires manual closing per trade', 'info');
-  })
-  .catch(function(){});
-}
-
-// Load trades when bot panel becomes visible
 var _origNav = window.navigateToPanel;
 window.navigateToPanel = function(panelId){
   if(panelId === 'bot'){
-    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); }, 100);
+    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); loadStakeConfig(); }, 100);
   }
   if(_origNav) _origNav(panelId);
 };

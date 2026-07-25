@@ -1,8 +1,7 @@
 from decimal import Decimal
 from rest_framework import serializers
 from .models import (
-    User, Trade, TradingSignal, RAGDocument,
-    RAGChunk, LLMQuery, Subscription, RiskConfig,
+    User, Trade, TradingSignal, Subscription, RiskConfig,
 )
 
 
@@ -39,40 +38,6 @@ class TradingSignalSerializer(serializers.ModelSerializer):
         model = TradingSignal
         fields = '__all__'
         read_only_fields = ['user', 'created_at']
-
-
-class RAGDocumentSerializer(serializers.ModelSerializer):
-    chunk_count = serializers.IntegerField(read_only=True)
-    file_size_display = serializers.SerializerMethodField()
-
-    class Meta:
-        model = RAGDocument
-        fields = ['id', 'title', 'content', 'source', 'file_type', 'file_size',
-                  'file_size_display', 'chunk_count', 'is_indexed', 'created_at', 'updated_at']
-        read_only_fields = ['id', 'chunk_count', 'is_indexed', 'created_at', 'updated_at']
-
-    def get_file_size_display(self, obj):
-        if obj.file_size < 1024:
-            return f'{obj.file_size} B'
-        elif obj.file_size < 1024 * 1024:
-            return f'{obj.file_size / 1024:.1f} KB'
-        return f'{obj.file_size / (1024 * 1024):.1f} MB'
-
-
-class LLMQuerySerializer(serializers.ModelSerializer):
-    class Meta:
-        model = LLMQuery
-        fields = '__all__'
-        read_only_fields = ['user', 'response', 'tokens_used', 'latency_ms',
-                            'success', 'created_at']
-
-
-class LLMQueryCreateSerializer(serializers.Serializer):
-    query_type = serializers.ChoiceField(choices=[
-        'market_analysis', 'trading_idea', 'rag_query', 'sentiment',
-    ])
-    prompt = serializers.CharField(max_length=10000)
-    market_data = serializers.CharField(required=False, allow_blank=True)
 
 
 class SubscriptionSerializer(serializers.ModelSerializer):

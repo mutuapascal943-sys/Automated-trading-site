@@ -16,6 +16,8 @@ class User(AbstractUser):
     daily_trades_count = models.IntegerField(default=0)
     last_trade_date = models.DateField(null=True, blank=True)
     paper_mode = models.BooleanField(default=True, help_text='Paper/demo mode — no real broker execution')
+    stake_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('10.00'),
+                                       help_text='Stake amount per trade in account currency')
     watchlist = models.JSONField(default=list, blank=True, help_text='User-preferred trading symbols')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, default='')
@@ -162,79 +164,6 @@ class TradingSignal(models.Model):
 
     def __str__(self):
         return f'{self.symbol} {self.signal_type} ({self.confidence}%)'
-
-
-class RAGDocument(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='rag_documents', null=True, blank=True)
-    title = models.CharField(max_length=255)
-    content = models.TextField()
-    source = models.CharField(max_length=50, default='manual', choices=[
-        ('manual', 'Manual Upload'),
-        ('web', 'Web Scrape'),
-        ('api', 'API Import'),
-        ('email', 'Email Import'),
-    ])
-    file_type = models.CharField(max_length=20, blank=True, default='')
-    file_size = models.IntegerField(default=0, help_text='Size in bytes')
-    chunk_count = models.IntegerField(default=0)
-    is_indexed = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-    updated_at = models.DateTimeField(auto_now=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['user']),
-            models.Index(fields=['source']),
-            models.Index(fields=['is_indexed']),
-        ]
-
-    def __str__(self):
-        return self.title
-
-
-class RAGChunk(models.Model):
-    document = models.ForeignKey(RAGDocument, on_delete=models.CASCADE, related_name='chunks')
-    chunk_id = models.CharField(max_length=12)
-    text = models.TextField()
-    start_pos = models.IntegerField(default=0)
-    end_pos = models.IntegerField(default=0)
-    embedding = models.JSONField(null=True, blank=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['document']),
-            models.Index(fields=['chunk_id']),
-        ]
-
-    def __str__(self):
-        return f'{self.document.title} - chunk {self.chunk_id}'
-
-
-class LLMQuery(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='llm_queries', null=True, blank=True)
-    query_type = models.CharField(max_length=30, choices=[
-        ('market_analysis', 'Market Analysis'),
-        ('trading_idea', 'Trading Idea'),
-        ('rag_query', 'Knowledge Query'),
-        ('sentiment', 'Sentiment Analysis'),
-    ])
-    prompt = models.TextField()
-    response = models.TextField(blank=True, default='')
-    context_used = models.JSONField(null=True, blank=True)
-    tokens_used = models.IntegerField(default=0)
-    latency_ms = models.IntegerField(default=0)
-    success = models.BooleanField(default=False)
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['user', 'query_type']),
-            models.Index(fields=['created_at']),
-        ]
-
-    def __str__(self):
-        return f'{self.query_type} - {self.created_at}'
 
 
 class Subscription(models.Model):

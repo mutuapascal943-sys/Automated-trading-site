@@ -16,12 +16,10 @@ from .forms import (
     SetNewPasswordForm, SecurityQuestionForm, SecurityAnswerForm,
     ProfileForm, ProfilePictureForm,
 )
-from .models import User, EmailOTP, Trade, TradingSignal, RAGDocument, RAGChunk, LLMQuery, SecurityQuestion, RememberMeToken, Notification
+from .models import User, EmailOTP, Trade, TradingSignal, SecurityQuestion, RememberMeToken, Notification
 from .decorators import two_factor_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
-from .services.llm_service import llm_service
-from .services.rag_engine import rag_engine
 from .services.broker_service import BrokerService
 
 logger = logging.getLogger(__name__)
@@ -37,6 +35,13 @@ def register_view(request):
             user = form.save(commit=False)
             user.email = form.cleaned_data['email']
             user.broker = form.cleaned_data['broker']
+            base_username = user.email.split('@')[0]
+            username = base_username
+            counter = 1
+            while User.objects.filter(username=username).exists():
+                username = f'{base_username}{counter}'
+                counter += 1
+            user.username = username
             user.save()
             create_notification(user, 'Account Created', 'Welcome to Forex AI Pro! Please verify your email to get started.', 'account')
             login(request, user)
@@ -379,116 +384,6 @@ def resend_otp_view(request):
         if sent:
             messages.success(request, 'A new verification code has been sent to your email.')
         return redirect('verify_2fa')
-    return redirect('dashboard')
-
-
-@login_required
-def llm_query_view(request):
-    if request.method == 'POST':
-        query_type = request.POST.get('query_type', 'market_analysis')
-        prompt = request.POST.get('prompt', '')
-
-        if not prompt:
-            messages.error(request, 'Please enter a query.')
-            return redirect('dashboard')
-
-        context = {}
-        if query_type == 'rag_query':
-            docs = RAGDocument.objects.filter(user=request.user)
-            all_chunks = []
-            for doc in docs:
-                chunks = RAGChunk.objects.filter(document=doc)
-                for c in chunks:
-                    all_chunks.append({
-                        'id': c.chunk_id,
-                        'text': c.text,
-                        'embedding': c.embedding,
-                    })
-            ranked = rag_engine.rank_chunks(prompt, all_chunks)
-            context_texts = [c['text'] for c in ranked]
-            context['rag_results'] = context_texts
-
-        llm_query = LLMQuery.objects.create(
-            user=request.user,
-            query_type=query_type,
-            prompt=prompt,
-            context_used=context if context else None,
-        )
-
-        try:
-            if query_type == 'market_analysis':
-                result = llm_service.analyze_market(prompt)
-            elif query_type == 'trading_idea':
-                result = llm_service.generate_trading_idea(prompt)
-            elif query_type == 'rag_query':
-                result = llm_service.rag_query(prompt, context.get('rag_results', []))
-            else:
-                result = {'error': 'Unknown query type'}
-
-            response_text = str(result) if isinstance(result, dict) else result
-            llm_query.response = response_text
-            llm_query.success = True
-            llm_query.save()
-
-            messages.success(request, 'Analysis complete!')
-            return render(request, 'dashboard/llm_result.html', {
-                'query': llm_query,
-                'result': response_text,
-                'page_title': 'AI Analysis Result',
-            })
-
-        except Exception as e:
-            llm_query.response = f'Error: {str(e)}'
-            llm_query.success = False
-            llm_query.save()
-            messages.error(request, f'Analysis failed: {str(e)}')
-            return redirect('dashboard')
-
-    return redirect('dashboard')
-
-
-@login_required
-def upload_document_view(request):
-    if request.method == 'POST':
-        title = request.POST.get('title', '')
-        content = request.POST.get('content', '')
-        source = request.POST.get('source', 'manual')
-
-        if not title or not content:
-            messages.error(request, 'Title and content are required.')
-            return redirect('dashboard')
-
-        if len(content) > 100000:
-            messages.error(request, 'Document too large. Maximum 100KB.')
-            return redirect('dashboard')
-
-        doc = RAGDocument.objects.create(
-            user=request.user,
-            title=title,
-            content=content,
-            source=source,
-            file_size=len(content.encode('utf-8')),
-        )
-
-        chunks = rag_engine.process_document(title=title, content=content, source=source)
-        chunk_objs = []
-        for chunk_data in chunks:
-            chunk_objs.append(RAGChunk(
-                document=doc,
-                chunk_id=chunk_data['id'],
-                text=chunk_data['text'],
-                start_pos=chunk_data['start_pos'],
-                end_pos=chunk_data['end_pos'],
-                embedding=chunk_data.get('embedding'),
-            ))
-        RAGChunk.objects.bulk_create(chunk_objs)
-        doc.chunk_count = len(chunks)
-        doc.is_indexed = True
-        doc.save()
-
-        messages.success(request, f'Document "{title}" uploaded and indexed ({len(chunks)} chunks).')
-        return redirect('dashboard')
-
     return redirect('dashboard')
 
 
