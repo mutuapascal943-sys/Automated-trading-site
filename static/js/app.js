@@ -662,6 +662,7 @@
     var m = document.cookie.match(/csrftoken=([^;]+)/);
     return m ? m[1] : '';
   }
+  window.getCSRF = getCSRF;
 
   /* ── CHARTS ── */
   function initArtCanvas(){

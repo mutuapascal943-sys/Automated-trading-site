@@ -6454,3 +6454,11 @@ redis.exceptions.ConnectionError: Error Multiple exceptions: [Errno 10061] Conne
 [2026-07-22 17:34:35,684] WARNING django.request Forbidden: /api/notifications/
 [2026-07-22 17:34:35,686] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:54151][0m
 [2026-07-22 17:34:35,686] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.01, 127.0.0.1:54151][0m
+[2026-07-28 17:53:50,006] WARNING django.request Forbidden: /api/notifications/
+[2026-07-28 17:53:50,006] WARNING django.request Forbidden: /api/notifications/
+[2026-07-28 17:53:50,009] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.04, 127.0.0.1:63057][0m
+[2026-07-28 17:53:50,009] WARNING django.channels.server [31;1mHTTP GET /api/notifications/ 403 [0.04, 127.0.0.1:63057][0m
+[2026-07-28 17:54:15,403] WARNING django.request Not Found: /favicon.ico
+[2026-07-28 17:54:15,403] WARNING django.request Not Found: /favicon.ico
+[2026-07-28 17:54:15,413] WARNING django.channels.server [33mHTTP GET /favicon.ico 404 [0.14, 127.0.0.1:53585][0m
+[2026-07-28 17:54:15,413] WARNING django.channels.server [33mHTTP GET /favicon.ico 404 [0.14, 127.0.0.1:53585][0m
