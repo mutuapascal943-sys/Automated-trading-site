@@ -25,12 +25,3 @@ def two_factor_required_api(view_func):
                 )
         return view_func(request, *args, **kwargs)
     return _wrapped_view
-
-
-def broker_required(view_func):
-    @wraps(view_func)
-    def _wrapped_view(request, *args, **kwargs):
-        if request.user.is_authenticated and not request.user.broker_configured:
-            return redirect('broker_setup')
-        return view_func(request, *args, **kwargs)
-    return _wrapped_view

@@ -76,34 +76,10 @@ class RegisterForm(UserCreationForm):
         choices=BROKER_CHOICES, required=True,
         widget=forms.Select(attrs={'class': 'form-input', 'id': 'reg-broker'})
     )
-    broker_api_key = forms.CharField(
-        label='API Key',
-        required=False,
-        widget=forms.PasswordInput(attrs={
-            'class': 'form-input', 'placeholder': 'Your broker API key or token', 'id': 'reg-api-key',
-            'autocomplete': 'off',
-        })
-    )
-    broker_api_secret = forms.CharField(
-        label='API Secret',
-        required=False,
-        widget=forms.PasswordInput(attrs={
-            'class': 'form-input', 'placeholder': 'Your broker API secret', 'id': 'reg-api-secret',
-            'autocomplete': 'off',
-        })
-    )
-    broker_account_id = forms.CharField(
-        label='Account ID (optional)',
-        required=False,
-        widget=forms.TextInput(attrs={
-            'class': 'form-input', 'placeholder': 'Broker account identifier', 'id': 'reg-account-id',
-        })
-    )
 
     class Meta:
         model = User
-        fields = ('email', 'password1', 'password2', 'broker',
-                  'broker_api_key', 'broker_api_secret', 'broker_account_id')
+        fields = ('email', 'password1', 'password2', 'broker')
 
     def clean_email(self):
         email = self.cleaned_data.get('email')
