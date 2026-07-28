@@ -23,6 +23,10 @@ class User(AbstractUser):
     phone = models.CharField(max_length=20, blank=True, default='')
     bio = models.TextField(max_length=500, blank=True, default='')
 
+    @property
+    def broker_configured(self):
+        return bool(self.broker) and bool(self.broker_api_key)
+
     USERNAME_FIELD = 'email'
     REQUIRED_FIELDS = ['username']
 
