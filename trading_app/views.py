@@ -17,10 +17,11 @@ from .forms import (
     ProfileForm, ProfilePictureForm,
 )
 from .models import User, EmailOTP, Trade, TradingSignal, SecurityQuestion, RememberMeToken, Notification
-from .decorators import two_factor_required
+from .decorators import two_factor_required, broker_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
 from .services.broker_service import BrokerService
+from .services.credential_encrypt import encrypt
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,15 @@ def register_view(request):
             user = form.save(commit=False)
             user.email = form.cleaned_data['email']
             user.broker = form.cleaned_data['broker']
+            api_key = form.cleaned_data.get('broker_api_key', '')
+            api_secret = form.cleaned_data.get('broker_api_secret', '')
+            account_id = form.cleaned_data.get('broker_account_id', '')
+            if api_key:
+                user.broker_api_key = encrypt(api_key)
+            if api_secret:
+                user.broker_api_secret = encrypt(api_secret)
+            if account_id:
+                user.broker_account_id = account_id
             base_username = user.email.split('@')[0]
             username = base_username
             counter = 1
@@ -79,6 +89,8 @@ def login_view(request):
             remember_me = request.POST.get('remember_me') == 'on'
             login(request, user)
 
+            after_login = reverse('broker_setup') if not user.broker_configured else reverse('dashboard')
+
             if remember_me:
                 token = secrets.token_hex(32)
                 RememberMeToken.objects.create(
@@ -87,7 +99,7 @@ def login_view(request):
                     expires_at=timezone.now() + timedelta(days=30),
                 )
                 response = HttpResponseRedirect(
-                    reverse('verify_2fa') if user.two_factor_enabled else reverse('dashboard')
+                    reverse('verify_2fa') if user.two_factor_enabled else after_login
                 )
                 response.set_signed_cookie(
                     'remember_me', token,
@@ -115,7 +127,7 @@ def login_view(request):
             CacheService.reset_rate_limit(f'login_{user.id}')
             create_notification(user, 'New Login', f'New sign-in to your account from a web browser.', 'account')
             messages.success(request, f'Welcome back, {user.email}!')
-            return redirect('dashboard')
+            return redirect(after_login)
     return render(request, 'registration/login.html', {'form': form})
 
 
@@ -188,7 +200,7 @@ def verify_2fa_view(request):
                     request.session['2fa_verified'] = True
                     CacheService.reset_rate_limit(f'login_{request.user.id}')
                     messages.success(request, f'Welcome back, {request.user.email}!')
-                    return redirect('dashboard')
+                    return redirect('broker_setup' if not request.user.broker_configured else 'dashboard')
 
             messages.error(request, 'Invalid or expired code. A new code has been sent.')
             otp_code = generate_otp()
@@ -242,7 +254,7 @@ def auto_login_view(request):
             user = rm_token.user
             login(request, user)
             messages.success(request, f'Welcome back, {user.email}!')
-            return redirect('dashboard')
+            return redirect('broker_setup' if not user.broker_configured else 'dashboard')
         except RememberMeToken.DoesNotExist:
             response = redirect('login')
             response.delete_cookie('remember_me')
@@ -251,6 +263,7 @@ def auto_login_view(request):
 
 
 @login_required
+@broker_required
 def dashboard_view(request):
     user = request.user
     open_trades = Trade.objects.filter(user=user, status='OPEN').count()
@@ -350,6 +363,18 @@ def profile_page_view(request):
         'profile_form': form,
         'pic_form': pic_form,
         'page_title': 'My Profile',
+    })
+
+
+@login_required
+def broker_setup_view(request):
+    if request.user.broker_configured:
+        messages.info(request, 'Your broker is already configured.')
+        return redirect('dashboard')
+
+    return render(request, 'registration/broker_setup.html', {
+        'page_title': 'Connect Your Broker',
+        'user': request.user,
     })
 
 
