@@ -150,6 +150,43 @@ class BinanceAdapter(BrokerAdapter):
         resp = self._signed_request("POST", "/api/v3/order", params)
         self._check_error(resp)
         data = resp.json()
+        order_id = str(data.get("orderId", ""))
+
+        # Place OCO stop-loss / take-profit orders after the main order fills
+        if request.stop_loss or request.take_profit:
+            try:
+                oco_params: dict[str, Any] = {
+                    "symbol": request.symbol,
+                    "side": "SELL" if request.side.lower() == "buy" else "BUY",
+                    "quantity": float(request.volume),
+                    "price": float(request.take_profit) if request.take_profit else float(request.stop_loss or 0),
+                }
+                if request.stop_loss and request.take_profit:
+                    oco_params["stopPrice"] = float(request.stop_loss)
+                    oco_params["stopLimitPrice"] = float(request.stop_loss)
+                    oco_params["stopLimitTimeInForce"] = "GTC"
+                    self._signed_request("POST", "/api/v3/order/oco", oco_params)
+                elif request.stop_loss:
+                    self._signed_request("POST", "/api/v3/order", {
+                        "symbol": request.symbol,
+                        "side": "SELL" if request.side.lower() == "buy" else "BUY",
+                        "type": "STOP_LOSS_LIMIT",
+                        "quantity": float(request.volume),
+                        "price": float(request.stop_loss),
+                        "stopPrice": float(request.stop_loss),
+                        "timeInForce": "GTC",
+                    })
+                elif request.take_profit:
+                    self._signed_request("POST", "/api/v3/order", {
+                        "symbol": request.symbol,
+                        "side": "SELL" if request.side.lower() == "buy" else "BUY",
+                        "type": "TAKE_PROFIT_LIMIT",
+                        "quantity": float(request.volume),
+                        "price": float(request.take_profit),
+                        "timeInForce": "GTC",
+                    })
+            except Exception as e:
+                logger.warning("Failed to place SL/TP orders for %s: %s", request.symbol, e)
 
         return Order(
             id=str(uuid.uuid4()),
@@ -164,7 +201,7 @@ class BinanceAdapter(BrokerAdapter):
             created_at=datetime.now(timezone.utc),
             filled_at=datetime.now(timezone.utc) if data.get("status") == "FILLED" else None,
             filled_price=Decimal(str(data.get("cummulativeQuoteQty", "0"))) if data.get("status") == "FILLED" else None,
-            broker_order_id=str(data.get("orderId", "")),
+            broker_order_id=order_id,
         )
 
     def cancel_order(self, order_id: str) -> None:

@@ -183,6 +183,7 @@ class PaperBrokerAdapter(BrokerAdapter):
         return trade
 
     def update_position_prices(self, symbol: str, current_price: Decimal) -> None:
+        to_close: list[tuple[str, Decimal]] = []
         for pos_id, pos in list(self._positions.items()):
             if pos.symbol != symbol:
                 continue
@@ -204,12 +205,15 @@ class PaperBrokerAdapter(BrokerAdapter):
                 (pos.side == "buy" and current_price <= pos.stop_loss)
                 or (pos.side == "sell" and current_price >= pos.stop_loss)
             ):
-                self.close_position(pos_id, pos.stop_loss)
+                to_close.append((pos_id, pos.stop_loss))
             elif pos.take_profit and (
                 (pos.side == "buy" and current_price >= pos.take_profit)
                 or (pos.side == "sell" and current_price <= pos.take_profit)
             ):
-                self.close_position(pos_id, pos.take_profit)
+                to_close.append((pos_id, pos.take_profit))
+
+        for pos_id, exit_price in to_close:
+            self.close_position(pos_id, exit_price)
 
     def _last_candle(self, symbol: str) -> Candle | None:
         candles = self._candle_store.get(symbol, [])

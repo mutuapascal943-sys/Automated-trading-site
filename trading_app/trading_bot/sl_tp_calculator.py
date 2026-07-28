@@ -87,15 +87,6 @@ def compute_sl_tp(
     # TP multiplier: ranges from 1.5x ATR (low conf) to 3.0x ATR (high conf)
     tp_mult = 1.5 + (conf * 1.5)
 
-    # Risk-based minimum: ensure SL doesn't risk more than risk_per_trade_pct of balance
-    risk_amount = account_balance * (risk_per_trade_pct / 100.0)
-    # Approximate lot value (1 pip = ~$10 for standard lot, rough estimate)
-    pip_value_per_lot = 10.0
-    if price > 100:
-        pip_value_per_lot = 10.0
-    elif price < 1:
-        pip_value_per_lot = 0.1
-
     sl_distance = atr * sl_mult
     tp_distance = atr * tp_mult
 

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
@@ -16,6 +17,11 @@ class TechnicalResult:
     sma_long: float
     atr: float
     momentum: float
+    macd: float
+    macd_signal: float
+    bb_upper: float
+    bb_middle: float
+    bb_lower: float
 
 
 def _rsi(closes: list[float], period: int = 14) -> float:
@@ -32,11 +38,53 @@ def _rsi(closes: list[float], period: int = 14) -> float:
     return 100.0 - (100.0 / (1.0 + rs))
 
 
+def _ema(values: list[float], period: int) -> float:
+    if not values:
+        return 0.0
+    p = min(period, len(values))
+    if p == 0:
+        return 0.0
+    k = 2.0 / (p + 1)
+    result = sum(values[-p:]) / p
+    for v in values[-p:]:
+        result = v * k + result * (1 - k)
+    return result
+
+
 def _sma(values: list[float], period: int) -> float:
     if not values:
         return 0.0
     p = min(period, len(values))
     return sum(values[-p:]) / p
+
+
+def _stddev(values: list[float], mean: float) -> float:
+    if len(values) < 2:
+        return 0.0
+    variance = sum((v - mean) ** 2 for v in values) / len(values)
+    return math.sqrt(variance)
+
+
+def _macd(closes: list[float]) -> tuple[float, float]:
+    if len(closes) < 26:
+        return 0.0, 0.0
+    ema12 = _ema(closes, 12)
+    ema26 = _ema(closes, 26)
+    macd_line = ema12 - ema26
+    signal = _ema([macd_line] * 9, 9) if len(closes) >= 26 else macd_line
+    return macd_line, signal
+
+
+def _bollinger_bands(closes: list[float], period: int = 20) -> tuple[float, float, float]:
+    if len(closes) < period:
+        p = len(closes)
+    else:
+        p = period
+    middle = _sma(closes, p)
+    std = _stddev(closes[-p:], middle)
+    upper = middle + 2 * std
+    lower = middle - 2 * std
+    return upper, middle, lower
 
 
 def _atr(candles: list[dict], period: int = 14) -> float:
@@ -65,15 +113,16 @@ def analyze_technical(
     trade_history: list[dict] | None = None,
 ) -> TechnicalResult:
     """
-    Rule-based technical analysis replacing the LLM pipeline.
-    Uses RSI, SMA crossover, ATR, and price momentum to produce
-    a bias, confidence, and human-readable rationale.
+    Rule-based technical analysis using RSI, SMA crossover, MACD,
+    Bollinger Bands, ATR, and price momentum to produce a bias,
+    confidence, and human-readable rationale.
     """
     if not candles or len(candles) < 5:
         return TechnicalResult(
             bias='neutral', confidence=0.0,
             rationale=f'Insufficient data for {symbol} ({len(candles)} candles)',
             rsi=50.0, sma_short=0.0, sma_long=0.0, atr=0.0, momentum=0.0,
+            macd=0.0, macd_signal=0.0, bb_upper=0.0, bb_middle=0.0, bb_lower=0.0,
         )
 
     closes = [float(c.get('close', 0)) for c in candles]
@@ -85,58 +134,104 @@ def analyze_technical(
     sma_20 = _sma(closes, 20)
     atr_val = _atr(candles)
     price = closes[-1]
+    macd_line, macd_signal = _macd(closes)
+    bb_upper, bb_middle, bb_lower = _bollinger_bands(closes)
 
     momentum = 0.0
     if len(closes) >= 10:
         momentum = (closes[-1] - closes[-10]) / closes[-10] * 100
 
-    scores = []
-    reasons = []
+    scores: list[tuple[str, float]] = []
+    reasons: list[str] = []
 
-    # RSI signal (weight: 30%)
+    # RSI signal (weight: 20%)
     if rsi_val < 30:
-        scores.append(('bullish', 0.30))
+        scores.append(('bullish', 0.20))
         reasons.append(f'RSI({rsi_val:.0f}) oversold')
     elif rsi_val > 70:
-        scores.append(('bearish', 0.30))
+        scores.append(('bearish', 0.20))
         reasons.append(f'RSI({rsi_val:.0f}) overbought')
     elif rsi_val < 40:
-        scores.append(('bullish', 0.15))
+        scores.append(('bullish', 0.10))
         reasons.append(f'RSI({rsi_val:.0f}) approaching oversold')
     elif rsi_val > 60:
-        scores.append(('bearish', 0.15))
+        scores.append(('bearish', 0.10))
         reasons.append(f'RSI({rsi_val:.0f}) approaching overbought')
     else:
-        scores.append(('neutral', 0.10))
+        scores.append(('neutral', 0.05))
         reasons.append(f'RSI({rsi_val:.0f}) neutral')
 
-    # SMA crossover signal (weight: 35%)
+    # SMA crossover signal (weight: 20%)
     if sma_5 > sma_20:
         spread_pct = (sma_5 - sma_20) / sma_20 * 100 if sma_20 else 0
-        strength = min(0.35, 0.15 + spread_pct * 5)
+        strength = min(0.20, 0.10 + spread_pct * 5)
         scores.append(('bullish', strength))
         reasons.append(f'SMA(5) above SMA(20) by {spread_pct:.3f}%')
     elif sma_5 < sma_20:
         spread_pct = (sma_20 - sma_5) / sma_20 * 100 if sma_20 else 0
-        strength = min(0.35, 0.15 + spread_pct * 5)
+        strength = min(0.20, 0.10 + spread_pct * 5)
         scores.append(('bearish', strength))
         reasons.append(f'SMA(5) below SMA(20) by {spread_pct:.3f}%')
     else:
-        scores.append(('neutral', 0.05))
+        scores.append(('neutral', 0.03))
         reasons.append('SMA(5) and SMA(20) flat')
 
-    # Price momentum signal (weight: 35%)
+    # Price momentum signal (weight: 20%)
     if momentum > 0.3:
-        strength = min(0.35, 0.10 + abs(momentum) * 0.1)
+        strength = min(0.20, 0.10 + abs(momentum) * 0.1)
         scores.append(('bullish', strength))
         reasons.append(f'Momentum +{momentum:.2f}%')
     elif momentum < -0.3:
-        strength = min(0.35, 0.10 + abs(momentum) * 0.1)
+        strength = min(0.20, 0.10 + abs(momentum) * 0.1)
         scores.append(('bearish', strength))
         reasons.append(f'Momentum {momentum:.2f}%')
     else:
-        scores.append(('neutral', 0.05))
+        scores.append(('neutral', 0.03))
         reasons.append(f'Momentum flat ({momentum:+.2f}%)')
+
+    # MACD signal (weight: 20%)
+    if len(closes) >= 26:
+        if macd_line > macd_signal:
+            spread = (macd_line - macd_signal) / abs(price) * 100 if price else 0
+            strength = min(0.20, 0.10 + abs(spread) * 10)
+            scores.append(('bullish', strength))
+            reasons.append(f'MACD above signal ({spread:.4f}%)')
+        elif macd_line < macd_signal:
+            spread = (macd_signal - macd_line) / abs(price) * 100 if price else 0
+            strength = min(0.20, 0.10 + abs(spread) * 10)
+            scores.append(('bearish', strength))
+            reasons.append(f'MACD below signal ({spread:.4f}%)')
+        else:
+            scores.append(('neutral', 0.03))
+            reasons.append('MACD flat')
+    else:
+        scores.append(('neutral', 0.03))
+        reasons.append('MACD insufficient data')
+
+    # Bollinger Bands signal (weight: 20%)
+    if len(closes) >= 20:
+        if price <= bb_lower:
+            scores.append(('bullish', 0.20))
+            reasons.append(f'Price at BB lower band (oversold)')
+        elif price >= bb_upper:
+            scores.append(('bearish', 0.20))
+            reasons.append(f'Price at BB upper band (overbought)')
+        elif price < bb_middle:
+            bw = (bb_upper - bb_lower) / bb_middle * 100 if bb_middle else 0
+            strength = min(0.10, 0.05 + (bb_middle - price) / (bb_middle - bb_lower + 1e-8) * 0.05)
+            scores.append(('bullish', strength))
+            reasons.append(f'Price below BB midline (bandwidth {bw:.2f}%)')
+        elif price > bb_middle:
+            bw = (bb_upper - bb_lower) / bb_middle * 100 if bb_middle else 0
+            strength = min(0.10, 0.05 + (price - bb_middle) / (bb_upper - bb_middle + 1e-8) * 0.05)
+            scores.append(('bearish', strength))
+            reasons.append(f'Price above BB midline (bandwidth {bw:.2f}%)')
+        else:
+            scores.append(('neutral', 0.03))
+            reasons.append('Price at BB midline')
+    else:
+        scores.append(('neutral', 0.03))
+        reasons.append('BB insufficient data')
 
     # Count votes
     bull_weight = sum(w for b, w in scores if b == 'bullish')
@@ -188,4 +283,9 @@ def analyze_technical(
         sma_long=round(sma_20, 6),
         atr=round(atr_val, 6),
         momentum=round(momentum, 4),
+        macd=round(macd_line, 6),
+        macd_signal=round(macd_signal, 6),
+        bb_upper=round(bb_upper, 6),
+        bb_middle=round(bb_middle, 6),
+        bb_lower=round(bb_lower, 6),
     )

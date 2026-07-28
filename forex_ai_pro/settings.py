@@ -290,6 +290,21 @@ CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = 'UTC'
 
+# Detect if broker (Redis) is reachable — fall back to eager execution
+BROKER_REACHABLE = False
+if CELERY_BROKER_URL:
+    try:
+        import redis as _redis_check
+        _check = _redis_check.from_url(CELERY_BROKER_URL, socket_connect_timeout=2)
+        _check.ping()
+        BROKER_REACHABLE = True
+    except Exception:
+        pass
+
+if not BROKER_REACHABLE:
+    CELERY_TASK_ALWAYS_EAGER = True
+    CELERY_TASK_EAGER_PROPAGATES = True
+
 from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
     'run-bot-cycle': {

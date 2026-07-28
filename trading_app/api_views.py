@@ -150,16 +150,8 @@ def execute_trade_view(request):
             pass
 
         if not candles and current_price > 0:
-            import random
-            now_ts = timezone.now().timestamp()
-            p = current_price
-            for i in range(50):
-                o = p
-                c = p * (1 + (random.random() - 0.5) * 0.002)
-                h = max(o, c) * (1 + random.random() * 0.001)
-                l = min(o, c) * (1 - random.random() * 0.001)
-                candles.append({'open': o, 'high': h, 'low': l, 'close': c, 'time': int(now_ts - (50 - i) * 3600)})
-                p = c
+            from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
+            candles = generate_simulated_candle_dicts(data.get('symbol', 'EUR/USD'), count=50)
 
         from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
         proposal = compute_sl_tp(
@@ -476,17 +468,8 @@ def analyze_and_signal_view(request):
             adapter.disconnect()
 
         if not candles:
-            import random
-            base = 1.08 if 'USD' in symbol else 50000 if 'BTC' in symbol else 2000 if 'XAU' in symbol else 1.0
-            now_ts = timezone.now().timestamp()
-            p = base
-            for i in range(50):
-                o = p
-                c = p * (1 + (random.random() - 0.5) * 0.002)
-                h = max(o, c) * (1 + random.random() * 0.001)
-                l = min(o, c) * (1 - random.random() * 0.001)
-                candles.append({'open': o, 'high': h, 'low': l, 'close': c, 'volume': 1000, 'time': int(now_ts - (50 - i) * 3600)})
-                p = c
+            from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
+            candles = generate_simulated_candle_dicts(symbol, count=50)
 
         recent_trades = list(Trade.objects.filter(
             user=request.user, symbol=symbol, status='CLOSED'
@@ -659,21 +642,8 @@ def signal_propose_view(request):
         logger.warning('Could not fetch candles for SL/TP calc: %s', e)
 
     if not candles:
-        base_price = float(request.data.get('current_price', 1.08))
-        import random
-        now_ts = timezone.now().timestamp()
-        candles = []
-        p = base_price
-        for i in range(50):
-            o = p
-            c = p * (1 + (random.random() - 0.5) * 0.002)
-            h = max(o, c) * (1 + random.random() * 0.001)
-            l = min(o, c) * (1 - random.random() * 0.001)
-            candles.append({
-                'open': o, 'high': h, 'low': l, 'close': c,
-                'time': int(now_ts - (50 - i) * 3600),
-            })
-            p = c
+        from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
+        candles = generate_simulated_candle_dicts(symbol, count=50)
 
     from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
 
@@ -1044,23 +1014,10 @@ def run_backtest_view(request):
         raw_candles = []
 
     if not raw_candles:
-        from datetime import datetime as _dt, timedelta, timezone as _tz
-        import random
-        raw_candles = []
-        now = _dt.now(_tz.utc)
-        for i in range(min(days * 24, 720)):
-            ts = now - timedelta(hours=days * 24 - i)
-            base = Decimal('1.05') if 'EUR' in symbol else Decimal('1.25')
-            raw_candles.append(Candle(
-                symbol=symbol,
-                open=base + Decimal(str(random.uniform(-0.01, 0.01))),
-                high=base + Decimal(str(random.uniform(0, 0.02))),
-                low=base + Decimal(str(random.uniform(-0.02, 0))),
-                close=base + Decimal(str(random.uniform(-0.01, 0.01))),
-                volume=Decimal(str(random.randint(100, 10000))),
-                timestamp=ts,
-                granularity=3600,
-            ))
+        from trading_app.trading_bot.simulated_candles import generate_simulated_candles
+        raw_candles = generate_simulated_candles(
+            symbol, count=min(days * 24, 720), granularity=3600
+        )
 
     paper.seed_candles(raw_candles)
 

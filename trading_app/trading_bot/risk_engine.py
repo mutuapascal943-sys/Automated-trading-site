@@ -208,7 +208,7 @@ class RiskEngine:
         existing = sum(
             getattr(p, "volume", Decimal("0")) for p in open_positions
         )
-        return existing + new_volume
+        return existing + new_volume + self._current_exposure
 
     def _check_exposure(self, total_exposure: Decimal, balance: Decimal) -> bool:
         if balance <= Decimal("0"):

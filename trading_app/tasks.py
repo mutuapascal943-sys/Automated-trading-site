@@ -174,12 +174,15 @@ def reset_daily_trade_counts():
     logger.info('Daily trade counts reset')
 
 
-@shared_task
+@shared_task(
+    soft_time_limit=120,
+    time_limit=180,
+)
 def run_bot_cycle():
     users = User.objects.filter(
         risk_config__trading_enabled=True,
         risk_config__auto_execute=True,
-    ).select_related('risk_config')
+    ).select_related('risk_config')[:50]
 
     for user in users:
         try:
@@ -332,17 +335,10 @@ def _get_daily_pnl(user):
     return result['total'] or Decimal('0')
 
 
-def _make_fallback_candle(symbol, cached):
-    from .trading_bot.interface import Candle
-    from datetime import datetime, timezone
-    price = Decimal(str(cached.get('price', 0)))
-    ts_str = cached.get('timestamp')
-    ts = datetime.fromisoformat(ts_str) if ts_str else datetime.now(timezone.utc)
-    return [Candle(
-        symbol=symbol,
-        open=price, high=price, low=price, close=price,
-        volume=Decimal('0'), timestamp=ts, granularity=3600,
-    )]
+def _make_fallback_candle(symbol, cached=None):
+    """Generate simulated candles when real market data is unavailable."""
+    from .trading_bot.simulated_candles import generate_simulated_candles
+    return generate_simulated_candles(symbol, count=50, granularity=3600)
 
 
 def _execute_trade(user, trade, risk, daily_pnl=None):
