@@ -3,7 +3,7 @@
 <div class="page active" style="display:flex;align-items:center;justify-content:center;min-height:100vh;padding:40px">
   <div class="auth-wrap" style="max-width:700px;width:100%">
     <div class="auth-form-panel full">
-      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">AI Analysis Result</h2>
+      <h2 style="font-size:20px;font-weight:800;margin-bottom:4px">Analysis Result</h2>
       <p style="color:var(--text3);font-size:12px;margin-bottom:16px">
         {{ query.query_type|title }} &middot; {{ query.created_at|date:"M d, Y H:i" }}
         {% if query.latency_ms %} &middot; {{ query.latency_ms }}ms{% endif %}
@@ -14,12 +14,12 @@
         <div style="font-size:13px;color:var(--text1);line-height:1.6">{{ query.prompt }}</div>
       </div>
 
-      <div style="background:rgba(245,194,122,0.05);border:1px solid rgba(245,194,122,0.1);border-radius:8px;padding:16px;margin-bottom:16px">
+      <div style="background:rgba(59,130,246,0.05);border:1px solid rgba(59,130,246,0.1);border-radius:8px;padding:16px;margin-bottom:16px">
         <div style="font-size:12px;color:var(--text3);font-family:'DM Mono',monospace;margin-bottom:6px">Response</div>
         <div style="font-size:13px;color:var(--text1);line-height:1.6;white-space:pre-wrap;font-family:'DM Mono',monospace">{{ result }}</div>
       </div>
 
-      <a href="{% url 'dashboard' %}" class="btn-gold" style="text-decoration:none;display:inline-block">Back to Dashboard →</a>
+      <a href="{% url 'dashboard' %}" class="btn-primary" style="text-decoration:none;display:inline-block">Back to Dashboard →</a>
     </div>
   </div>
 </div>

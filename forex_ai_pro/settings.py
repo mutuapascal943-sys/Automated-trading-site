@@ -245,7 +245,7 @@ elif config('EMAIL_FILE_BACKEND', default=False, cast=bool):
     EMAIL_FILE_PATH = BASE_DIR / 'sent_emails'
 else:
     EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='Forex AI Pro <noreply@forexaipro.com>')
+DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='ATS Application <noreply@atsapplication.com>')
 
 # OTP Settings
 OTP_EXPIRY_SECONDS = config('OTP_EXPIRY_SECONDS', default=300, cast=int)

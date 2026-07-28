@@ -1,14 +1,12 @@
 <div class="hero-card">
-  <div class="hero-title">AI Powered<br><span>Forex Trading</span> Assistant</div>
-  <div class="hero-sub">Analyze markets, generate signals, and manage your trading with institutional-grade AI tools.</div>
+  <div class="hero-title">Trading Signal<br><span>Generator</span></div>
+  <div class="hero-sub">Analyze markets and generate trading signals with confidence scoring.</div>
   <div class="dash-hero-stats">
-    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--gold)">signal_cellular_alt</span> <strong id="hero-balance">${{ balance|floatformat:0 }}</strong> Balance</div>
-    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--teal)">trending_up</span> <strong id="hero-trades">--</strong> Open Trades</div>
-    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--gold3)">auto_awesome</span> <strong id="hero-signals">--</strong> Signals Today</div>
+    <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--accent)">auto_awesome</span> <strong id="hero-signals">--</strong> Signals Today</div>
   </div>
   <div class="hero-btns" style="margin-top:20px">
-    <button class="btn-primary" onclick="navigateToPanel('bot')">Start Free Trial</button>
-    <button class="btn-secondary" onclick="navigateToPanel('subscription')">Upgrade Plan</button>
+    <button class="btn-primary" onclick="navigateToPanel('bot')">Start Bot</button>
+    <button class="btn-secondary" onclick="navigateToPanel('subscription')">View Plans</button>
   </div>
 </div>
 
@@ -16,8 +14,8 @@
   <div class="sub-banner-left">
     <div class="sub-banner-icon"><span class="material-symbols-outlined">workspace_premium</span></div>
     <div>
-      <div class="sub-banner-title" id="trial-title">24-Hour Free Trial Active</div>
-      <div class="sub-banner-sub"><span id="trial-timer">23:47:12</span> remaining — full access, no credit card required</div>
+      <div class="sub-banner-title" id="trial-title">Free Trial Active</div>
+      <div class="sub-banner-sub"><span id="trial-timer">23:47:12</span> remaining — full signal access</div>
     </div>
   </div>
   <div style="display:flex;gap:10px">
@@ -27,35 +25,11 @@
 
 <div class="dashboard-kpis stagger" id="dashboardKpis">
   <div class="dashboard-kpi-card">
-    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">account_balance</span></div>
-    <div class="dash-kpi-body">
-      <div class="dash-kpi-value" id="dash-balance">${{ balance|floatformat:0 }}</div>
-      <div class="dash-kpi-label">Account Balance</div>
-      <div class="dash-kpi-delta up" id="dash-balance-delta">▲ +3.2% today</div>
-    </div>
-  </div>
-  <div class="dashboard-kpi-card">
     <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">trending_up</span></div>
     <div class="dash-kpi-body">
       <div class="dash-kpi-value text-teal" id="dash-win-rate">68.4%</div>
       <div class="dash-kpi-label">Win Rate</div>
       <div class="dash-kpi-delta up" id="dash-win-rate-delta">▲ +2.1% this week</div>
-    </div>
-  </div>
-  <div class="dashboard-kpi-card">
-    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">swap_horiz</span></div>
-    <div class="dash-kpi-body">
-      <div class="dash-kpi-value" id="dash-open-trades">3</div>
-      <div class="dash-kpi-label">Open Trades</div>
-      <div class="dash-kpi-delta up" id="dash-open-trades-delta">▲ 2 winning</div>
-    </div>
-  </div>
-  <div class="dashboard-kpi-card">
-    <div class="dash-kpi-icon-wrap"><span class="material-symbols-outlined">payments</span></div>
-    <div class="dash-kpi-body">
-      <div class="dash-kpi-value text-teal" id="dash-monthly-pnl">+$840</div>
-      <div class="dash-kpi-label">Monthly PnL</div>
-      <div class="dash-kpi-delta up" id="dash-monthly-pnl-delta">▲ +7.3% return</div>
     </div>
   </div>
   <div class="dashboard-kpi-card">
@@ -68,13 +42,8 @@
   </div>
 </div>
 
-<div class="section-title">Our <span>AI Services</span></div>
+<div class="section-title">Our <span>Services</span></div>
 <div class="services-grid stagger">
-  <div class="service-card" onclick="navigateToPanel('markets')">
-    <div class="service-icon"><span class="material-symbols-outlined">psychology</span></div>
-    <div class="service-name">AI Market Analysis</div>
-    <div class="service-desc">Deep neural models scan 50+ instruments in real time for pattern recognition.</div>
-  </div>
   <div class="service-card" onclick="navigateToPanel('bot')">
     <div class="service-icon"><span class="material-symbols-outlined">bolt</span></div>
     <div class="service-name">Signal Generation</div>
@@ -82,57 +51,26 @@
   </div>
   <div class="service-card" onclick="navigateToPanel('analytics')">
     <div class="service-icon"><span class="material-symbols-outlined">monitoring</span></div>
-    <div class="service-name">Portfolio Monitoring</div>
-    <div class="service-desc">Track all open positions, drawdown, and exposure across brokers.</div>
+    <div class="service-name">Signal Analytics</div>
+    <div class="service-desc">Track win rate, loss rate, and signal performance over time.</div>
   </div>
   <div class="service-card" onclick="navigateToPanel('settings')">
     <div class="service-icon"><span class="material-symbols-outlined">shield</span></div>
-    <div class="service-name">Risk Management</div>
-    <div class="service-desc">Automated position sizing, max drawdown limits, and daily risk budgets.</div>
+    <div class="service-name">Risk Settings</div>
+    <div class="service-desc">Configure risk limits, drawdown thresholds, and signal parameters.</div>
   </div>
-  <div class="service-card" onclick="navigateToPanel('analytics')">
-    <div class="service-icon"><span class="material-symbols-outlined">bar_chart</span></div>
-    <div class="service-name">Performance Analytics</div>
-    <div class="service-desc">Detailed win rate, profit factor, Sharpe ratio and trade-by-trade breakdown.</div>
+  <div class="service-card" onclick="navigateToPanel('history')">
+    <div class="service-icon"><span class="material-symbols-outlined">history</span></div>
+    <div class="service-name">Signal History</div>
+    <div class="service-desc">Review past signals and performance over time.</div>
   </div>
   <div class="service-card" onclick="navigateToPanel('bot')">
     <div class="service-icon"><span class="material-symbols-outlined">smart_toy</span></div>
-    <div class="service-name">Automated Trading</div>
-    <div class="service-desc">Bot execution with explicit user authorization and real-time confirmation.</div>
-  </div>
-</div>
-
-<div class="section-title">Subscription <span>Plans</span></div>
-<div class="plans-grid stagger">
-  <div class="plan-card">
-    <div class="plan-tag">FREE</div>
-    <div class="plan-name">Trial</div>
-    <div class="plan-price"><sup>$</sup>0<span>/24 hrs</span></div>
-    <ul class="plan-features">
-      <li>Market analysis (limited)</li><li>3 AI signals per day</li><li>Dashboard access</li><li>Trade history</li>
-    </ul>
-    <button class="btn-outline" style="width:100%">Active Plan</button>
-  </div>
-  <div class="plan-card featured">
-    <div class="plan-tag">POPULAR</div>
-    <div class="plan-name">Basic</div>
-    <div class="plan-price"><sup>$</sup>29<span>/month</span></div>
-    <ul class="plan-features">
-      <li>Live market analysis</li><li>Unlimited entry signals</li><li>Take profit levels</li><li>Stop loss recommendations</li><li>Full dashboard access</li>
-    </ul>
-    <button class="btn-gold" onclick="navigateToPanel('subscription')">Upgrade →</button>
-  </div>
-  <div class="plan-card">
-    <div class="plan-tag">PROFESSIONAL</div>
-    <div class="plan-name">Pro</div>
-    <div class="plan-price"><sup>$</sup>79<span>/month</span></div>
-    <ul class="plan-features">
-      <li>Everything in Basic</li><li>Automated trade execution</li><li>Multi-broker support</li><li>Priority support</li><li>Custom strategy engine</li>
-    </ul>
-    <button class="btn-gold" onclick="navigateToPanel('subscription')">Upgrade →</button>
+    <div class="service-name">Signal Bot</div>
+    <div class="service-desc">Automated signal generation with real-time scanning.</div>
   </div>
 </div>
 
 <div class="risk-warning">
-  <strong><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">warning</span> Risk Warning:</strong> Trading forex and CFDs involves significant risk of loss. The platform provides analysis tools and signals for informational purposes only. No profits are guaranteed. Always use proper risk management and only trade capital you can afford to lose.
+  <strong><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">warning</span> Disclaimer:</strong> This platform provides analysis tools and signals for informational purposes only. No profits are guaranteed. Always use proper risk management.
 </div>

@@ -197,7 +197,7 @@ class MT5Adapter(BrokerAdapter):
             "price": price,
             "deviation": 20,
             "magic": 0,
-            "comment": "ForexAIPro",
+            "comment": "ATSApp",
             "type_time": 0,   # ORDER_TIME_GTC
             "type_filling": 0,  # ORDER_FILLING_IOC
         }

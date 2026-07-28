@@ -7,8 +7,8 @@
   <div class="auth-wrap">
     {% include 'includes/auth_brand.html' %}
     <div class="auth-form-panel">
-      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Create Your Account</h2>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:20px">Join thousands of AI-powered traders.</p>
+      <h2 style="font-size:20px;font-weight:800;margin-bottom:4px">Create Your Account</h2>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:20px">Create your signal account.</p>
 
       {% if form.non_field_errors %}
         <div class="form-nonfield-errors">{{ form.non_field_errors }}</div>
@@ -38,7 +38,7 @@
           {{ form.broker }}
           {% if form.broker.errors %}<div class="form-error">{{ form.broker.errors.0 }}</div>{% endif %}
         </div>
-        <button type="submit" class="btn-gold">Create Account →</button>
+        <button type="submit" class="btn-primary">Create Account →</button>
         <div class="form-divider">or</div>
         <a href="{% url 'login' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Already have an account? Sign In</a>
       </form>
@@ -50,8 +50,8 @@
   <div class="congrats-modal">
     <div class="congrats-icon"><span class="material-symbols-outlined" style="font-size:36px">celebration</span></div>
     <h2>Congratulations!</h2>
-    <p>Your account has been created successfully.<br>You're now part of the Forex AI Pro community.</p>
-    <button class="btn-gold" onclick="closeCongrats()">Continue to Setup →</button>
+    <p>Your account has been created successfully.<br>You're now part of the ATS Application community.</p>
+    <button class="btn-primary" onclick="closeCongrats()">Continue to Setup →</button>
   </div>
 </div>
 {% endblock %}

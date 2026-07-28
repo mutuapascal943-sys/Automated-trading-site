@@ -6,10 +6,10 @@
   <div class="auth-glow g2"></div>
   <div class="auth-wrap" style="max-width:520px">
     <div class="auth-form-panel full">
-      <h2 style="font-family:'Syne',sans-serif;font-size:20px;font-weight:800;margin-bottom:4px">Verify Your Email</h2>
+      <h2 style="font-size:20px;font-weight:800;margin-bottom:4px">Verify Your Email</h2>
       <p style="color:var(--text2);font-size:13px;margin-bottom:8px">Enable two-factor authentication via email verification.</p>
 
-      <div style="background:rgba(245,194,122,0.08);border:1px solid rgba(245,194,122,0.15);border-radius:10px;padding:14px;font-size:12px;color:var(--gold);margin-bottom:16px">
+      <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:10px;padding:14px;font-size:12px;color:var(--accent);margin-bottom:16px">
         <strong>📧 Setup Instructions:</strong>
         <ol style="margin:8px 0 0 16px;line-height:1.8">
           <li>A verification code has been sent to <strong>{{ user_email }}</strong></li>
@@ -29,7 +29,7 @@
           {{ otp_form.otp_code }}
           {% if otp_form.otp_code.errors %}<div class="form-error text-center">{{ otp_form.otp_code.errors.0 }}</div>{% endif %}
         </div>
-        <button type="submit" class="btn-gold" style="margin-top:8px">Verify & Enable 2FA →</button>
+        <button type="submit" class="btn-primary" style="margin-top:8px">Verify & Enable 2FA →</button>
       </form>
 
       <div class="form-divider" style="margin-top:20px">or</div>

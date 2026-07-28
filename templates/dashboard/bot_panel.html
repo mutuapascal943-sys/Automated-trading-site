@@ -39,12 +39,12 @@
       <div class="chart-price" id="bot-price">1.08432</div>
     </div>
     <div class="chart-canvas-wrap">
-      <canvas id="botChart" height="260" style="width:100%;display:block"></canvas>
+      <div id="botChart" style="width:100%;height:360px"></div>
     </div>
     <div class="chart-levels-legend" id="chart-levels-legend" style="display:none">
       <span class="legend-item"><span class="legend-dot" style="background:#00d4aa"></span> Entry</span>
       <span class="legend-item"><span class="legend-dot" style="background:#ff4d6d"></span> Stop Loss</span>
-      <span class="legend-item"><span class="legend-dot" style="background:#f5c27a"></span> Take Profit</span>
+      <span class="legend-item"><span class="legend-dot" style="background:var(--accent3)"></span> Take Profit</span>
     </div>
   </div>
 
@@ -52,11 +52,11 @@
     <div class="analysis-card">
       <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">shield</span> Risk Settings</div>
       <div class="risk-stack">
-        <div class="risk-field"><label>Risk per trade %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Max daily trades</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Risk per Signal %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Max Daily Signals</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
         <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Daily profit target %</label><input type="number" value="5" min="1" max="100" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Trailing stop %</label><input type="number" id="trailing-stop" value="" min="0" max="10" step="0.5" placeholder="Off" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Daily Signal Target</label><input type="number" value="5" min="1" max="100" onchange="saveRiskConfig()"></div>
+        <div class="risk-field"><label>Min Strength %</label><input type="number" id="trailing-stop" value="" min="0" max="10" step="0.5" placeholder="Off" onchange="saveRiskConfig()"></div>
       </div>
     </div>
 
@@ -72,16 +72,18 @@
       </button>
     </div>
 
-    <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">receipt_long</span> Open Trades</div>
-      <div id="bot-recent-trades" style="font-size:12px;color:var(--text2)">
-        <span>No open trades</span>
+    <div class="analysis-card" id="bot-signal-card">
+      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Latest Signal</div>
+      <div id="bot-latest-signal" style="font-size:12px;color:var(--text2)">
+        <span>No signal yet. Start the bot to scan.</span>
       </div>
     </div>
   </div>
 </div>
 
 <script>
+var botScanInterval = null;
+
 function togglePaperMode(){
   var toggle = document.getElementById('paper-mode-toggle');
   if(!toggle) return;
@@ -178,118 +180,100 @@ function toggleBot(){
   }
 }
 
+function runSignalScan(){
+  var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+  var ss = document.getElementById('scanStatus');
+  if(ss) ss.textContent = '> Scanning ' + pair + '...\n';
+
+  fetch('/api/analyze-signal/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
+  })
+  .then(function(r){ return r.json() })
+  .then(function(data){
+    if(!data.signal || data.signal.signal_type === 'HOLD'){
+      if(ss) ss.textContent += '> No actionable signal. Continuing scan...\n';
+      return;
+    }
+    var s = data.signal;
+    return fetch('/api/signal/propose/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({
+        symbol: pair,
+        signal_type: s.signal_type,
+        confidence: s.confidence / 100,
+        current_price: pairs[pair] || 0,
+      }),
+    }).then(function(r){ return r.json() }).then(function(proposal){
+      if(ss) ss.textContent += '> Signal generated: ' + s.signal_type + ' (confidence: ' + s.confidence + '%)\n';
+      if(ss) ss.textContent += '> Entry: ' + proposal.current_price + ' | SL: ' + proposal.stop_loss + ' | TP: ' + proposal.take_profit + '\n';
+      displaySignal(proposal, s);
+    });
+  })
+  .catch(function(err){
+    var ss = document.getElementById('scanStatus');
+    if(ss) ss.textContent += '> Scan error: ' + err + '\n';
+  });
+}
+
+function displaySignal(proposal, signalData){
+  var sigEl = document.getElementById('bot-latest-signal');
+  if(!sigEl) return;
+  var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+  var signalType = signalData ? signalData.signal_type : 'SIGNAL';
+  var confidence = signalData ? signalData.confidence : 0;
+  var timeStr = new Date().toLocaleTimeString();
+  sigEl.innerHTML =
+    '<div style="margin-bottom:8px"><strong>' + signalType + '</strong> <span style="color:var(--accent)">' + pair + '</span></div>' +
+    '<div style="display:grid;gap:4px;font-size:11px">' +
+    '<div><span style="color:var(--text3)">Entry:</span> ' + proposal.current_price + '</div>' +
+    '<div><span style="color:var(--text3)">SL:</span> ' + proposal.stop_loss + '</div>' +
+    '<div><span style="color:var(--text3)">TP:</span> ' + proposal.take_profit + '</div>' +
+    '<div><span style="color:var(--text3)">Confidence:</span> ' + confidence + '%</div>' +
+    '<div><span style="color:var(--text3)">Time:</span> ' + timeStr + '</div>' +
+    '</div>';
+
+  if(typeof updateChartOverlay === 'function'){
+    updateChartOverlay(proposal);
+  }
+}
+
 function startBot(){
+  if(botScanInterval) return;
   var btn = document.getElementById('bot-toggle-btn');
   var dot = document.getElementById('bot-status-dot');
   var txt = document.getElementById('bot-status-text');
   if(btn){ btn.classList.add('running'); btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">stop</span> STOP BOT'; }
   if(dot){ dot.className = 'status-dot running'; }
   if(txt){ txt.textContent = 'Scanning...'; }
+  var ss = document.getElementById('scanStatus');
+  if(ss){ ss.style.display = 'block'; ss.textContent = '> Bot started scanning...\n'; }
 
-  fetch('/api/stake-config/', {headers:{'X-Requested-With':'XMLHttpRequest'}})
-  .then(function(r){return r.json()})
-  .then(function(cfg){
-    var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
-    return fetch('/api/analyze-signal/', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-      body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
-    });
-  })
-  .then(function(r){return r.json()})
-  .then(function(data){
-    if(data.signal && data.signal.signal_type !== 'HOLD'){
-      var s = data.signal;
-      var stake = document.getElementById('stake-amount');
-      var stakeVal = stake ? parseFloat(stake.value) : 10;
-      return fetch('/api/signal/propose/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-        body: JSON.stringify({
-          symbol: document.getElementById('bot-market').value,
-          signal_type: s.signal_type,
-          confidence: s.confidence / 100,
-          current_price: pairs[document.getElementById('bot-market').value] || 0,
-        }),
-      }).then(function(r){return r.json()}).then(function(proposal){
-        return fetch('/api/trades/execute/', {
-          method: 'POST',
-          headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-          body: JSON.stringify({
-            symbol: proposal.symbol,
-            action: s.signal_type,
-            volume: stakeVal,
-            entry_price: parseFloat(proposal.current_price) || 0,
-            stop_loss: parseFloat(proposal.stop_loss) || null,
-            take_profit: parseFloat(proposal.take_profit) || null,
-            order_type: 'MARKET',
-            confidence: s.confidence,
-            current_price: parseFloat(proposal.current_price) || 0,
-          }),
-        }).then(function(r){return r.json()});
-      });
-    }
-    return null;
-  })
-  .then(function(tradeResult){
-    if(tradeResult && tradeResult.id){
-      showToast('Trade opened: ' + tradeResult.symbol + ' ' + tradeResult.action + ' [' + tradeResult.status + ']', 'success');
-    } else if(tradeResult && tradeResult.error){
-      showToast(tradeResult.error, 'error');
-    } else {
-      showToast('No actionable signal this cycle', 'info');
-    }
-    stopBot();
-    loadRecentTrades();
-    if(typeof updateChartOverlay === 'function' && tradeResult && tradeResult.status === 'OPEN'){
-      updateChartOverlay({
-        current_price: tradeResult.entry_price,
-        stop_loss: tradeResult.stop_loss,
-        take_profit: tradeResult.take_profit,
-      });
-    }
-  })
-  .catch(function(err){
-    showToast('Bot error: ' + err, 'error');
-    stopBot();
-  });
+  runSignalScan();
+  botScanInterval = setInterval(runSignalScan, 30000);
 }
 
 function stopBot(){
+  if(botScanInterval){
+    clearInterval(botScanInterval);
+    botScanInterval = null;
+  }
   var btn = document.getElementById('bot-toggle-btn');
   var dot = document.getElementById('bot-status-dot');
   var txt = document.getElementById('bot-status-text');
   if(btn){ btn.classList.remove('running'); btn.innerHTML = '<span class="material-symbols-outlined" style="font-size:16px">play_arrow</span> START BOT'; }
   if(dot){ dot.className = 'status-dot'; }
   if(txt){ txt.textContent = 'Idle'; }
-}
-
-function loadRecentTrades(){
-  fetch('/api/trades/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
-  .then(function(r){ return r.json() })
-  .then(function(data){
-    var trades = data.results || data || [];
-    var open = trades.filter(function(t){ return t.status === 'OPEN'; });
-    var el = document.getElementById('bot-recent-trades');
-    if(!el) return;
-    if(open.length === 0){
-      el.innerHTML = '<span style="color:var(--text3)">No open trades</span>';
-      return;
-    }
-    el.innerHTML = open.slice(0, 5).map(function(t){
-      var cls = t.action === 'BUY' ? 'teal' : 'red';
-      return '<div class="trade-row">' +
-        '<span>' + t.symbol + ' ' + t.action + '</span>' +
-        '<span style="color:var(--' + cls + ')">' + (t.unrealized_pnl ? (t.unrealized_pnl > 0 ? '+' : '') + t.unrealized_pnl : t.status) + '</span></div>';
-    }).join('');
-  })
-  .catch(function(){});
+  var ss = document.getElementById('scanStatus');
+  if(ss){ ss.textContent += '> Bot stopped.\n'; }
 }
 
 var _origNav = window.navigateToPanel;
 window.navigateToPanel = function(panelId){
   if(panelId === 'bot'){
-    setTimeout(function(){ loadRecentTrades(); loadRiskConfig(); loadStakeConfig(); }, 100);
+    setTimeout(function(){ loadRiskConfig(); loadStakeConfig(); }, 100);
   }
   if(_origNav) _origNav(panelId);
 };

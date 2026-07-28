@@ -43,7 +43,7 @@ def register_view(request):
                 counter += 1
             user.username = username
             user.save()
-            create_notification(user, 'Account Created', 'Welcome to Forex AI Pro! Please verify your email to get started.', 'account')
+            create_notification(user, 'Account Created', 'Welcome to Automated Trading Signal Application! Please verify your email to get started.', 'account')
             login(request, user)
 
             otp_code = generate_otp()
@@ -263,7 +263,7 @@ def dashboard_view(request):
     if show_welcome:
         request.session['welcome_dismissed'] = True
         create_notification(
-            user, 'Welcome to Forex AI Pro!',
+            user, 'Welcome to Automated Trading Signal Application!',
             'Your AI-powered trading assistant is ready. Start exploring the dashboard to access market analysis, signals, and more.',
             'system'
         )

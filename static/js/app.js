@@ -76,14 +76,14 @@
       'Volatility 75 Index':'indices','Volatility 100 Index':'indices'
     };
     histData = [
-      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','+$84','Win','Exness'],
-      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','+$156','Win','Deriv'],
-      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','-$48','Loss','XM'],
-      ['2025-06-12','USD/JPY','SELL','149.620','148.980','+$64','Win','Exness'],
-      ['2025-06-12','BTC/USD','BUY','61240','63100','+$186','Win','Deriv'],
-      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','-$28','Loss','XM'],
-      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','+$76','Win','Exness'],
-      ['2025-06-10','NZD/USD','BUY','0.60180','—','—','Pending','Deriv']
+      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','Hit TP','Correct','Exness'],
+      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','Hit TP','Correct','Deriv'],
+      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','Hit SL','Missed','XM'],
+      ['2025-06-12','USD/JPY','SELL','149.620','148.980','Hit TP','Correct','Exness'],
+      ['2025-06-12','BTC/USD','BUY','61240','63100','Hit TP','Correct','Deriv'],
+      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','Hit SL','Missed','XM'],
+      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','Hit TP','Correct','Exness'],
+      ['2025-06-10','NZD/USD','BUY','0.60180','—','Active','Pending','Deriv']
     ];
   }
 
@@ -348,7 +348,7 @@
     if(!tbody) return;
     tbody.innerHTML = histData.map(function(r){
       var color = r[2] === 'BUY' ? 'var(--teal)' : 'var(--red)';
-      var pnlColor = r[5].startsWith('+') ? 'var(--teal)' : (r[5] === '-' || r[5] === '—') ? 'var(--text2)' : 'var(--red)';
+      var resultColor = r[5] === 'Hit TP' ? 'var(--teal)' : r[5] === 'Hit SL' ? 'var(--red)' : 'var(--text2)';
       var badgeClass = r[6].toLowerCase();
       return '<tr data-status="' + r[6] + '">' +
         '<td class="mono" style="font-size:12px">' + r[0] + '</td>' +
@@ -356,7 +356,7 @@
         '<td class="mono" style="color:' + color + '">' + r[2] + '</td>' +
         '<td class="mono">' + r[3] + '</td>' +
         '<td class="mono">' + r[4] + '</td>' +
-        '<td class="mono" style="color:' + pnlColor + '">' + r[5] + '</td>' +
+        '<td class="mono" style="color:' + resultColor + '">' + r[5] + '</td>' +
         '<td><span class="badge ' + badgeClass + '">' + r[6] + '</span></td>' +
         '<td style="color:var(--text2);font-size:12px">' + r[7] + '</td></tr>';
     }).join('');
@@ -756,7 +756,7 @@
       botChartContainer = document.createElement('div');
       botChartContainer.id = 'tv-bot-chart';
       botChartContainer.style.width = '100%';
-      botChartContainer.style.height = '260px';
+      botChartContainer.style.height = '360px';
       wrap.innerHTML = '';
       wrap.appendChild(botChartContainer);
     } else {
@@ -816,13 +816,17 @@
     var basePrice = pairs[pair] || 1.08;
     var now = Math.floor(Date.now() / 1000);
     var seedCandles = [];
-    var t = now - 120;
-    for (var i = 0; i < 60; i++) {
-      var o = basePrice * (1 + (Math.sin(i * 0.15 + 1) * 0.008) + (Math.sin(i * 0.3) * 0.004));
-      var c = basePrice * (1 + (Math.sin((i + 1) * 0.15 + 1) * 0.008) + (Math.sin((i + 1) * 0.3) * 0.004));
-      var high = Math.max(o, c) * 1.001;
-      var low = Math.min(o, c) * 0.999;
+    var t = now - 240;
+    var price = basePrice;
+    for (var i = 0; i < 120; i++) {
+      var change = (Math.random() - 0.5) * basePrice * 0.004;
+      var o = price;
+      var c = price + change;
+      var range = Math.abs(c - o) * 1.5 + basePrice * 0.0005;
+      var high = Math.max(o, c) + range * Math.random();
+      var low = Math.min(o, c) - range * Math.random();
       seedCandles.push({ time: t + i * 2, open: o, high: high, low: low, close: c });
+      price = c;
     }
     botCandleSeries.setData(seedCandles);
 
@@ -952,28 +956,10 @@
         if(el) el.textContent = val;
       }
 
-      setText('hero-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
-      setText('hero-trades', data.open_trades || 0);
       setText('hero-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
 
-      setText('dash-balance', '$' + (data.balance || 0).toLocaleString(undefined, {minimumFractionDigits:0}));
       setText('dash-win-rate', (data.win_rate || 0) + '%');
-      setText('dash-open-trades', data.open_trades || 0);
-      setText('dash-monthly-pnl', (data.monthly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.monthly_pnl || 0).toFixed(2));
       setText('dash-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
-
-      var dailyPnl = data.daily_pnl || 0;
-      var balDelta = document.getElementById('dash-balance-delta');
-      if(balDelta) balDelta.textContent = (dailyPnl >= 0 ? '▲ +$' : '▼ -$') + Math.abs(dailyPnl).toFixed(2) + ' today';
-
-      ['dash-win-rate', 'dash-monthly-pnl'].forEach(function(id){
-        var el = document.getElementById(id);
-        if(!el) return;
-        var val = parseFloat(el.textContent.replace(/[^-.\d]/g, ''));
-        if(val < 0) el.className = 'dash-kpi-value text-red';
-        else if(val > 0) el.className = 'dash-kpi-value text-teal';
-        else el.className = 'dash-kpi-value';
-      });
     })
     .catch(function(){});
   }
@@ -995,82 +981,10 @@
       setText('kpi-win-rate', data.win_rate + '%');
       setText('kpi-loss-rate', data.loss_rate + '%');
       setText('kpi-profit-factor', data.profit_factor);
-      setText('kpi-avg-trade', (data.avg_trade >= 0 ? '+$' : '-$') + Math.abs(data.avg_trade).toFixed(2));
-      setText('kpi-daily-pnl', (data.daily_pnl >= 0 ? '+$' : '-$') + Math.abs(data.daily_pnl).toFixed(2));
-      setText('kpi-weekly-pnl', (data.weekly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.weekly_pnl).toFixed(2));
-      setText('kpi-monthly-pnl', (data.monthly_pnl >= 0 ? '+$' : '-$') + Math.abs(data.monthly_pnl).toFixed(2));
+      setText('kpi-correct-signals', data.correct_signals || '0');
+      setText('kpi-missed-signals', data.missed_signals || '0');
 
-      document.querySelectorAll('#kpi-daily-pnl, #kpi-weekly-pnl, #kpi-monthly-pnl').forEach(function(el){
-        var val = parseFloat(el.textContent.replace(/[^-.\d]/g, ''));
-        if(val < 0) el.className = 'kpi-value text-red';
-        else if(val > 0) el.className = 'kpi-value text-teal';
-      });
-      var avgEl = document.getElementById('kpi-avg-trade');
-      if(avgEl){
-        var avgVal = parseFloat(avgEl.textContent.replace(/[^-.\d]/g, ''));
-        if(avgVal < 0) avgEl.className = 'kpi-value text-red';
-        else if(avgVal > 0) avgEl.className = 'kpi-value text-teal';
-      }
-
-      /* ── PnL Line Chart ── */
-      if (typeof LightweightCharts !== 'undefined') {
-        var pnlContainer = document.getElementById('pnlChartContainer');
-        if (pnlContainer) {
-          pnlContainer.innerHTML = '';
-          var pnlChart = LightweightCharts.createChart(pnlContainer, {
-            layout: {
-              background: { type: 'solid', color: 'transparent' },
-              textColor: '#8fa3bf',
-              fontSize: 10,
-              fontFamily: 'DM Mono, monospace',
-            },
-            grid: {
-              vertLines: { color: 'rgba(255,255,255,0.04)' },
-              horzLines: { color: 'rgba(255,255,255,0.04)' },
-            },
-            timeScale: {
-              borderColor: 'rgba(255,255,255,0.08)',
-              timeVisible: false,
-              tickMarkFormatter: function(ts){ var d=new Date(ts*1000); return d.getDate()+'/'+(d.getMonth()+1); },
-            },
-            rightPriceScale: {
-              borderColor: 'rgba(255,255,255,0.08)',
-            },
-            crosshair: {
-              vertLine: { color: 'rgba(245,194,122,0.3)', width: 1, style: LightweightCharts.LineStyle.Dashed, labelVisible: false },
-              horzLine: { color: 'rgba(245,194,122,0.3)', width: 1, style: LightweightCharts.LineStyle.Dashed, labelVisible: false },
-            },
-            handleScroll: false,
-            handleScale: false,
-          });
-
-          var pnlSeries = pnlChart.addAreaSeries({
-            lineColor: '#00d4aa',
-            topColor: 'rgba(0,212,170,0.15)',
-            bottomColor: 'rgba(0,212,170,0)',
-            lineWidth: 2,
-            priceFormat: { type: 'price', precision: 2, minMove: 0.01 },
-          });
-
-          var history = data.pnl_history || [];
-          var chartData = [];
-          var baseTime = Math.floor(Date.now() / 1000) - 30 * 86400;
-          if (history.length > 0) {
-            history.forEach(function(entry){
-              var t = Math.floor(new Date(entry.date + 'T00:00:00').getTime() / 1000);
-              if (!isNaN(t)) chartData.push({ time: t, value: entry.pnl });
-            });
-          }
-          if (chartData.length < 2) {
-            for (var i = 30; i >= 0; i--) {
-              chartData.push({ time: baseTime + i * 86400, value: 0 });
-            }
-          }
-          pnlSeries.setData(chartData);
-          pnlChart.timeScale().fitContent();
-        }
-
-        /* ── Win/Loss Donut (Canvas) ── */
+      /* ── Win/Loss Donut (Canvas) ── */
         var winContainer = document.getElementById('winChartContainer');
         if (winContainer) {
           winContainer.innerHTML = '<canvas id="winChart" style="width:100%;height:100%"></canvas>';

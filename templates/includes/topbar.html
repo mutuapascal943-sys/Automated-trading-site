@@ -2,7 +2,6 @@
   <button class="hamburger" onclick="toggleSidebar()"><span class="material-symbols-outlined" style="font-size:22px">menu</span></button>
   <div class="topbar-title" id="topbar-title">{{ page_title|default:"Dashboard" }}</div>
   <div class="topbar-pill"><div class="dot"></div> Live</div>
-  <div class="topbar-balance" id="topbar-balance">${{ balance|floatformat:2 }}</div>
   <a href="{% url 'profile_page' %}" class="topbar-avatar-link" title="My Profile">
     {% if user.avatar %}
       <img src="{{ user.avatar.url }}" alt="Profile" class="topbar-avatar-img">

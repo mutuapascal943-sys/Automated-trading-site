@@ -18,7 +18,7 @@ def send_otp_email(user, otp_code, request=None, purpose='2fa'):
         'email_verify': 'Email Verification',
     }
     label = purpose_labels.get(purpose, 'Verification')
-    subject = f'Your Forex AI Pro {label} Code'
+    subject = f'Your ATS Application {label} Code'
     message = f"""
 Hello {user.email},
 
@@ -29,7 +29,7 @@ This code will expire in {settings.OTP_EXPIRY_SECONDS // 60} minutes.
 If you did not request this code, please ignore this email.
 
 Best regards,
-Forex AI Pro Team
+ATS Application Team
     """
     html_message = f"""
 <!DOCTYPE html>
@@ -38,7 +38,7 @@ Forex AI Pro Team
 <body style="font-family: Arial, sans-serif; background: #0a0e1a; padding: 40px 20px;">
   <div style="max-width: 480px; margin: 0 auto; background: #131829; border-radius: 12px; padding: 32px; border: 1px solid rgba(245,194,122,0.15);">
     <div style="text-align: center; margin-bottom: 24px;">
-      <span style="font-family: 'Syne',sans-serif; font-size: 22px; font-weight: 800; color: #f5c27a;">Forex AI Pro</span>
+      <span style="font-family: 'Syne',sans-serif; font-size: 22px; font-weight: 800; color: #f5c27a;">ATS Application</span>
     </div>
     <h2 style="color: #e8edf5; font-size: 18px; margin: 0 0 8px;">{label}</h2>
     <p style="color: #8a91a8; font-size: 13px; margin: 0 0 20px;">Use the code below to complete your {label.lower()}.</p>
