@@ -1,5 +1,4 @@
-import random
-import string
+import secrets
 from datetime import timedelta
 from django.core.mail import send_mail
 from django.utils import timezone
@@ -8,7 +7,7 @@ from django.contrib import messages
 
 
 def generate_otp(length=6):
-    return ''.join(random.choices(string.digits, k=length))
+    return ''.join(secrets.choice('0123456789') for _ in range(length))
 
 
 def send_otp_email(user, otp_code, request=None, purpose='2fa'):

@@ -703,8 +703,8 @@ class TwoFactorDecoratorTests(TestCase):
         self.user.save()
         self.client.force_login(self.user)
 
-        # Calling dashboard should redirect to verify_2fa since 2fa is not verified in session
-        response = self.client.get(reverse('dashboard'))
+        # Calling profile_page (which has @two_factor_required) should redirect
+        response = self.client.get(reverse('profile_page'))
         self.assertRedirects(response, reverse('verify_2fa'))
 
 
@@ -857,7 +857,7 @@ class PasswordResetAPIViewTests(TestCase):
             'email': 'apireset@test.com',
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'OTP sent')
+        self.assertIn('If an account', response.json().get('status', ''))
 
     def test_api_password_reset_request_missing_email(self):
         response = self.client.post(reverse('api_password_reset_request'), {},
@@ -872,19 +872,20 @@ class PasswordResetAPIViewTests(TestCase):
         self.assertIn('If an account', response.json().get('status', ''))
 
     def test_api_password_reset_verify_valid(self):
-        resp = self.client.post(reverse('api_password_reset_request'), {
+        # The reset_token is stored in the session by the request endpoint
+        self.client.post(reverse('api_password_reset_request'), {
             'email': 'apireset@test.com',
         }, content_type='application/json')
-        reset_token = resp.json()['reset_token']
         otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
         CacheService.set_otp(self.user.id, otp.code)
 
         response = self.client.post(reverse('api_password_reset_verify'), {
-            'reset_token': reset_token,
+            'reset_token': self.client.session['password_reset_token'],
             'code': otp.code,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'verified')
+        self.assertIn('verified_token', response.json())
 
     def test_api_password_reset_verify_invalid(self):
         response = self.client.post(reverse('api_password_reset_verify'), {
@@ -894,19 +895,19 @@ class PasswordResetAPIViewTests(TestCase):
         self.assertEqual(response.status_code, 400)
 
     def test_api_password_reset_confirm(self):
-        resp = self.client.post(reverse('api_password_reset_request'), {
+        self.client.post(reverse('api_password_reset_request'), {
             'email': 'apireset@test.com',
         }, content_type='application/json')
-        reset_token = resp.json()['reset_token']
         otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
         CacheService.set_otp(self.user.id, otp.code)
-        self.client.post(reverse('api_password_reset_verify'), {
-            'reset_token': reset_token,
+        verify_resp = self.client.post(reverse('api_password_reset_verify'), {
+            'reset_token': self.client.session['password_reset_token'],
             'code': otp.code,
         }, content_type='application/json')
+        verified_token = verify_resp.json()['verified_token']
 
         response = self.client.post(reverse('api_password_reset_confirm'), {
-            'reset_token': reset_token,
+            'verified_token': verified_token,
             'new_password': 'ApiNewPass456!',
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
@@ -915,7 +916,7 @@ class PasswordResetAPIViewTests(TestCase):
 
     def test_api_password_reset_confirm_short_password(self):
         response = self.client.post(reverse('api_password_reset_confirm'), {
-            'reset_token': 'some_token',
+            'verified_token': 'some_token',
             'new_password': '123',
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)

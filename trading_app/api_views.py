@@ -124,13 +124,22 @@ def market_data_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@two_factor_required_api
 def execute_trade_view(request):
+    from django.db import transaction
+
+    with transaction.atomic():
+        return _execute_trade_impl(request)
+
+
+def _execute_trade_impl(request):
     data = request.data.copy()
 
     if not data.get('volume') or float(data.get('volume', 0)) <= 0:
         data['volume'] = float(request.user.stake_amount)
 
-    user = request.user
+    # Serialise concurrent trade requests per user with a row-level lock
+    user = request.user.__class__.objects.select_for_update().get(pk=request.user.pk)
     risk = RiskConfig.get_for_user(user)
 
     if not data.get('stop_loss') or not data.get('take_profit'):
@@ -338,6 +347,7 @@ def modify_trade_view(request, trade_id):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@two_factor_required_api
 def configure_broker_view(request):
     serializer = BrokerConfigSerializer(data=request.data)
     serializer.is_valid(raise_exception=True)
@@ -382,6 +392,7 @@ def configure_broker_view(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
+@two_factor_required_api
 def broker_status_view(request):
     user = request.user
     configured = bool(user.broker_api_key) and bool(user.broker)
@@ -408,6 +419,7 @@ def broker_status_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@two_factor_required_api
 def broker_health_check_view(request):
     user = request.user
     adapter = _resolve_adapter(user)
@@ -424,10 +436,11 @@ def broker_health_check_view(request):
         })
     except Exception as e:
         latency_ms = int((time.time() - start) * 1000)
+        logger.error('Broker health check failed for user %s: %s', user.id, e)
         return Response({
             'status': 'unhealthy',
             'broker': user.broker,
-            'error': str(e),
+            'error': 'Broker connection failed — check your credentials or try again later.',
             'latency_ms': latency_ms,
         }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
@@ -555,8 +568,8 @@ def analyze_and_signal_view(request):
         })
 
     except Exception as e:
-        logger.error('Analysis failed: %s', e)
-        return Response({'error': str(e)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        logger.error('Analysis failed: %s', e, exc_info=True)
+        return Response({'error': 'Analysis failed. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
 # ---------------------------------------------------------------------------
@@ -565,6 +578,7 @@ def analyze_and_signal_view(request):
 
 @api_view(['GET', 'PUT'])
 @permission_classes([permissions.IsAuthenticated])
+@two_factor_required_api
 def stake_config_view(request):
     user = request.user
 
@@ -866,17 +880,19 @@ def api_password_reset_request(request):
 
     request.session['password_reset_token'] = reset_token
 
-    return Response({'status': 'OTP sent', 'reset_token': reset_token})
+    return Response({'status': 'If an account with that email exists, a reset code has been sent.'})
 
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_verify(request):
-    reset_token = request.data.get('reset_token', '')
     code = request.data.get('code', '')
 
+    # Prefer session-stored token (web client); fallback to request body (legacy API clients)
+    reset_token = request.session.get('password_reset_token', '') or request.data.get('reset_token', '')
+
     if not reset_token or not code:
-        return Response({'error': 'reset_token and code are required'}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({'error': 'code and reset_token are required'}, status=status.HTTP_400_BAD_REQUEST)
 
     from .services.cache_service import CacheService
     user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
@@ -896,7 +912,11 @@ def api_password_reset_verify(request):
             otp.is_used = True
             otp.save()
             CacheService.reset_rate_limit(f'api_pwd_reset_{user.id}')
-            return Response({'status': 'verified', 'reset_token': reset_token})
+            # Issue a short-lived verified token for the confirm step so the
+            # original reset_token is never exposed again.
+            confirmed_token = secrets.token_urlsafe(32)
+            CacheService.set(f'pwd_reset_verified_{confirmed_token}', user.id, timeout=300)
+            return Response({'status': 'verified', 'verified_token': confirmed_token})
 
     return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -904,15 +924,19 @@ def api_password_reset_verify(request):
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_confirm(request):
-    reset_token = request.data.get('reset_token', '')
+    # Prefer verified_token (secure flow); fallback to session-stored token (web client)
+    verified_token = request.data.get('verified_token', '')
     new_password = request.data.get('new_password', '')
 
-    if not reset_token or not new_password:
-        return Response({'error': 'reset_token and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
+    user_id = None
+    if verified_token:
+        user_id = CacheService.get(f'pwd_reset_verified_{verified_token}')
+    elif request.session.get('password_reset_token'):
+        reset_token = request.session['password_reset_token']
+        user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
 
-    user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
-    if not user_id:
-        return Response({'error': 'Invalid or expired reset session'}, status=status.HTTP_400_BAD_REQUEST)
+    if not user_id or not new_password:
+        return Response({'error': 'verified_token and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
 
     if len(new_password) < 8:
         return Response({'error': 'Password must be at least 8 characters'}, status=status.HTTP_400_BAD_REQUEST)
@@ -937,7 +961,11 @@ def api_password_reset_confirm(request):
     user.set_password(new_password)
     user.save()
 
-    CacheService.delete(f'pwd_reset_token_{reset_token}')
+    # Clean up whichever token path was used
+    if verified_token:
+        CacheService.delete(f'pwd_reset_verified_{verified_token}')
+    else:
+        CacheService.delete(f'pwd_reset_token_{reset_token}')
 
     from django.contrib.sessions.models import Session
     sessions = Session.objects.filter(expire_date__gte=timezone.now())
@@ -1072,6 +1100,8 @@ def ticker_subscribe_view(request):
     symbol = request.data.get('symbol', '').strip()
     if not symbol:
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not CacheService.check_rate_limit(f'sub_{request.user.id}', max_attempts=30, window=60):
+        return Response({'error': 'Rate limit exceeded'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     TickerBridge.ensure_subscription(symbol, user=request.user)
     return Response({'status': 'ok', 'symbol': symbol})
 
@@ -1082,6 +1112,8 @@ def ticker_unsubscribe_view(request):
     symbol = request.data.get('symbol', '').strip()
     if not symbol:
         return Response({'error': 'symbol required'}, status=status.HTTP_400_BAD_REQUEST)
+    if not CacheService.check_rate_limit(f'unsub_{request.user.id}', max_attempts=30, window=60):
+        return Response({'error': 'Rate limit exceeded'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
     TickerBridge.remove_subscription(symbol, str(request.user.id))
     return Response({'status': 'ok', 'symbol': symbol})
 
@@ -1091,7 +1123,7 @@ def ticker_unsubscribe_view(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@permission_classes([permissions.AllowAny])
+@permission_classes([permissions.IsAdminUser])
 def model_export_view(request):
     """
     Return metadata + download URL for the latest trained model.
@@ -1147,7 +1179,7 @@ def model_export_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([permissions.AllowAny])
+@permission_classes([permissions.IsAdminUser])
 def model_download_view(request, filename):
     """
     Serve a trained model file for download.

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import logging
 import secrets
@@ -59,22 +60,32 @@ def register_view(request):
     return render(request, 'registration/register.html', {'form': form})
 
 
+def _login_rate_key(request) -> str:
+    """Rate-limit key based on IP + submitted email to prevent global lockout."""
+    email = request.POST.get('username', 'unknown')
+    ip = request.META.get('REMOTE_ADDR', 'unknown')
+    return f'login_{ip}_{email}'
+
+
 def login_view(request):
     if request.user.is_authenticated:
         return redirect('dashboard')
     form = LoginForm()
     if request.method == 'POST':
+        # Rate limit applies to ALL login attempts (even wrong usernames)
+        # to prevent credential stuffing at the network level.
+        rl_key = _login_rate_key(request)
+        if not CacheService.check_rate_limit(
+            rl_key,
+            max_attempts=settings.MAX_LOGIN_ATTEMPTS,
+            window=300,
+        ):
+            messages.error(request, 'Too many login attempts. Please try again in 5 minutes.')
+            return render(request, 'registration/login.html', {'form': form})
+
         form = LoginForm(request, data=request.POST)
         if form.is_valid():
             user = form.get_user()
-
-            if not CacheService.check_rate_limit(
-                f'login_{user.id}',
-                max_attempts=settings.MAX_LOGIN_ATTEMPTS,
-                window=300,
-            ):
-                messages.error(request, 'Too many login attempts. Please try again in 5 minutes.')
-                return render(request, 'registration/login.html', {'form': form})
 
             remember_me = request.POST.get('remember_me') == 'on'
             login(request, user)
@@ -97,7 +108,7 @@ def login_view(request):
                     samesite='Lax',
                 )
                 if not user.two_factor_enabled:
-                    CacheService.reset_rate_limit(f'login_{user.id}')
+                    CacheService.reset_rate_limit(rl_key)
                     messages.success(request, f'Welcome back, {user.email}!')
                 return response
 
@@ -112,7 +123,7 @@ def login_view(request):
                 messages.info(request, 'A verification code has been sent to your email.')
                 return redirect('verify_2fa')
 
-            CacheService.reset_rate_limit(f'login_{user.id}')
+            CacheService.reset_rate_limit(rl_key)
             create_notification(user, 'New Login', f'New sign-in to your account from a web browser.', 'account')
             messages.success(request, f'Welcome back, {user.email}!')
             return redirect('dashboard')
@@ -241,6 +252,9 @@ def auto_login_view(request):
             rm_token = RememberMeToken.objects.get(token=token, expires_at__gt=timezone.now())
             user = rm_token.user
             login(request, user)
+            if user.two_factor_enabled and not request.session.get('2fa_verified'):
+                messages.info(request, 'Please verify your identity with 2FA.')
+                return redirect('verify_2fa')
             messages.success(request, f'Welcome back, {user.email}!')
             return redirect('dashboard')
         except RememberMeToken.DoesNotExist:
@@ -286,6 +300,7 @@ def dashboard_view(request):
 
 
 @login_required
+@two_factor_required
 def profile_view(request):
     user = request.user
     form = ProfileForm(instance=user)
@@ -320,6 +335,7 @@ def profile_view(request):
 
 
 @login_required
+@two_factor_required
 def profile_page_view(request):
     user = request.user
     form = ProfileForm(instance=user)
@@ -481,6 +497,15 @@ def password_reset_confirm_view(request):
             form.save()
             del request.session['reset_user_id']
             del request.session['reset_verified']
+
+            # Invalidate all existing sessions for this user
+            from django.contrib.sessions.models import Session
+            sessions = Session.objects.filter(expire_date__gte=timezone.now())
+            for session in sessions:
+                data = session.get_decoded()
+                if str(user.id) == str(data.get('_auth_user_id')):
+                    session.delete()
+
             messages.success(request, 'Password reset successful! You can now log in.')
             return redirect('login')
 
@@ -516,6 +541,7 @@ def resend_reset_otp_view(request):
 
 
 @login_required
+@two_factor_required
 def setup_security_questions_view(request):
     questions = SecurityQuestion.objects.filter(user=request.user)
     existing = {q.question_key for q in questions}
@@ -526,7 +552,7 @@ def setup_security_questions_view(request):
         if form.is_valid():
             question_key = form.cleaned_data['question_key']
             answer = form.cleaned_data['answer'].lower().strip()
-            answer_hash = str(hash(answer))
+            answer_hash = hashlib.sha256(answer.encode('utf-8')).hexdigest()
 
             SecurityQuestion.objects.update_or_create(
                 user=request.user,
@@ -545,6 +571,7 @@ def setup_security_questions_view(request):
 
 
 @login_required
+@two_factor_required
 def delete_security_question_view(request, question_key):
     SecurityQuestion.objects.filter(user=request.user, question_key=question_key).delete()
     messages.success(request, 'Security question removed.')

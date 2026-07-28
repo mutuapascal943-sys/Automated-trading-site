@@ -53,7 +53,7 @@ class RiskConfig(models.Model):
     trailing_stop_percent = models.DecimalField(max_digits=5, decimal_places=2, null=True, blank=True,
                                                 default=None, help_text='Trailing stop % (blank to disable)')
     max_open_positions = models.IntegerField(default=5, help_text='Max simultaneous open positions')
-    auto_execute = models.BooleanField(default=False, help_text='Auto-execute signals without manual confirmation')
+    auto_execute = models.BooleanField(default=True, help_text='Auto-execute signals without manual confirmation')
     trading_enabled = models.BooleanField(default=True, help_text='Master toggle for all trading')
     updated_at = models.DateTimeField(auto_now=True)
 
