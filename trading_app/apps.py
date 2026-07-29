@@ -21,7 +21,7 @@ class TradingAppConfig(AppConfig):
             from .scheduler import BackgroundScheduler
             from .tasks import run_bot_cycle, monitor_live_positions, check_paper_positions, cleanup_expired_otps
 
-            BackgroundScheduler.register(300, run_bot_cycle, "run_bot_cycle")
+            BackgroundScheduler.register(60, run_bot_cycle, "run_bot_cycle")
             BackgroundScheduler.register(60, monitor_live_positions, "monitor_live_positions")
             BackgroundScheduler.register(120, check_paper_positions, "check_paper_positions")
             BackgroundScheduler.register(3600, cleanup_expired_otps, "cleanup_expired_otps")

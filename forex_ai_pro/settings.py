@@ -309,7 +309,7 @@ from celery.schedules import crontab
 CELERY_BEAT_SCHEDULE = {
     'run-bot-cycle': {
         'task': 'trading_app.tasks.run_bot_cycle',
-        'schedule': crontab(minute='*/5'),
+        'schedule': crontab(minute='*/1'),
     },
     'monitor-positions': {
         'task': 'trading_app.tasks.monitor_live_positions',

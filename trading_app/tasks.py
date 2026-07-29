@@ -233,11 +233,15 @@ def _run_single_user_bot(user):
             break
 
         try:
-            candles = []
-            if adapter is not None:
+            candles = CacheService.get_candles(symbol, 3600)
+            if candles is not None:
+                logger.info(f'Cache hit for {symbol} ({len(candles)} candles)')
+            elif adapter is not None:
                 try:
                     candles = adapter.get_candles(symbol, 3600, 50)
                     logger.info(f'Fetched {len(candles)} candles for {symbol} via {user.broker}')
+                    if candles:
+                        CacheService.set_candles(symbol, 3600, candles)
                 except Exception as e:
                     logger.warning(f'Failed to fetch candles for {symbol}: {e}')
                     cached = CacheService.get_market_data(symbol)

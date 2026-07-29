@@ -20,6 +20,19 @@ class CacheService:
     def delete(key: str) -> None:
         cache.delete(key)
 
+    CANDLE_CACHE_PREFIX = 'candles_'
+    CANDLE_CACHE_TIMEOUT = 60
+
+    @staticmethod
+    def get_candles(symbol: str, granularity: int) -> list | None:
+        key = f'{CacheService.CANDLE_CACHE_PREFIX}{symbol}_{granularity}'
+        return cache.get(key)
+
+    @staticmethod
+    def set_candles(symbol: str, granularity: int, candles: list, timeout: int | None = None) -> None:
+        key = f'{CacheService.CANDLE_CACHE_PREFIX}{symbol}_{granularity}'
+        cache.set(key, candles, timeout=timeout or CacheService.CANDLE_CACHE_TIMEOUT)
+
     @staticmethod
     def set_otp(user_id: int, otp_code: str) -> None:
         key = f'{CacheService.OTP_PREFIX}{user_id}'
