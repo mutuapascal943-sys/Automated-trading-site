@@ -131,33 +131,49 @@
 
   /* ── NAVIGATION ── */
   function navigateToPanel(panelId){
-    document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
+    if(!panelId || !panelTitles[panelId]) return;
     var panel = document.getElementById('panel-' + panelId);
-    if(panel){panel.classList.add('active');
-      panel.classList.remove('fade-in');
-      void panel.offsetWidth;
-      panel.classList.add('fade-in');
-    }
+    if(!panel) return;
+    document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
+    panel.classList.add('active');
+    panel.classList.remove('fade-in');
+    void panel.offsetWidth;
+    panel.classList.add('fade-in');
     document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active')});
     var navItem = document.querySelector('.nav-item[data-panel="' + panelId + '"]');
     if(navItem){navItem.classList.add('active')}
     var titleEl = document.getElementById('topbar-title');
     if(titleEl){titleEl.textContent = panelTitles[panelId] || panelId}
-    if(panelId === 'bot'){setTimeout(initBotChart,100)}
+    if(panelId === 'bot'){setTimeout(function(){
+      initBotChart();
+      if(typeof loadRiskConfig === 'function') loadRiskConfig();
+      if(typeof loadStakeConfig === 'function') loadStakeConfig();
+    },100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
     if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
-    if(document.getElementById('sidebar') && window.innerWidth < 768){
-      document.getElementById('sidebar').classList.remove('open');
+    if(window.innerWidth < 768){
+      var sb = document.getElementById('sidebar');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      if(sb){sb.classList.remove('open')}
+      if(backdrop){backdrop.classList.remove('visible')}
     }
-    window.location.hash = panelId;
+    if(window.location.hash !== '#' + panelId){
+      window.location.hash = panelId;
+    }
   }
 
   window.navigateToPanel = navigateToPanel;
 
   function toggleSidebar(){
     var sb = document.getElementById('sidebar');
-    if(sb){sb.classList.toggle('open')}
+    var backdrop = document.getElementById('sidebar-backdrop');
+    if(sb){
+      sb.classList.toggle('open');
+      if(backdrop && window.innerWidth < 768){
+        backdrop.classList.toggle('visible');
+      }
+    }
   }
   window.toggleSidebar = toggleSidebar;
 
@@ -295,12 +311,6 @@
     var priceEl = document.getElementById('bot-price');
     if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
     clearChartOverlay();
-    var stateBadge = document.getElementById('signal-state-badge');
-    if(stateBadge){ stateBadge.textContent = 'NO SIGNAL'; stateBadge.className = 'signal-state-badge'; }
-    var emptyBody = document.getElementById('signal-body-empty');
-    var contentBody = document.getElementById('signal-body-content');
-    if(emptyBody) emptyBody.style.display = 'block';
-    if(contentBody) contentBody.style.display = 'none';
     lastProposedSignal = null;
     initBotChart();
   }
@@ -756,12 +766,14 @@
       botChartContainer = document.createElement('div');
       botChartContainer.id = 'tv-bot-chart';
       botChartContainer.style.width = '100%';
-      botChartContainer.style.height = '360px';
+      botChartContainer.style.minHeight = '300px';
+      botChartContainer.style.height = Math.max(300, Math.min(560, window.innerHeight * 0.5)) + 'px';
       wrap.innerHTML = '';
       wrap.appendChild(botChartContainer);
     } else {
       wrap.innerHTML = '';
       wrap.appendChild(botChartContainer);
+      botChartContainer.style.height = Math.max(300, Math.min(560, window.innerHeight * 0.5)) + 'px';
     }
 
     var sel = document.getElementById('bot-market');
@@ -1044,7 +1056,7 @@
           }
         }
       }
-    })
+    )
     .catch(function(){
       /* fallback to zeros on error */
     });
@@ -1095,7 +1107,7 @@
     }, {threshold: 0.1});
 
     document.querySelectorAll('.stat-card, .service-card, .plan-card, .market-card, .kpi-card, .dashboard-kpi-card, .mkt-summary-card').forEach(function(el){
-      if(!el.classList.contains('fade-in-up')){
+      if(!el.classList.contains('fade-in-up') && !el.closest('.stagger')){
         el.style.opacity = '0';
         observer.observe(el);
       }
@@ -1237,7 +1249,12 @@
     var appPage = document.getElementById('page-app');
     if(!appPage || !appPage.classList.contains('active')) return;
 
-    navigateToPanel('dashboard');
+    var hash = window.location.hash.replace('#','');
+    if(hash && panelTitles[hash]){
+      navigateToPanel(hash);
+    } else {
+      navigateToPanel('dashboard');
+    }
     startTrialTimer();
     startPriceTicker();
     populateHistory();
@@ -1249,8 +1266,18 @@
     window.addEventListener('hashchange', handleHashChange);
     window.addEventListener('resize', function(){
       if(document.getElementById('page-app') && document.getElementById('page-app').classList.contains('active')){
-        marketChartInstances.forEach(function(c){ c.resize(c.container().clientWidth, c.container().clientHeight); });
-        initBotChart(); initAnalyticsCharts();
+        marketChartInstances.forEach(function(c){
+          try{ c.resize(c.container().clientWidth, c.container().clientHeight); }catch(e){}
+        });
+        if(botChartInstance){
+          var h = Math.max(300, Math.min(560, window.innerHeight * 0.5));
+          if(botChartContainer){botChartContainer.style.height = h + 'px'}
+          try{ botChartInstance.resize(botChartContainer.clientWidth, h); }catch(e){}
+        }
+        var winContainer = document.getElementById('winChartContainer');
+        if(winContainer && winContainer.querySelector('canvas')){
+          initAnalyticsCharts();
+        }
       }
     });
 

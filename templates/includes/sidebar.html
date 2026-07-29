@@ -1,3 +1,4 @@
+<div class="sidebar-backdrop" id="sidebar-backdrop" onclick="toggleSidebar()"></div>
 <nav class="sidebar" id="sidebar">
   <div class="sidebar-logo">
     <div class="sidebar-logo-icon">A</div>
@@ -6,16 +7,16 @@
   <div class="sidebar-nav">
     <div class="nav-section">
       <div class="nav-section-label">Main</div>
-      <a href="{% url 'dashboard' %}#dashboard" class="nav-item active" data-panel="dashboard"><span class="nav-icon material-symbols-outlined">dashboard</span> Dashboard</a>
-      <a href="{% url 'dashboard' %}#markets" class="nav-item" data-panel="markets"><span class="nav-icon material-symbols-outlined">candlestick_chart</span> Markets</a>
-      <a href="{% url 'dashboard' %}#bot" class="nav-item" data-panel="bot"><span class="nav-icon material-symbols-outlined">smart_toy</span> Trading Bot</a>
-      <a href="{% url 'dashboard' %}#analytics" class="nav-item" data-panel="analytics"><span class="nav-icon material-symbols-outlined">analytics</span> Analytics</a>
+      <button class="nav-item active" data-panel="dashboard" onclick="navigateToPanel('dashboard')"><span class="nav-icon material-symbols-outlined">dashboard</span> Dashboard</button>
+      <button class="nav-item" data-panel="markets" onclick="navigateToPanel('markets')"><span class="nav-icon material-symbols-outlined">candlestick_chart</span> Markets</button>
+      <button class="nav-item" data-panel="bot" onclick="navigateToPanel('bot')"><span class="nav-icon material-symbols-outlined">smart_toy</span> Trading Bot</button>
+      <button class="nav-item" data-panel="analytics" onclick="navigateToPanel('analytics')"><span class="nav-icon material-symbols-outlined">analytics</span> Analytics</button>
     </div>
     <div class="nav-section">
       <div class="nav-section-label">Account</div>
-      <a href="{% url 'dashboard' %}#history" class="nav-item" data-panel="history"><span class="nav-icon material-symbols-outlined">history</span> History</a>
-      <a href="{% url 'dashboard' %}#subscription" class="nav-item" data-panel="subscription"><span class="nav-icon material-symbols-outlined">workspace_premium</span> Subscription</a>
-      <a href="{% url 'dashboard' %}#settings" class="nav-item" data-panel="settings"><span class="nav-icon material-symbols-outlined">settings</span> Settings</a>
+      <button class="nav-item" data-panel="history" onclick="navigateToPanel('history')"><span class="nav-icon material-symbols-outlined">history</span> History</button>
+      <button class="nav-item" data-panel="subscription" onclick="navigateToPanel('subscription')"><span class="nav-icon material-symbols-outlined">workspace_premium</span> Subscription</button>
+      <button class="nav-item" data-panel="settings" onclick="navigateToPanel('settings')"><span class="nav-icon material-symbols-outlined">settings</span> Settings</button>
     </div>
   </div>
   <a href="{% url 'profile_page' %}" style="text-decoration:none;color:inherit">
