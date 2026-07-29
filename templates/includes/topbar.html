@@ -1,5 +1,5 @@
 <header class="topbar">
-  <button class="hamburger" onclick="toggleSidebar()"><span class="material-symbols-outlined" style="font-size:22px">menu</span></button>
+  <button class="hamburger" onclick="toggleSidebar()"><span class="material-symbols-outlined hamburger-icon">menu</span></button>
   <div class="topbar-title" id="topbar-title">{{ page_title|default:"Dashboard" }}</div>
   <div class="topbar-pill"><div class="dot"></div> Live</div>
   <a href="{% url 'profile_page' %}" class="topbar-avatar-link" title="My Profile">
@@ -10,7 +10,7 @@
     {% endif %}
   </a>
   <div class="topbar-notif" id="notifBell" title="Notifications" onclick="toggleNotifications()">
-    <span class="notif-icon material-symbols-outlined" style="font-size:18px">notifications</span>
+    <span class="notif-icon material-symbols-outlined">notifications</span>
     <div class="notif-badge" id="notifBadge"></div>
   </div>
   <div class="notif-panel" id="notifPanel">
