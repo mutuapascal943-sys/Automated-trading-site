@@ -17,6 +17,8 @@ import logging
 logger = logging.getLogger(__name__)
 audit = ConsoleAuditLogger()
 
+CANDLE_GRANULARITY = 900  # 15-minute candles for faster signal generation
+
 
 @shared_task(
     bind=True,
@@ -70,7 +72,7 @@ def sync_live_trades():
             adapter = get_adapter_for_broker(user.broker or '')
             creds = build_credentials(user)
             adapter.connect(creds)
-            candles = adapter.get_candles(trade.symbol, 3600, 1)
+            candles = adapter.get_candles(trade.symbol, CANDLE_GRANULARITY, 1)
             adapter.disconnect()
             if candles:
                 CacheService.set_market_data(trade.symbol, {
@@ -95,7 +97,7 @@ def check_paper_positions():
                     adapter = get_adapter_for_broker(user.broker or '')
                     creds = build_credentials(user)
                     adapter.connect(creds)
-                    candles = adapter.get_candles(trade.symbol, 3600, 1)
+                    candles = adapter.get_candles(trade.symbol, CANDLE_GRANULARITY, 1)
                     adapter.disconnect()
                     if candles:
                         current_price = Decimal(str(candles[-1].close))
@@ -233,15 +235,15 @@ def _run_single_user_bot(user):
             break
 
         try:
-            candles = CacheService.get_candles(symbol, 3600)
+            candles = CacheService.get_candles(symbol, CANDLE_GRANULARITY)
             if candles is not None:
                 logger.info(f'Cache hit for {symbol} ({len(candles)} candles)')
             elif adapter is not None:
                 try:
-                    candles = adapter.get_candles(symbol, 3600, 50)
+                    candles = adapter.get_candles(symbol, CANDLE_GRANULARITY, 50)
                     logger.info(f'Fetched {len(candles)} candles for {symbol} via {user.broker}')
                     if candles:
-                        CacheService.set_candles(symbol, 3600, candles)
+                        CacheService.set_candles(symbol, CANDLE_GRANULARITY, candles)
                 except Exception as e:
                     logger.warning(f'Failed to fetch candles for {symbol}: {e}')
                     cached = CacheService.get_market_data(symbol)
@@ -267,30 +269,45 @@ def _run_single_user_bot(user):
 
             analysis = analyze_technical(symbol, candle_dicts, trade_history=recent_trades)
 
-            if analysis.bias == 'neutral':
+            from trading_app.ml.inference import predict_signal
+            ml_signal = predict_signal(candle_dicts)
+
+            if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
+                confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
+                ml_bias = 'BUY' if ml_signal.bias == 'bullish' else 'SELL'
+                if ml_bias != ('BUY' if analysis.bias == 'bullish' else 'SELL'):
+                    confidence = int(confidence * 0.8)
+                signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
+                source_detail = f' [ML: {ml_signal.model_info}]'
+            elif analysis.bias != 'neutral':
+                confidence = int(analysis.confidence * 100)
+                signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
+                source_detail = ''
+            elif ml_signal is not None and ml_signal.bias != 'neutral' and ml_signal.confidence > 0.6:
+                confidence = int(ml_signal.confidence * 100)
+                signal_type = 'BUY' if ml_signal.bias == 'bullish' else 'SELL'
+                source_detail = f' [ML-only: {ml_signal.model_info}]'
+            else:
                 continue
 
-            confidence = int(analysis.confidence * 100)
             if confidence < risk.min_confidence:
                 logger.info(
                     f'Signal for {symbol} confidence {confidence}% below threshold {risk.min_confidence}%'
                 )
                 continue
 
-            signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
-
             signal = TradingSignal.objects.create(
                 user=user,
                 symbol=symbol,
                 signal_type=signal_type,
                 confidence=confidence,
-                reasoning=analysis.rationale,
+                reasoning=analysis.rationale + source_detail,
                 source='SYSTEM',
                 risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
             )
             Notification.create_notification(
                 user=user, title=f'Signal: {signal_type} {symbol}',
-                message=f'Confidence: {confidence}% — {analysis.rationale[:100]}',
+                message=f'Confidence: {confidence}% — {(analysis.rationale + source_detail)[:120]}',
                 notification_type='signal',
             )
             audit.log_signal(symbol, signal_type, confidence, {
@@ -342,7 +359,7 @@ def _get_daily_pnl(user):
 def _make_fallback_candle(symbol, cached=None):
     """Generate simulated candles when real market data is unavailable."""
     from .trading_bot.simulated_candles import generate_simulated_candles
-    return generate_simulated_candles(symbol, count=50, granularity=3600)
+    return generate_simulated_candles(symbol, count=50, granularity=CANDLE_GRANULARITY)
 
 
 def _execute_trade(user, trade, risk, daily_pnl=None):
@@ -524,7 +541,7 @@ def _fetch_current_price(symbol, user):
         adapter = get_adapter_for_broker(user.broker or '')
         creds = build_credentials(user)
         adapter.connect(creds)
-        candles = adapter.get_candles(symbol, 3600, 1)
+        candles = adapter.get_candles(symbol, CANDLE_GRANULARITY, 1)
         adapter.disconnect()
         if candles:
             return Decimal(str(candles[-1].close))
