@@ -109,6 +109,41 @@ body{
 .text-dim{color:var(--text2)}
 .mono{font-family:'DM Mono',monospace}
 
+/* Overlay / Modal */
+.welcome-overlay,.congrats-overlay{
+  position:fixed;inset:0;z-index:10000;
+  background:rgba(0,0,0,0.6);
+  display:none;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);
+}
+.welcome-overlay.active,.congrats-overlay.active{display:flex}
+.welcome-modal,.congrats-modal{
+  background:var(--bg2);border:1px solid var(--border);
+  border-radius:14px;padding:36px 32px;max-width:440px;width:92%;
+  text-align:center;box-shadow:0 24px 64px rgba(0,0,0,0.5);
+  animation:fadeInUp .3s ease;
+}
+.welcome-icon,.congrats-icon{
+  width:56px;height:56px;border-radius:14px;
+  background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);
+  display:flex;align-items:center;justify-content:center;
+  margin:0 auto 16px;font-size:28px;color:var(--accent);
+}
+.welcome-modal h2,.congrats-modal h2{font-size:20px;font-weight:700;margin-bottom:10px}
+.welcome-modal p,.congrats-modal p{font-size:13px;color:var(--text2);margin-bottom:18px;line-height:1.5}
+.welcome-features{display:flex;flex-direction:column;gap:8px;margin-bottom:20px}
+.welcome-feat{
+  padding:10px 14px;background:var(--bg3);border-radius:8px;
+  font-size:13px;color:var(--text2);text-align:left;line-height:1.4;
+}
+.welcome-feat::before{content:'→';color:var(--accent);font-weight:600;margin-right:8px}
+
+/* Sidebar backdrop */
+.sidebar-backdrop{
+  display:none;position:fixed;inset:0;z-index:9998;
+  background:rgba(0,0,0,0.4);
+}
+
 /* Toast */
 .toast-container{
   position:fixed;top:16px;right:16px;z-index:9999;
@@ -234,9 +269,10 @@ body{
   min-width:14px;height:14px;border-radius:50%;
   background:var(--red);border:1.5px solid var(--bg2);
   font-size:8px;font-weight:700;color:#fff;
-  display:flex;align-items:center;justify-content:center;
+  display:none;align-items:center;justify-content:center;
   padding:0 2px;line-height:1;
 }
+.notif-badge.has-unread{display:flex}
 
 /* Notification panel */
 .notif-panel{
@@ -779,6 +815,8 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   .hamburger{font-size:20px;padding:4px}
   .hamburger-icon{font-size:20px}
   .notif-icon{font-size:16px}
+  .notif-panel{right:12px;width:300px}
+  .sidebar-backdrop{display:block}
   .sidebar-logo-icon{width:28px;height:28px;font-size:12px}
   .filter-chip{padding:5px 10px;font-size:11px}
   .mkt-cat-chip{padding:4px 10px;font-size:10px}
@@ -788,6 +826,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
 @media(max-width:480px){
   .content-inner{padding:12px 8px 80px}
   .topbar-title{font-size:14px}
+  .notif-panel{right:8px;width:calc(100vw - 16px);max-width:320px}
   .nav-icon{font-size:14px;width:16px}
   .dash-kpi-icon-wrap{width:28px;height:28px;font-size:13px}
   .kpi-icon{width:30px;height:30px;font-size:16px}

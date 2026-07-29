@@ -295,12 +295,6 @@
     var priceEl = document.getElementById('bot-price');
     if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
     clearChartOverlay();
-    var stateBadge = document.getElementById('signal-state-badge');
-    if(stateBadge){ stateBadge.textContent = 'NO SIGNAL'; stateBadge.className = 'signal-state-badge'; }
-    var emptyBody = document.getElementById('signal-body-empty');
-    var contentBody = document.getElementById('signal-body-content');
-    if(emptyBody) emptyBody.style.display = 'block';
-    if(contentBody) contentBody.style.display = 'none';
     lastProposedSignal = null;
     initBotChart();
   }
@@ -1095,7 +1089,7 @@
     }, {threshold: 0.1});
 
     document.querySelectorAll('.stat-card, .service-card, .plan-card, .market-card, .kpi-card, .dashboard-kpi-card, .mkt-summary-card').forEach(function(el){
-      if(!el.classList.contains('fade-in-up')){
+      if(!el.classList.contains('fade-in-up') && !el.closest('.stagger')){
         el.style.opacity = '0';
         observer.observe(el);
       }
