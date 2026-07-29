@@ -1179,10 +1179,6 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         <!-- Filters -->
         <div class="bot-filters">
           <div class="filter-group">
-            <div class="filter-label">Broker</div>
-            <select class="filter-select" id="bot-broker"><option>Deriv</option><option>Exness</option><option>XM</option></select>
-          </div>
-          <div class="filter-group">
             <div class="filter-label">Market</div>
             <select class="filter-select" id="bot-market" onchange="updateBotMarket()">
               <option>EUR/USD</option><option>GBP/USD</option><option>USD/JPY</option>
@@ -1190,13 +1186,6 @@ tr:hover td{background:rgba(255,255,255,0.02)}
               <option>XAU/USD</option><option>BTC/USD</option>
               <option>Boom 1000 Index</option><option>Crash 1000 Index</option>
               <option>Volatility 75 Index</option><option>Volatility 100 Index</option>
-            </select>
-          </div>
-          <div class="filter-group">
-            <div class="filter-label">Timeframe</div>
-            <select class="filter-select" id="bot-tf">
-              <option>M1</option><option>M5</option><option>M15</option>
-              <option>M30</option><option>H1</option><option>H4</option><option>D1</option>
             </select>
           </div>
         </div>
@@ -1296,7 +1285,7 @@ tr:hover td{background:rgba(255,255,255,0.02)}
         </div>
         <div class="table-wrap">
           <table id="historyTable">
-            <thead><tr><th>Date</th><th>Market</th><th>Type</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Status</th><th>Broker</th></tr></thead>
+            <thead><tr><th>Date</th><th>Market</th><th>Type</th><th>Entry</th><th>Exit</th><th>P&L</th><th>Status</th></tr></thead>
             <tbody id="historyBody"></tbody>
           </table>
         </div>
@@ -1374,17 +1363,12 @@ tr:hover td{background:rgba(255,255,255,0.02)}
             <button class="settings-nav-item active">Profile</button>
             <button class="settings-nav-item">Notifications</button>
             <button class="settings-nav-item">Security</button>
-            <button class="settings-nav-item">Broker API</button>
           </div>
           <div class="settings-section">
             <div class="settings-title">Profile Settings</div>
             <div class="settings-row">
               <div><div class="settings-row-label">Email</div><div class="settings-row-sub" id="settings-email">user@email.com</div></div>
               <button class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px">Edit</button>
-            </div>
-            <div class="settings-row">
-              <div><div class="settings-row-label">Connected Broker</div><div class="settings-row-sub" id="settings-broker">Deriv</div></div>
-              <button class="btn-outline" style="width:auto;padding:7px 14px;font-size:12px">Change</button>
             </div>
             <div class="settings-row">
               <div><div class="settings-row-label">Push Notifications</div><div class="settings-row-sub">Signal alerts and trade updates</div></div>
@@ -1564,10 +1548,7 @@ function launchApp(){
   // Set user info
   document.getElementById('sidebar-name').textContent=userEmail.split('@')[0]||'User';
   document.getElementById('sidebar-avatar').textContent=(userEmail[0]||'U').toUpperCase();
-  document.getElementById('sidebar-broker').textContent=userBroker;
   document.getElementById('settings-email').textContent=userEmail;
-  document.getElementById('settings-broker').textContent=userBroker;
-  document.getElementById('bot-broker').value=userBroker;
   // Init all charts
   initArtCanvas();
   initBotChart();
@@ -1783,14 +1764,14 @@ function executeTrade(){
    HISTORY TABLE
 ═══════════════════════════════════════════════ */
 const histData=[
-  ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','+$84','Win','Exness'],
-  ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','+$156','Win','Deriv'],
-  ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','-$48','Loss','XM'],
-  ['2025-06-12','USD/JPY','SELL','149.620','148.980','+$64','Win','Exness'],
-  ['2025-06-12','BTC/USD','BUY','61240','63100','+$186','Win','Deriv'],
-  ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','-$28','Loss','XM'],
-  ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','+$76','Win','Exness'],
-  ['2025-06-10','NZD/USD','BUY','0.60180','—','—','Pending','Deriv'],
+  ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','+$84','Win'],
+  ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','+$156','Win'],
+  ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','-$48','Loss'],
+  ['2025-06-12','USD/JPY','SELL','149.620','148.980','+$64','Win'],
+  ['2025-06-12','BTC/USD','BUY','61240','63100','+$186','Win'],
+  ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','-$28','Loss'],
+  ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','+$76','Win'],
+  ['2025-06-10','NZD/USD','BUY','0.60180','—','—','Pending'],
 ];
 
 function populateHistory(){
@@ -1805,7 +1786,6 @@ function populateHistory(){
       <td class="mono">${r[4]}</td>
       <td class="mono" style="color:${r[5].startsWith('+')?'var(--teal)':r[5]==='-'||r[5]==='—'?'var(--text2)':'var(--red)'}">${r[5]}</td>
       <td><span class="badge ${r[6].toLowerCase()}">${r[6]}</span></td>
-      <td style="color:var(--text2);font-size:12px">${r[7]}</td>
     </tr>`).join('');
 }
 

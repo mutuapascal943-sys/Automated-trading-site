@@ -76,14 +76,14 @@
       'Volatility 75 Index':'indices','Volatility 100 Index':'indices'
     };
     histData = [
-      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','Hit TP','Correct','Exness'],
-      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','Hit TP','Correct','Deriv'],
-      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','Hit SL','Missed','XM'],
-      ['2025-06-12','USD/JPY','SELL','149.620','148.980','Hit TP','Correct','Exness'],
-      ['2025-06-12','BTC/USD','BUY','61240','63100','Hit TP','Correct','Deriv'],
-      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','Hit SL','Missed','XM'],
-      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','Hit TP','Correct','Exness'],
-      ['2025-06-10','NZD/USD','BUY','0.60180','—','Active','Pending','Deriv']
+      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','Hit TP','Correct'],
+      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','Hit TP','Correct'],
+      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','Hit SL','Missed'],
+      ['2025-06-12','USD/JPY','SELL','149.620','148.980','Hit TP','Correct'],
+      ['2025-06-12','BTC/USD','BUY','61240','63100','Hit TP','Correct'],
+      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','Hit SL','Missed'],
+      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','Hit TP','Correct'],
+      ['2025-06-10','NZD/USD','BUY','0.60180','—','Active','Pending']
     ];
   }
 
@@ -147,7 +147,6 @@
     if(panelId === 'bot'){setTimeout(function(){
       initBotChart();
       if(typeof loadRiskConfig === 'function') loadRiskConfig();
-      if(typeof loadStakeConfig === 'function') loadStakeConfig();
     },100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
@@ -368,7 +367,7 @@
         '<td class="mono">' + r[4] + '</td>' +
         '<td class="mono" style="color:' + resultColor + '">' + r[5] + '</td>' +
         '<td><span class="badge ' + badgeClass + '">' + r[6] + '</span></td>' +
-        '<td style="color:var(--text2);font-size:12px">' + r[7] + '</td></tr>';
+        '</tr>';
     }).join('');
   }
 
@@ -455,7 +454,6 @@
       var sigTpDist = document.getElementById('sig-tp-dist');
       var sigAtr = document.getElementById('sig-atr');
       var sigRr = document.getElementById('sig-rr');
-      var sigStake = document.getElementById('sig-stake');
       var reasoningEl = document.getElementById('reasoning-text');
       var stateBadge = document.getElementById('signal-state-badge');
       var emptyBody = document.getElementById('signal-body-empty');
@@ -472,7 +470,6 @@
         var tpD = parseFloat(proposal.tp_distance) || 1;
         sigRr.textContent = (tpD / slD).toFixed(2) + ':1';
       }
-      if(sigStake) sigStake.textContent = '$' + proposal.stake_amount;
       if(reasoningEl) reasoningEl.textContent = proposal.reasoning;
       if(stateBadge){
         stateBadge.textContent = 'PROPOSED';
@@ -583,19 +580,6 @@
     .catch(function(){});
   }
 
-  function loadStakeConfig(){
-    fetch('/api/stake-config/', {
-      headers: {'X-Requested-With': 'XMLHttpRequest'},
-    })
-    .then(function(r){ return r.json() })
-    .then(function(data){
-      var input = document.getElementById('stake-amount');
-      if(input && data.stake_amount) input.value = data.stake_amount;
-    })
-    .catch(function(){});
-  }
-  window.loadStakeConfig = loadStakeConfig;
-
   function saveRiskConfig(){
     var inputs = document.querySelectorAll('.risk-field input[type="number"]');
     fetch('/api/risk-config/', {
@@ -618,9 +602,6 @@
     var entry = document.getElementById('sig-entry') ? document.getElementById('sig-entry').textContent : '0';
     var sl = document.getElementById('sig-sl') ? document.getElementById('sig-sl').textContent : '';
     var tp = document.getElementById('sig-tp') ? document.getElementById('sig-tp').textContent : '';
-    var stakeInput = document.getElementById('stake-amount');
-    var stake = stakeInput ? parseFloat(stakeInput.value) : 0.01;
-
     var tb = document.getElementById('trend-badge');
     var trendText = tb ? tb.textContent.trim() : '';
     var action = 'BUY';
@@ -629,7 +610,7 @@
     var conf = 0;
     if(lastProposedSignal && lastProposedSignal.confidence) conf = lastProposedSignal.confidence;
 
-    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nDirection: ' + action + '\nStake: $' + stake + '\nEntry: ' + entry + '\nStop Loss: ' + sl + '\nTake Profit: ' + tp + '\n\nPlease confirm this trade.')){
+    if(!confirm('TRADE CONFIRMATION\n\nPair: ' + pair + '\nDirection: ' + action + '\nEntry: ' + entry + '\nStop Loss: ' + sl + '\nTake Profit: ' + tp + '\n\nPlease confirm this trade.')){
       return;
     }
 
@@ -639,7 +620,7 @@
       body: JSON.stringify({
         symbol: pair,
         action: action,
-        volume: stake,
+        volume: 0.01,
         entry_price: parseFloat(entry) || 0,
         stop_loss: parseFloat(sl) || null,
         take_profit: parseFloat(tp) || null,
