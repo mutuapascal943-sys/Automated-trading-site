@@ -36,17 +36,6 @@
 
   <div class="bot-sidebar">
     <div class="analysis-card">
-      <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">shield</span> Risk Settings</div>
-      <div class="risk-stack">
-        <div class="risk-field"><label>Risk per Signal %</label><input type="number" value="2" min="0.1" max="10" step="0.1" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Max Daily Signals</label><input type="number" value="5" min="1" max="50" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Max drawdown %</label><input type="number" value="10" min="1" max="50" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Daily Signal Target</label><input type="number" value="5" min="1" max="100" onchange="saveRiskConfig()"></div>
-        <div class="risk-field"><label>Min Strength %</label><input type="number" id="trailing-stop" value="" min="0" max="10" step="0.5" placeholder="Off" onchange="saveRiskConfig()"></div>
-      </div>
-    </div>
-
-    <div class="analysis-card">
       <div class="analysis-title"><span class="material-symbols-outlined" style="font-size:18px;vertical-align:middle">bolt</span> Bot Status</div>
       <div class="bot-status-row">
         <span class="status-dot" id="bot-status-dot"></span>
@@ -69,41 +58,6 @@
 
 <script>
 var botScanInterval = null;
-
-function saveRiskConfig(){
-  var inputs = document.querySelectorAll('.risk-field input[type="number"]');
-  var payload = {};
-  if(inputs[0]) payload.risk_per_trade = parseFloat(inputs[0].value) || 2;
-  if(inputs[1]) payload.max_daily_trades = parseInt(inputs[1].value) || 5;
-  if(inputs[2]) payload.max_drawdown = parseFloat(inputs[2].value) || 10;
-  if(inputs[3]) payload.daily_profit_target = parseFloat(inputs[3].value) || 5;
-  var ts = document.getElementById('trailing-stop');
-  payload.trailing_stop_percent = ts && ts.value ? parseFloat(ts.value) : null;
-  fetch('/api/risk-config/', {
-    method: 'PUT',
-    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-    body: JSON.stringify(payload),
-  }).then(function(r){ return r.json() }).then(function(data){
-    showToast('Risk settings saved', 'success');
-  }).catch(function(){ showToast('Failed to save risk settings', 'error'); });
-}
-
-function loadRiskConfig(){
-  fetch('/api/risk-config/', {
-    headers: {'X-Requested-With': 'XMLHttpRequest'},
-  })
-  .then(function(r){ return r.json() })
-  .then(function(data){
-    var inputs = document.querySelectorAll('.risk-field input[type="number"]');
-    if(inputs[0] && data.risk_per_trade !== undefined) inputs[0].value = data.risk_per_trade;
-    if(inputs[1] && data.max_daily_trades !== undefined) inputs[1].value = data.max_daily_trades;
-    if(inputs[2] && data.max_drawdown !== undefined) inputs[2].value = data.max_drawdown;
-    if(inputs[3] && data.daily_profit_target !== undefined) inputs[3].value = data.daily_profit_target;
-    var ts = document.getElementById('trailing-stop');
-    if(ts && data.trailing_stop_percent !== undefined && data.trailing_stop_percent !== null) ts.value = data.trailing_stop_percent;
-  })
-  .catch(function(){});
-}
 
 function toggleBot(){
   var btn = document.getElementById('bot-toggle-btn');

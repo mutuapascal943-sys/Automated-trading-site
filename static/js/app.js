@@ -146,7 +146,6 @@
     if(titleEl){titleEl.textContent = panelTitles[panelId] || panelId}
     if(panelId === 'bot'){setTimeout(function(){
       initBotChart();
-      if(typeof loadRiskConfig === 'function') loadRiskConfig();
     },100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
@@ -502,7 +501,6 @@
 
   function refreshSignals(){
     loadSignals();
-    loadRiskConfig();
   }
   window.refreshSignals = refreshSignals;
 
@@ -561,41 +559,6 @@
     })
     .catch(function(){});
   }
-
-  function loadRiskConfig(){
-    fetch('/api/risk-config/', {
-      headers: {'X-Requested-With': 'XMLHttpRequest'},
-    })
-    .then(function(r){ return r.json() })
-    .then(function(data){
-      var riskInput = document.querySelector('.risk-field input[type="number"]');
-      if(riskInput && data.risk_per_trade !== undefined) riskInput.value = data.risk_per_trade;
-      var maxTrades = document.querySelectorAll('.risk-field input[type="number"]')[1];
-      if(maxTrades && data.max_daily_trades !== undefined) maxTrades.value = data.max_daily_trades;
-      var drawdown = document.querySelectorAll('.risk-field input[type="number"]')[2];
-      if(drawdown && data.max_drawdown !== undefined) drawdown.value = data.max_drawdown;
-      var profitTarget = document.querySelectorAll('.risk-field input[type="number"]')[3];
-      if(profitTarget && data.daily_profit_target !== undefined) profitTarget.value = data.daily_profit_target;
-    })
-    .catch(function(){});
-  }
-
-  function saveRiskConfig(){
-    var inputs = document.querySelectorAll('.risk-field input[type="number"]');
-    fetch('/api/risk-config/', {
-      method: 'PUT',
-      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-      body: JSON.stringify({
-        risk_per_trade: inputs[0] ? parseFloat(inputs[0].value) : 2.0,
-        max_daily_trades: inputs[1] ? parseInt(inputs[1].value) : 5,
-        max_drawdown: inputs[2] ? parseFloat(inputs[2].value) : 10.0,
-        daily_profit_target: inputs[3] ? parseFloat(inputs[3].value) : 5.0,
-      }),
-    })
-    .then(function(){ showToast('Risk settings saved', 'success'); })
-    .catch(function(){ showToast('Failed to save risk settings', 'error'); });
-  }
-  window.saveRiskConfig = saveRiskConfig;
 
   function executeTrade(){
     var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';

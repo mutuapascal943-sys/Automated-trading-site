@@ -1,6 +1,6 @@
 # Automated Trading Signal Platform
 
-AI-powered automated forex and crypto trading platform with real-time market analysis, multi-broker support, paper trading, and rule-based signal generation.
+AI-powered automated forex and crypto trading platform with real-time market analysis, paper trading, and rule-based signal generation. Clean, streamlined interface without unnecessary configuration clutter.
 
 ## How It Works — End-to-End Flow
 
@@ -89,11 +89,13 @@ A separate monitoring task runs every 60 seconds (`trading_app/tasks.py:468`) an
 
 ### 8. Real-Time Frontend
 
-The SPA frontend (`static/js/app.js`, ~1273 lines of vanilla JS) connects to the backend via:
+The SPA frontend (`static/js/app.js`, ~1237 lines of vanilla JS) connects to the backend via:
 
 - **REST API** — Django REST Framework endpoints for trades, signals, risk config, backtesting, and account management
 - **WebSocket** — Django Channels consumer (`trading_app/consumers.py:12`) streams real-time tick data to the browser via a `TickerBridge` (`trading_app/services/ticker_bridge.py:21`) that connects to Deriv WebSocket or falls back to a simulated random-walk generator
 - **Charting** — TradingView Lightweight Charts renders candlestick charts with live tick aggregation into 60-second candles, plus overlay lines for entry/SL/TP levels
+- **Clean Bot Panel** — Simplified trading bot interface with market selector, paper/live toggle, and real-time signal display. Broker selector, timeframe picker, stake input, and risk settings were removed to keep focus on what matters — the signal
+- **Simplified Settings** — Account settings streamlined by removing the Broker API configuration section. No unnecessary fields cluttering the experience
 
 ## What Makes This Platform Unique
 
@@ -113,7 +115,7 @@ The platform runs on Celery + Redis when available but **gracefully falls back**
 Stop-loss and take-profit levels are not static percentages. They are **dynamically computed** from market volatility (ATR) and scaled by signal confidence. High-confidence signals get tighter stops and wider targets, while low-confidence signals are given more breathing room. This is a direct feedback loop between analysis confidence and risk exposure.
 
 ### 5. Candle Caching Layer
-Most trading bots re-fetch all candle data on every cycle. This platform implements a **60-second candle cache** that dramatically reduces broker API calls. On a 1-minute cycle, every other run hits the cache instead of the broker, reducing both latency and API rate-limit pressure.
+Most trading bots re-fetch all candle data on every cycle. This platform implements a **60-second candle cache** that dramatically reduces broker API calls. On the 1-minute cycle, every other run hits the cache instead of the broker, reducing both latency and API rate-limit pressure. Combined with the 1-minute cycle interval (down from 5 minutes), signals arrive up to 5x faster than before.
 
 ### 6. Trade History Feedback Loop
 The analysis engine adjusts its confidence based on recent trade outcomes. A win rate above 60% boosts confidence by 10%; a rate below 30% reduces it by 20%. This creates a **self-correcting mechanism** that prevents the bot from over-trading during losing streaks.
