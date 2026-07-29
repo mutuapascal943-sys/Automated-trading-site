@@ -1056,7 +1056,7 @@
           }
         }
       }
-    })
+    )
     .catch(function(){
       /* fallback to zeros on error */
     });
