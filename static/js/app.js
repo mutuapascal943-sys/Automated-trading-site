@@ -152,8 +152,11 @@
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
     if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
-    if(document.getElementById('sidebar') && window.innerWidth < 768){
-      document.getElementById('sidebar').classList.remove('open');
+    if(window.innerWidth < 768){
+      var sb = document.getElementById('sidebar');
+      var backdrop = document.getElementById('sidebar-backdrop');
+      if(sb){sb.classList.remove('open')}
+      if(backdrop){backdrop.classList.remove('visible')}
     }
     if(window.location.hash !== '#' + panelId){
       window.location.hash = panelId;
@@ -164,7 +167,13 @@
 
   function toggleSidebar(){
     var sb = document.getElementById('sidebar');
-    if(sb){sb.classList.toggle('open')}
+    var backdrop = document.getElementById('sidebar-backdrop');
+    if(sb){
+      sb.classList.toggle('open');
+      if(backdrop && window.innerWidth < 768){
+        backdrop.classList.toggle('visible');
+      }
+    }
   }
   window.toggleSidebar = toggleSidebar;
 
@@ -757,12 +766,14 @@
       botChartContainer = document.createElement('div');
       botChartContainer.id = 'tv-bot-chart';
       botChartContainer.style.width = '100%';
-      botChartContainer.style.height = '360px';
+      botChartContainer.style.minHeight = '300px';
+      botChartContainer.style.height = Math.max(300, Math.min(560, window.innerHeight * 0.5)) + 'px';
       wrap.innerHTML = '';
       wrap.appendChild(botChartContainer);
     } else {
       wrap.innerHTML = '';
       wrap.appendChild(botChartContainer);
+      botChartContainer.style.height = Math.max(300, Math.min(560, window.innerHeight * 0.5)) + 'px';
     }
 
     var sel = document.getElementById('bot-market');
@@ -1255,8 +1266,18 @@
     window.addEventListener('hashchange', handleHashChange);
     window.addEventListener('resize', function(){
       if(document.getElementById('page-app') && document.getElementById('page-app').classList.contains('active')){
-        marketChartInstances.forEach(function(c){ c.resize(c.container().clientWidth, c.container().clientHeight); });
-        initBotChart(); initAnalyticsCharts();
+        marketChartInstances.forEach(function(c){
+          try{ c.resize(c.container().clientWidth, c.container().clientHeight); }catch(e){}
+        });
+        if(botChartInstance){
+          var h = Math.max(300, Math.min(560, window.innerHeight * 0.5));
+          if(botChartContainer){botChartContainer.style.height = h + 'px'}
+          try{ botChartInstance.resize(botChartContainer.clientWidth, h); }catch(e){}
+        }
+        var winContainer = document.getElementById('winChartContainer');
+        if(winContainer && winContainer.querySelector('canvas')){
+          initAnalyticsCharts();
+        }
       }
     });
 

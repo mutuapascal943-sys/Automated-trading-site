@@ -143,6 +143,7 @@ body{
   display:none;position:fixed;inset:0;z-index:9998;
   background:rgba(0,0,0,0.4);
 }
+.sidebar-backdrop.visible{display:block}
 
 /* Toast */
 .toast-container{
@@ -584,7 +585,8 @@ body{
 }
 .table-wrap{
   background:var(--bg2);border:1px solid var(--border);
-  border-radius:10px;overflow:hidden;
+  border-radius:10px;overflow-x:auto;
+  -webkit-overflow-scrolling:touch;
 }
 table{width:100%;border-collapse:collapse}
 th{
@@ -816,12 +818,17 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   .hamburger-icon{font-size:20px}
   .notif-icon{font-size:16px}
   .notif-panel{right:12px;width:300px}
-  .sidebar-backdrop{display:block}
+  .sidebar-backdrop.visible{display:block}
   .sidebar-logo-icon{width:28px;height:28px;font-size:12px}
-  .filter-chip{padding:5px 10px;font-size:11px}
-  .mkt-cat-chip{padding:4px 10px;font-size:10px}
+  .nav-item{padding:10px 10px;min-height:44px}
+  .filter-chip{padding:5px 10px;font-size:11px;min-height:32px}
+  .mkt-cat-chip{padding:4px 10px;font-size:10px;min-height:32px}
   .badge{font-size:10px;padding:1px 6px}
-  .settings-nav-item{padding:7px 10px;font-size:12px}
+  .settings-nav-item{padding:10px 10px;font-size:12px;min-height:44px}
+  .btn-secondary,.btn-primary,.btn-full,.sub-banner-btn,.btn-outline{min-height:44px}
+}
+@media(max-width:1024px){
+  .notif-panel{right:20px}
 }
 @media(max-width:480px){
   .content-inner{padding:12px 8px 80px}
@@ -838,6 +845,22 @@ tr:hover td{background:rgba(255,255,255,0.02)}
   .sidebar-logo-icon{width:24px;height:24px;font-size:11px}
   .btn-primary{padding:10px;font-size:13px}
   .btn-outline{padding:10px;font-size:13px}
+}
+@media(max-width:360px){
+  .auth-form-panel{padding:24px 16px}
+  .auth-wrap{width:96%}
+  .hero-card{padding:20px 16px}
+  .dashboard-kpis{grid-template-columns:1fr}
+  .services-grid{grid-template-columns:1fr}
+  .markets-grid{grid-template-columns:1fr}
+  .market-summary{grid-template-columns:1fr 1fr}
+  .analytics-kpis{grid-template-columns:1fr 1fr}
+  .plans-grid{grid-template-columns:1fr}
+  .bot-filters{padding:12px}
+  .content-inner{padding:10px 6px 80px}
+  .settings-grid{grid-template-columns:1fr}
+  .filter-group{min-width:100%}
+  .form-row{grid-template-columns:1fr}
 }
 
 /* Utility */
