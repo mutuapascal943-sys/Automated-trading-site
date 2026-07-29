@@ -1237,7 +1237,19 @@
     var appPage = document.getElementById('page-app');
     if(!appPage || !appPage.classList.contains('active')) return;
 
-    navigateToPanel('dashboard');
+    var hash = window.location.hash.replace('#','');
+    if(hash && panelTitles[hash]){
+      navigateToPanel(hash);
+    } else {
+      navigateToPanel('dashboard');
+    }
+    document.querySelectorAll('.nav-item').forEach(function(el){
+      el.addEventListener('click', function(e){
+        e.preventDefault();
+        var panel = this.getAttribute('data-panel');
+        if(panel){navigateToPanel(panel)}
+      });
+    });
     startTrialTimer();
     startPriceTicker();
     populateHistory();
