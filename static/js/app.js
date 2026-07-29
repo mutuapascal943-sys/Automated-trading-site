@@ -131,26 +131,33 @@
 
   /* ── NAVIGATION ── */
   function navigateToPanel(panelId){
-    document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
+    if(!panelId || !panelTitles[panelId]) return;
     var panel = document.getElementById('panel-' + panelId);
-    if(panel){panel.classList.add('active');
-      panel.classList.remove('fade-in');
-      void panel.offsetWidth;
-      panel.classList.add('fade-in');
-    }
+    if(!panel) return;
+    document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
+    panel.classList.add('active');
+    panel.classList.remove('fade-in');
+    void panel.offsetWidth;
+    panel.classList.add('fade-in');
     document.querySelectorAll('.nav-item').forEach(function(n){n.classList.remove('active')});
     var navItem = document.querySelector('.nav-item[data-panel="' + panelId + '"]');
     if(navItem){navItem.classList.add('active')}
     var titleEl = document.getElementById('topbar-title');
     if(titleEl){titleEl.textContent = panelTitles[panelId] || panelId}
-    if(panelId === 'bot'){setTimeout(initBotChart,100)}
+    if(panelId === 'bot'){setTimeout(function(){
+      initBotChart();
+      if(typeof loadRiskConfig === 'function') loadRiskConfig();
+      if(typeof loadStakeConfig === 'function') loadStakeConfig();
+    },100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
     if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
     if(document.getElementById('sidebar') && window.innerWidth < 768){
       document.getElementById('sidebar').classList.remove('open');
     }
-    window.location.hash = panelId;
+    if(window.location.hash !== '#' + panelId){
+      window.location.hash = panelId;
+    }
   }
 
   window.navigateToPanel = navigateToPanel;
@@ -1237,13 +1244,6 @@
     } else {
       navigateToPanel('dashboard');
     }
-    document.querySelectorAll('.nav-item').forEach(function(el){
-      el.addEventListener('click', function(e){
-        e.preventDefault();
-        var panel = this.getAttribute('data-panel');
-        if(panel){navigateToPanel(panel)}
-      });
-    });
     startTrialTimer();
     startPriceTicker();
     populateHistory();

@@ -1587,8 +1587,11 @@ const panelMap={
 };
 
 function navTo(id,el){
+  if(!id||!panelMap[id]) return;
+  var p=document.getElementById('panel-'+id);
+  if(!p) return;
   document.querySelectorAll('.section-panel').forEach(p=>p.classList.remove('active'));
-  document.getElementById('panel-'+id).classList.add('active');
+  p.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n=>n.classList.remove('active'));
   if(el) el.classList.add('active');
   else{

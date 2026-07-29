@@ -270,11 +270,5 @@ function stopBot(){
   if(ss){ ss.textContent += '> Bot stopped.\n'; }
 }
 
-var _origNav = window.navigateToPanel;
-window.navigateToPanel = function(panelId){
-  if(panelId === 'bot'){
-    setTimeout(function(){ loadRiskConfig(); loadStakeConfig(); }, 100);
-  }
-  if(_origNav) _origNav(panelId);
-};
+/* Bot init hooks now handled in app.js navigateToPanel */
 </script>

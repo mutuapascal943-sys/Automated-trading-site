@@ -213,7 +213,7 @@ body{
   font-size:13px;font-weight:500;color:var(--text2);
   cursor:pointer;transition:all .12s;margin-bottom:2px;
   border:none;background:none;width:100%;text-align:left;
-  text-decoration:none;
+  text-decoration:none;font-family:inherit;line-height:inherit;
 }
 .nav-item:hover{background:var(--bg3);color:var(--text)}
 .nav-item.active{
