@@ -1,7 +1,9 @@
+import threading
 import time
 from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
+from decouple import config
 from decimal import Decimal
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
@@ -226,6 +228,13 @@ def _run_single_user_bot(user):
     from trading_app.trading_bot.technical_analyzer import analyze_technical
 
     for symbol in symbols:
+        # Paper mode: keep the simulated market walking so predictions made on
+        # live data still resolve against simulated outcomes without a browser
+        # open streaming ticks. 60 ticks/minute mirrors live tick speed.
+        if user.paper_mode:
+            from trading_app.trading_bot.simulated_market import SimulatedMarket
+            SimulatedMarket.advance(selected, ticks=60)
+
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
         if existing_open > 0:
             continue
@@ -668,10 +677,18 @@ def _resolve_prediction(pred) -> bool:
 
     user = pred.user
     if user is None or user.paper_mode:
-        pred.resolved = True
-        pred.resolved_at = timezone.now()
-        pred.save(update_fields=['resolved', 'resolved_at'])
-        return True
+        candles = _fetch_paper_prediction_candles(pred)
+        if candles and _apply_prediction_outcome(pred, sorted(candles, key=lambda c: c.timestamp)):
+            return True
+        # The simulated market may still be filling in bars after the entry
+        # candle. Wait for a later cycle instead of discarding the outcome;
+        # only give up after a long grace period so records never dangle.
+        if elapsed > 3 * 86400:
+            pred.resolved = True
+            pred.resolved_at = timezone.now()
+            pred.save(update_fields=['resolved', 'resolved_at'])
+            return True
+        return False
 
     candles = _fetch_prediction_candles(pred, user)
     if not candles:
@@ -683,20 +700,29 @@ def _resolve_prediction(pred) -> bool:
         return False
 
     ordered = sorted(candles, key=lambda c: c.timestamp)
+    if not _apply_prediction_outcome(pred, ordered):
+        pred.resolved = True
+        pred.resolved_at = timezone.now()
+        pred.save(update_fields=['resolved', 'resolved_at'])
+    return True
+
+
+def _apply_prediction_outcome(pred, ordered) -> bool:
+    """Compare the entry candle close with the close `horizon` bars later and
+    store the realized target. Returns True when an outcome was computed."""
     start_idx = next(
         (i for i, c in enumerate(ordered) if c.timestamp.timestamp() >= pred.candle_time),
         None,
     )
     if start_idx is None or start_idx + pred.horizon >= len(ordered):
-        pred.resolved = True
-        pred.resolved_at = timezone.now()
-        pred.save(update_fields=['resolved', 'resolved_at'])
-        return True
+        return False
 
     entry = float(ordered[start_idx].close)
     exit_price = float(ordered[start_idx + pred.horizon].close)
 
     realized = 1 if exit_price > entry else 0
+    pred.entry_price = ordered[start_idx].close
+    pred.exit_price = ordered[start_idx + pred.horizon].close
     pred.realized_target = realized
     pred.prediction_correct = (
         (pred.bias == 'bullish' and realized == 1)
@@ -704,8 +730,22 @@ def _resolve_prediction(pred) -> bool:
     )
     pred.resolved = True
     pred.resolved_at = timezone.now()
-    pred.save(update_fields=['realized_target', 'prediction_correct', 'resolved', 'resolved_at'])
+    pred.save(update_fields=[
+        'entry_price', 'exit_price', 'realized_target', 'prediction_correct',
+        'resolved', 'resolved_at',
+    ])
     return True
+
+
+def _fetch_paper_prediction_candles(pred):
+    """Fetch outcome candles from the shared simulated market (paper mode)."""
+    from trading_app.trading_bot.simulated_market import SimulatedMarket
+    try:
+        candles = SimulatedMarket.get_candles(pred.symbol, pred.granularity, count=2000)
+        return candles or []
+    except Exception as e:
+        logger.warning(f'Failed to fetch paper prediction history for {pred.id}: {e}')
+        return []
 
 
 def _fetch_prediction_candles(pred, user):
@@ -724,3 +764,104 @@ def _fetch_prediction_candles(pred, user):
     except Exception as e:
         logger.warning(f'Failed to fetch prediction history for {pred.id}: {e}')
         return []
+
+
+# ---------------------------------------------------------------------------
+# Automatic feedback retraining — scheduled, background, non-blocking.
+# ---------------------------------------------------------------------------
+
+_retrain_lock = threading.Lock()
+_retrain_in_progress = False
+# Minimum NEW resolved outcomes per symbol before a retrain is worth running.
+RETRAIN_MIN_NEW = config('RETRAIN_MIN_NEW', default=25, cast=int)
+
+
+@shared_task
+def retrain_models_with_feedback():
+    """Check for enough new resolved predictions and, if so, retrain the
+    affected symbols in a background thread so the bot cycle is never blocked."""
+    global _retrain_in_progress
+    with _retrain_lock:
+        if _retrain_in_progress:
+            return
+        _retrain_in_progress = True
+    threading.Thread(target=_feedback_retrain_worker, daemon=True).start()
+
+
+def _feedback_retrain_worker():
+    global _retrain_in_progress
+    try:
+        _run_feedback_retrain()
+    except Exception as e:
+        logger.error("Feedback retrain failed: %s", e, exc_info=True)
+    finally:
+        with _retrain_lock:
+            _retrain_in_progress = False
+
+
+def _run_feedback_retrain():
+    import json
+    from django.db.models import Max
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS, _model_exists
+    from trading_app.ml import inference as ml_inference
+    from trading_app.ml.feedback import load_feedback_rows
+    from trading_app.ml.features import FEATURE_COLUMNS
+    from trading_app.ml.pipeline import run_pipeline
+    from trading_app.ml.symbols import deriv_symbol_for
+
+    marker_path = ml_inference.OUTPUT_DIR / 'feedback_marker.json'
+    marker = {}
+    if marker_path.exists():
+        try:
+            marker = json.loads(marker_path.read_text())
+        except Exception:
+            marker = {}
+
+    changed = False
+    for label, symbol in MARKET_SYMBOLS.items():
+        last_id = int(marker.get(symbol, 0))
+        new_count = PredictionRecord.objects.filter(
+            resolved=True,
+            realized_target__isnull=False,
+            symbol=label,
+            id__gt=last_id,
+        ).count()
+        if new_count < RETRAIN_MIN_NEW:
+            continue
+        if not _model_exists(symbol, str(ml_inference.OUTPUT_DIR)):
+            continue
+
+        feedback_rows = load_feedback_rows(symbol, FEATURE_COLUMNS)
+        if not feedback_rows:
+            continue
+
+        logger.info('Feedback retrain triggered for %s (%d new outcomes)', symbol, new_count)
+        try:
+            run_pipeline(
+                symbol=symbol,
+                data_symbol=deriv_symbol_for(symbol),
+                granularity=900,
+                years=2.0,
+                horizon=4,
+                threshold_pct=0.1,
+                n_windows=5,
+                output_dir=str(ml_inference.OUTPUT_DIR),
+                feedback_rows=feedback_rows,
+            )
+            max_id = PredictionRecord.objects.filter(
+                resolved=True, realized_target__isnull=False, symbol=label
+            ).aggregate(m=Max('id'))['m']
+            if max_id:
+                marker[symbol] = max_id
+            changed = True
+            ml_inference._model_cache = None
+            ml_inference._model_cache_key = None
+            logger.info('Feedback retrain completed for %s', symbol)
+        except Exception as e:
+            logger.error('Feedback retrain failed for %s: %s', symbol, e)
+
+    if changed:
+        try:
+            marker_path.write_text(json.dumps(marker, indent=2))
+        except Exception as e:
+            logger.error('Failed to write feedback marker: %s', e)

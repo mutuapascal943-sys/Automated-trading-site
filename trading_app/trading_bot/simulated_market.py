@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import random
 import threading
+import time
+from collections import deque
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 
@@ -39,6 +41,8 @@ BASE_PRICES: dict[str, float] = {
 # fallback request (50 * 3600 = 180k ticks) plus chart history.
 MASTER_LEN = 200000
 TICK_INTERVAL = 1
+# Cap on live ticks retained so long-running processes don't grow unbounded.
+TICK_HISTORY_LEN = 500000
 
 # Per-symbol per-tick volatility (standard deviation of simple returns).
 # FX is tight, crypto and synthetic indices are wider.
@@ -95,6 +99,7 @@ class SimulatedMarket:
 
             s = {
                 "prices": prices,
+                "ticks": [],
                 "rng": rng,
                 "vol": vol,
                 "base": base,
@@ -110,32 +115,37 @@ class SimulatedMarket:
         return max(0.001, price * (1 + ret))
 
     # ------------------------------------------------------------------
-    # Candle history — always a slice of the canonical path ending at the
-    # current price, so every caller sees the same series.
+    # Candle history — a slice of the canonical path ending at the most
+    # recent live tick (or the master path end if no ticks yet), so every
+    # caller sees the same series and history keeps extending over time.
     # ------------------------------------------------------------------
 
     @classmethod
     def get_candles(cls, symbol: str, granularity: int = 60, count: int = 200) -> list[Candle]:
         s = cls._series_for(symbol)
         with cls._lock:
-            prices = s["prices"]
             step = max(1, int(granularity / TICK_INTERVAL))
-            total = min(count, len(prices) // step)
+            master_start = cls._master_start
+            total_points = len(s["prices"]) + len(s["ticks"])
+            total = min(count, total_points // step)
             if total < 1:
                 total = 1
-            start_idx = len(prices) - total * step
+
+            window = deque(maxlen=total * step)
+            for i, p in enumerate(s["prices"]):
+                window.append((master_start + i * TICK_INTERVAL, p))
+            for epoch, p in s["ticks"]:
+                window.append((epoch, p))
+            points = list(window)
 
             candles: list[Candle] = []
             for i in range(total):
-                chunk = prices[start_idx + i * step: start_idx + (i + 1) * step]
-                o = chunk[0]
-                c = chunk[-1]
-                h = max(chunk)
-                l = min(chunk)
-                ts = datetime.fromtimestamp(
-                    cls._master_start + (start_idx + i * step) * TICK_INTERVAL,
-                    tz=timezone.utc,
-                )
+                chunk = points[i * step:(i + 1) * step]
+                o = chunk[0][1]
+                c = chunk[-1][1]
+                h = max(p[1] for p in chunk)
+                l = min(p[1] for p in chunk)
+                ts = datetime.fromtimestamp(chunk[0][0], tz=timezone.utc)
                 candles.append(Candle(
                     symbol=symbol,
                     open=Decimal(str(round(o, 5))),
@@ -156,16 +166,23 @@ class SimulatedMarket:
     @classmethod
     def current_price(cls, symbol: str) -> Decimal:
         s = cls._series_for(symbol)
-        return Decimal(str(s["next_price"]))
+        with cls._lock:
+            if s["ticks"]:
+                return Decimal(str(s["ticks"][-1][1]))
+            return Decimal(str(s["next_price"]))
 
     @classmethod
     def next_tick(cls, symbol: str) -> Candle | None:
         """Return the next simulated price as a 1-second pseudo-candle so the
-        ticker bridge can publish it; continues the shared walk."""
+        ticker bridge can publish it; continues the shared walk and records
+        the tick so candle history keeps extending."""
         s = cls._series_for(symbol)
         with cls._lock:
             price = cls._step(s["next_price"], s["base"], s["vol"], KAPPA, s["rng"])
             s["next_price"] = price
+            s["ticks"].append((int(time.time()), price))
+            if len(s["ticks"]) > TICK_HISTORY_LEN:
+                del s["ticks"][:len(s["ticks"]) - TICK_HISTORY_LEN]
             ts = datetime.now(timezone.utc)
         return Candle(
             symbol=symbol,
@@ -177,3 +194,12 @@ class SimulatedMarket:
             timestamp=ts,
             granularity=TICK_INTERVAL,
         )
+
+    @classmethod
+    def advance(cls, symbol: str, ticks: int = 60) -> None:
+        """Advance the shared walk by *ticks* simulated ticks so paper-mode
+        predictions keep resolving even when no browser is streaming ticks.
+        The bot cycle calls this each run; 60 ticks/minute mirrors live
+        tick speed so resolutions happen in real time, not instantly."""
+        for _ in range(int(ticks)):
+            cls.next_tick(symbol)

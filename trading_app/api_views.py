@@ -827,6 +827,63 @@ def dashboard_stats_view(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def predictions_view(request):
+    """Prediction history + outcome stats for the Signal Analytics / History
+    panels. Stats are computed from resolved predictions only, so the panels
+    update as predictions come true or miss."""
+    from trading_app.models import PredictionRecord
+
+    qs = PredictionRecord.objects.filter(user=request.user)
+    resolved = qs.filter(resolved=True, prediction_correct__isnull=False)
+    correct = resolved.filter(prediction_correct=True).count()
+    missed = resolved.filter(prediction_correct=False).count()
+    decided = correct + missed
+
+    win_rate = round(correct / decided * 100, 1) if decided else 0
+    loss_rate = round(missed / decided * 100, 1) if decided else 0
+    profit_factor = round(correct / missed, 2) if missed else (correct if correct else 0)
+
+    history = []
+    for p in qs.order_by('-predicted_at')[:50]:
+        if p.prediction_correct is True:
+            status = 'Correct'
+        elif p.prediction_correct is False:
+            status = 'Missed'
+        elif not p.resolved:
+            status = 'Pending'
+        else:
+            status = 'Pending'
+        history.append({
+            'id': p.id,
+            'date': (p.resolved_at or p.predicted_at).strftime('%Y-%m-%d %H:%M'),
+            'symbol': p.symbol,
+            'signal': 'BUY' if p.bias == 'bullish' else 'SELL',
+            'confidence': p.confidence,
+            'granularity': p.granularity,
+            'horizon': p.horizon,
+            'entry_price': float(p.entry_price) if p.entry_price is not None else None,
+            'exit_price': float(p.exit_price) if p.exit_price is not None else None,
+            'result': status,
+            'status': status,
+        })
+
+    return Response({
+        'stats': {
+            'total': qs.count(),
+            'resolved': decided,
+            'pending': qs.filter(resolved=False).count(),
+            'correct_signals': correct,
+            'missed_signals': missed,
+            'win_rate': win_rate,
+            'loss_rate': loss_rate,
+            'profit_factor': profit_factor,
+        },
+        'history': history,
+    })
+
+
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_request(request):

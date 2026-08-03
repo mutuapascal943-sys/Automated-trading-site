@@ -45,6 +45,7 @@ urlpatterns = [
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
     path('api/dashboard/stats/', api_views.dashboard_stats_view, name='api_dashboard_stats'),
+    path('api/predictions/', api_views.predictions_view, name='api_predictions'),
     path('api/risk-config/', api_views.risk_config_view, name='api_risk_config'),
     path('api/stake-config/', api_views.stake_config_view, name='api_stake_config'),
     path('api/signal/propose/', api_views.signal_propose_view, name='api_signal_propose'),

@@ -189,6 +189,10 @@ class PredictionRecord(models.Model):
         help_text='1 = price rose over horizon, 0 = fell')
     prediction_correct = models.BooleanField(null=True, blank=True)
     resolved_at = models.DateTimeField(null=True, blank=True)
+    entry_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True,
+        help_text='Close of the entry candle')
+    exit_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True,
+        help_text='Close of the candle `horizon` bars after entry')
 
     class Meta:
         indexes = [

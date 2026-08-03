@@ -150,6 +150,7 @@
       initBotChart();
     },100)}
     if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
+    if(panelId === 'history'){setTimeout(loadPredictionHistory,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
     if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
     if(window.innerWidth < 768){
@@ -378,12 +379,43 @@
   }
 
   /* ── HISTORY ── */
+  function loadPredictionHistory(){
+    fetch('/api/predictions/', {
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      var rows = data.history || [];
+      if(rows.length > 0){
+        histData = rows.map(function(p){
+          var status = p.status || 'Pending';
+          return [
+            p.date,
+            p.symbol,
+            p.signal,
+            p.entry_price != null ? p.entry_price : '—',
+            p.exit_price != null ? p.exit_price : '—',
+            status,
+            status
+          ];
+        });
+      }
+      populateHistory();
+    })
+    .catch(function(){});
+  }
+  window.loadPredictionHistory = loadPredictionHistory;
+
   function populateHistory(){
     var tbody = document.getElementById('historyBody');
     if(!tbody) return;
+    if(!histData || histData.length === 0){
+      tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No signals yet — run a scan or wait for the bot cycle.</td></tr>';
+      return;
+    }
     tbody.innerHTML = histData.map(function(r){
       var color = r[2] === 'BUY' ? 'var(--teal)' : 'var(--red)';
-      var resultColor = r[5] === 'Hit TP' ? 'var(--teal)' : r[5] === 'Hit SL' ? 'var(--red)' : 'var(--text2)';
+      var resultColor = r[5] === 'Correct' ? 'var(--teal)' : r[5] === 'Missed' ? 'var(--red)' : 'var(--text2)';
       var badgeClass = r[6].toLowerCase();
       return '<tr data-status="' + r[6] + '">' +
         '<td class="mono" style="font-size:12px">' + r[0] + '</td>' +
@@ -505,6 +537,7 @@
       if(contentBody) contentBody.style.display = 'block';
 
       updateChartOverlay(proposal);
+      loadPredictionHistory();
 
       ss.textContent += '> Awaiting user authorization to execute...\n';
       botRunning = false;
@@ -582,6 +615,7 @@
           if(contentBody) contentBody.style.display = 'block';
           if(s.stop_loss && s.take_profit) updateChartOverlay(proposal);
         }
+        loadPredictionHistory();
       }
     })
     .catch(function(){});
@@ -976,7 +1010,7 @@
   }
 
   function initAnalyticsCharts(){
-    fetch('/api/dashboard/stats/', {
+    fetch('/api/predictions/', {
       headers: {'X-Requested-With': 'XMLHttpRequest'},
     })
     .then(function(r){ return r.json() })
@@ -989,11 +1023,16 @@
         el.textContent = prefix + val + suffix;
       }
 
-      setText('kpi-win-rate', data.win_rate + '%');
-      setText('kpi-loss-rate', data.loss_rate + '%');
-      setText('kpi-profit-factor', data.profit_factor);
-      setText('kpi-correct-signals', data.correct_signals || '0');
-      setText('kpi-missed-signals', data.missed_signals || '0');
+      var st = data.stats || {};
+      var hasData = (st.correct_signals || 0) + (st.missed_signals || 0) > 0;
+      setText('kpi-win-rate', hasData ? st.win_rate + '%' : '—');
+      setText('kpi-loss-rate', hasData ? st.loss_rate + '%' : '—');
+      setText('kpi-profit-factor', hasData ? st.profit_factor : '—');
+      setText('kpi-correct-signals', st.correct_signals || '0');
+      setText('kpi-missed-signals', st.missed_signals || '0');
+
+      var winPct = hasData ? st.win_rate : 0;
+      var lossPct = hasData ? st.loss_rate : 0;
 
       /* ── Win/Loss Donut (Canvas) ── */
         var winContainer = document.getElementById('winChartContainer');
@@ -1013,8 +1052,6 @@
 
             ctx.clearRect(0, 0, w, h);
 
-            var winPct = data.win_rate || 0;
-            var lossPct = data.loss_rate || 0;
             var winAngle = (winPct / 100) * Math.PI * 2;
             var lossAngle = (lossPct / 100) * Math.PI * 2;
 
@@ -1047,7 +1084,7 @@
             ctx.font = 'bold ' + (22 * dpr) + 'px Syne';
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
-            ctx.fillText(winPct + '%', cx, cy - 6 * dpr);
+            ctx.fillText((hasData ? winPct + '%' : '—'), cx, cy - 6 * dpr);
 
             ctx.fillStyle = 'rgba(255,255,255,0.35)';
             ctx.font = (11 * dpr) + 'px DM Mono';
