@@ -295,17 +295,28 @@ def _run_single_user_bot(user):
             ml_signal = predict_signal(candle_dicts, symbol=symbol)
 
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
-                PredictionRecord.objects.create(
-                    user=user,
-                    symbol=symbol,
+                pred_candle_time = candle_dicts[-1].get('time', int(time.time()))
+                pred_exists = PredictionRecord.objects.filter(
+                    user=user, symbol=symbol,
                     granularity=CANDLE_GRANULARITY,
-                    horizon=ml_signal.horizon,
-                    bias=ml_signal.bias,
-                    confidence=ml_signal.confidence,
-                    probability=ml_signal.probability,
-                    features=ml_signal.features or {},
-                    candle_time=candle_dicts[-1].get('time', int(time.time())),
-                )
+                    candle_time=pred_candle_time,
+                ).exists()
+                if pred_exists:
+                    logger.info(
+                        f'Prediction already exists for {symbol} at candle {pred_candle_time}'
+                    )
+                else:
+                    PredictionRecord.objects.create(
+                        user=user,
+                        symbol=symbol,
+                        granularity=CANDLE_GRANULARITY,
+                        horizon=ml_signal.horizon,
+                        bias=ml_signal.bias,
+                        confidence=ml_signal.confidence,
+                        probability=ml_signal.probability,
+                        features=ml_signal.features or {},
+                        candle_time=pred_candle_time,
+                    )
 
             if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
                 confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
