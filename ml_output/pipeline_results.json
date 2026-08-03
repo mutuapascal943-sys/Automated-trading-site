@@ -1,293 +1,293 @@
 {
-  "symbol": "AUDUSD",
+  "symbol": "R_100",
   "granularity": 900,
   "steps": [
     {
       "step": "collect",
-      "raw_count": 7012
+      "raw_count": 38040
     },
     {
       "step": "clean",
-      "count": 7012,
-      "start": 1776677400,
-      "end": 1785741300,
-      "span_days": 104.90625,
-      "avg_gap": 1292.811296534018,
-      "max_gap": 184500,
-      "interpolated_bars": 0,
-      "avg_return": -2.533381728723329e-06,
-      "return_std": 0.0005115494917778563,
+      "count": 35041,
+      "start": 1754206538,
+      "end": 1785742200,
+      "span_days": 364.996087962963,
+      "avg_gap": 899.9903538812786,
+      "max_gap": 900,
+      "interpolated_bars": 1,
+      "avg_return": 2.847552435836907e-06,
+      "return_std": 0.005348908466353587,
       "valid": true
     },
     {
       "step": "features",
-      "count": 7012,
+      "count": 35041,
       "feature_count": 25
     },
     {
       "step": "labels",
-      "total": 7008,
-      "positive": 998,
-      "negative": 6010,
-      "pos_ratio": 0.1424,
-      "avg_return": -0.001006,
-      "max_return": 0.712339,
-      "min_return": -0.796395
+      "total": 35037,
+      "positive": 23617,
+      "negative": 11420,
+      "pos_ratio": 0.6741,
+      "avg_return": 0.001006,
+      "max_return": 4.725137,
+      "min_return": -4.307976
     },
     {
       "step": "dataset",
-      "total_labeled": 7008,
-      "train_size": 4905,
-      "val_size": 1051,
-      "test_size": 1052,
-      "train_start": 1776677400,
-      "train_end": 1782927000,
-      "val_start": 1782927900,
-      "val_end": 1784240100,
-      "test_start": 1784241000,
-      "test_end": 1785737700
+      "total_labeled": 35037,
+      "train_size": 24525,
+      "val_size": 5256,
+      "test_size": 5256,
+      "train_start": 1754206538,
+      "train_end": 1776277800,
+      "val_start": 1776278700,
+      "val_end": 1781008200,
+      "test_start": 1781009100,
+      "test_end": 1785738600
     },
     {
       "step": "walk_forward",
       "windows": 5,
       "window_sizes": [
         {
-          "train": 1050,
-          "test": 351
+          "train": 5255,
+          "test": 1752
         },
         {
-          "train": 1050,
-          "test": 351
+          "train": 5255,
+          "test": 1752
         },
         {
-          "train": 1050,
-          "test": 351
+          "train": 5255,
+          "test": 1752
         },
         {
-          "train": 1050,
-          "test": 351
+          "train": 5255,
+          "test": 1752
         },
         {
-          "train": 1050,
-          "test": 351
+          "train": 5255,
+          "test": 1752
         }
       ]
     },
     {
       "step": "train",
-      "train_accuracy": 0.8137,
-      "val_accuracy": 0.8592,
-      "val_precision": 0.3729,
-      "val_recall": 0.1654,
-      "val_f1": 0.2292,
-      "val_auc": 0.6601
+      "train_accuracy": 0.6765,
+      "val_accuracy": 0.593,
+      "val_precision": 0.6601,
+      "val_recall": 0.7821,
+      "val_f1": 0.716,
+      "val_auc": 0.4951
     },
     {
       "step": "test",
-      "test_accuracy": 0.8346,
-      "test_precision": 0.2558,
-      "test_recall": 0.1667,
-      "test_f1": 0.2018,
-      "test_auc": 0.5712,
+      "test_accuracy": 0.657,
+      "test_precision": 0.69,
+      "test_recall": 0.9159,
+      "test_f1": 0.7871,
+      "test_auc": 0.5094,
       "confusion_matrix": [
         [
-          856,
-          64
+          121,
+          1497
         ],
         [
-          110,
-          22
+          306,
+          3332
         ]
       ],
       "top_features": [
         {
-          "name": "atr_14",
-          "importance": 0.1377
-        },
-        {
-          "name": "hl_range_pct",
-          "importance": 0.0996
+          "name": "macd_signal",
+          "importance": 0.0638
         },
         {
           "name": "bb_width",
-          "importance": 0.0776
+          "importance": 0.055
         },
         {
-          "name": "sma_50",
-          "importance": 0.0621
-        },
-        {
-          "name": "bb_lower",
-          "importance": 0.0464
-        },
-        {
-          "name": "sma_20",
-          "importance": 0.0421
+          "name": "sma5_vs_sma20",
+          "importance": 0.0547
         },
         {
           "name": "macd",
-          "importance": 0.0395
+          "importance": 0.0542
+        },
+        {
+          "name": "sma_50",
+          "importance": 0.0541
+        },
+        {
+          "name": "rsi_14",
+          "importance": 0.0504
+        },
+        {
+          "name": "bb_lower",
+          "importance": 0.049
+        },
+        {
+          "name": "atr_14",
+          "importance": 0.0489
+        },
+        {
+          "name": "macd_hist",
+          "importance": 0.0458
         },
         {
           "name": "ema_12",
-          "importance": 0.0394
-        },
-        {
-          "name": "price_chg_5",
-          "importance": 0.039
-        },
-        {
-          "name": "sma_5",
-          "importance": 0.0385
+          "importance": 0.0439
         }
       ]
     },
     {
       "step": "walk_forward_eval",
-      "wf_avg_accuracy": 0.8313,
-      "wf_avg_f1": 0.4793,
+      "wf_avg_accuracy": 0.6656,
+      "wf_avg_f1": 0.7498,
       "wf_windows": [
         {
           "window": 1,
-          "accuracy": 0.8661,
-          "f1": 0.6619,
-          "train_size": 1050,
-          "test_size": 351
+          "accuracy": 0.6644,
+          "f1": 0.7095,
+          "train_size": 5255,
+          "test_size": 1752
         },
         {
           "window": 2,
-          "accuracy": 0.849,
-          "f1": 0.6131,
-          "train_size": 1050,
-          "test_size": 351
+          "accuracy": 0.7597,
+          "f1": 0.8192,
+          "train_size": 5255,
+          "test_size": 1752
         },
         {
           "window": 3,
-          "accuracy": 0.8661,
-          "f1": 0.6299,
-          "train_size": 1050,
-          "test_size": 351
+          "accuracy": 0.6781,
+          "f1": 0.7367,
+          "train_size": 5255,
+          "test_size": 1752
         },
         {
           "window": 4,
-          "accuracy": 0.8462,
-          "f1": 0.2059,
-          "train_size": 1050,
-          "test_size": 351
+          "accuracy": 0.6056,
+          "f1": 0.737,
+          "train_size": 5255,
+          "test_size": 1752
         },
         {
           "window": 5,
-          "accuracy": 0.7293,
-          "f1": 0.2857,
-          "train_size": 1050,
-          "test_size": 351
+          "accuracy": 0.6204,
+          "f1": 0.7467,
+          "train_size": 5255,
+          "test_size": 1752
         }
       ]
     }
   ],
-  "model_path": "ml_output\\AUDUSD_900_20260803_072221_model.pkl",
-  "metadata_path": "ml_output\\AUDUSD_900_20260803_072221_metadata.json",
+  "model_path": "ml_output\\R_100_900_20260803_073618_model.pkl",
+  "metadata_path": "ml_output\\R_100_900_20260803_073618_metadata.json",
   "metrics": {
-    "train_accuracy": 0.8137,
-    "val_accuracy": 0.8592,
-    "val_precision": 0.3729,
-    "val_recall": 0.1654,
-    "val_f1": 0.2292,
-    "val_auc": 0.6601,
-    "test_accuracy": 0.8346,
-    "test_precision": 0.2558,
-    "test_recall": 0.1667,
-    "test_f1": 0.2018,
-    "test_auc": 0.5712,
+    "train_accuracy": 0.6765,
+    "val_accuracy": 0.593,
+    "val_precision": 0.6601,
+    "val_recall": 0.7821,
+    "val_f1": 0.716,
+    "val_auc": 0.4951,
+    "test_accuracy": 0.657,
+    "test_precision": 0.69,
+    "test_recall": 0.9159,
+    "test_f1": 0.7871,
+    "test_auc": 0.5094,
     "confusion_matrix": [
       [
-        856,
-        64
+        121,
+        1497
       ],
       [
-        110,
-        22
+        306,
+        3332
       ]
     ],
     "top_features": [
       {
-        "name": "atr_14",
-        "importance": 0.1377
-      },
-      {
-        "name": "hl_range_pct",
-        "importance": 0.0996
+        "name": "macd_signal",
+        "importance": 0.0638
       },
       {
         "name": "bb_width",
-        "importance": 0.0776
+        "importance": 0.055
       },
       {
-        "name": "sma_50",
-        "importance": 0.0621
-      },
-      {
-        "name": "bb_lower",
-        "importance": 0.0464
-      },
-      {
-        "name": "sma_20",
-        "importance": 0.0421
+        "name": "sma5_vs_sma20",
+        "importance": 0.0547
       },
       {
         "name": "macd",
-        "importance": 0.0395
+        "importance": 0.0542
+      },
+      {
+        "name": "sma_50",
+        "importance": 0.0541
+      },
+      {
+        "name": "rsi_14",
+        "importance": 0.0504
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.049
+      },
+      {
+        "name": "atr_14",
+        "importance": 0.0489
+      },
+      {
+        "name": "macd_hist",
+        "importance": 0.0458
       },
       {
         "name": "ema_12",
-        "importance": 0.0394
-      },
-      {
-        "name": "price_chg_5",
-        "importance": 0.039
-      },
-      {
-        "name": "sma_5",
-        "importance": 0.0385
+        "importance": 0.0439
       }
     ],
-    "wf_avg_accuracy": 0.8313,
-    "wf_avg_f1": 0.4793,
+    "wf_avg_accuracy": 0.6656,
+    "wf_avg_f1": 0.7498,
     "wf_windows": [
       {
         "window": 1,
-        "accuracy": 0.8661,
-        "f1": 0.6619,
-        "train_size": 1050,
-        "test_size": 351
+        "accuracy": 0.6644,
+        "f1": 0.7095,
+        "train_size": 5255,
+        "test_size": 1752
       },
       {
         "window": 2,
-        "accuracy": 0.849,
-        "f1": 0.6131,
-        "train_size": 1050,
-        "test_size": 351
+        "accuracy": 0.7597,
+        "f1": 0.8192,
+        "train_size": 5255,
+        "test_size": 1752
       },
       {
         "window": 3,
-        "accuracy": 0.8661,
-        "f1": 0.6299,
-        "train_size": 1050,
-        "test_size": 351
+        "accuracy": 0.6781,
+        "f1": 0.7367,
+        "train_size": 5255,
+        "test_size": 1752
       },
       {
         "window": 4,
-        "accuracy": 0.8462,
-        "f1": 0.2059,
-        "train_size": 1050,
-        "test_size": 351
+        "accuracy": 0.6056,
+        "f1": 0.737,
+        "train_size": 5255,
+        "test_size": 1752
       },
       {
         "window": 5,
-        "accuracy": 0.7293,
-        "f1": 0.2857,
-        "train_size": 1050,
-        "test_size": 351
+        "accuracy": 0.6204,
+        "f1": 0.7467,
+        "train_size": 5255,
+        "test_size": 1752
       }
     ]
   },

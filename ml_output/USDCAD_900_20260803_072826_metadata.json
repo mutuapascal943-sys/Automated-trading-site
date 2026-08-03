@@ -1,0 +1,176 @@
+{
+  "symbol": "USDCAD",
+  "granularity": 900,
+  "timestamp": "20260803_072826",
+  "feature_columns": [
+    "rsi_14",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "atr_14",
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "ema_12",
+    "ema_26",
+    "bb_upper",
+    "bb_lower",
+    "bb_width",
+    "bb_pctb",
+    "vol_sma20",
+    "vol_ratio",
+    "price_chg_1",
+    "price_chg_3",
+    "price_chg_5",
+    "body_ratio",
+    "hl_range_pct",
+    "price_vs_sma5",
+    "price_vs_sma20",
+    "sma5_vs_sma20"
+  ],
+  "model_type": "RandomForestClassifier",
+  "model_params": {
+    "bootstrap": true,
+    "ccp_alpha": 0.0,
+    "class_weight": "balanced",
+    "criterion": "gini",
+    "max_depth": 10,
+    "max_features": "sqrt",
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "min_weight_fraction_leaf": 0.0,
+    "monotonic_cst": null,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "oob_score": false,
+    "random_state": 42,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "train_metrics": {
+    "train_accuracy": 0.8347,
+    "val_accuracy": 0.8189,
+    "val_precision": 0.07,
+    "val_recall": 0.4286,
+    "val_f1": 0.1203,
+    "val_auc": 0.7525
+  },
+  "test_metrics": {
+    "test_accuracy": 0.9254,
+    "test_precision": 0.1124,
+    "test_recall": 0.1357,
+    "test_f1": 0.123,
+    "test_auc": 0.7093,
+    "confusion_matrix": [
+      [
+        3344,
+        150
+      ],
+      [
+        121,
+        19
+      ]
+    ],
+    "top_features": [
+      {
+        "name": "hl_range_pct",
+        "importance": 0.2386
+      },
+      {
+        "name": "atr_14",
+        "importance": 0.1608
+      },
+      {
+        "name": "bb_width",
+        "importance": 0.0647
+      },
+      {
+        "name": "sma_50",
+        "importance": 0.0479
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.0478
+      },
+      {
+        "name": "sma_10",
+        "importance": 0.0346
+      },
+      {
+        "name": "sma_5",
+        "importance": 0.034
+      },
+      {
+        "name": "sma_20",
+        "importance": 0.0318
+      },
+      {
+        "name": "ema_26",
+        "importance": 0.0275
+      },
+      {
+        "name": "bb_upper",
+        "importance": 0.0275
+      }
+    ]
+  },
+  "walk_forward_metrics": {
+    "wf_avg_accuracy": 0.8317,
+    "wf_avg_f1": 0.2801,
+    "wf_windows": [
+      {
+        "window": 1,
+        "accuracy": 0.9488,
+        "f1": 0.5,
+        "train_size": 3632,
+        "test_size": 1212
+      },
+      {
+        "window": 2,
+        "accuracy": 0.8606,
+        "f1": 0.367,
+        "train_size": 3632,
+        "test_size": 1212
+      },
+      {
+        "window": 3,
+        "accuracy": 0.5941,
+        "f1": 0.3315,
+        "train_size": 3632,
+        "test_size": 1212
+      },
+      {
+        "window": 4,
+        "accuracy": 0.8267,
+        "f1": 0.1176,
+        "train_size": 3632,
+        "test_size": 1212
+      },
+      {
+        "window": 5,
+        "accuracy": 0.9282,
+        "f1": 0.0842,
+        "train_size": 3632,
+        "test_size": 1212
+      }
+    ]
+  },
+  "dataset_info": {
+    "total_labeled": 24223,
+    "train_size": 16956,
+    "val_size": 3633,
+    "test_size": 3634,
+    "train_start": 1754022186,
+    "train_end": 1776259800,
+    "val_start": 1776260700,
+    "val_end": 1780998300,
+    "test_start": 1780999200,
+    "test_end": 1785737700
+  },
+  "model_path": "ml_output\\USDCAD_900_20260803_072826_model.pkl",
+  "onnx_path": "ml_output\\USDCAD_900_20260803_072826_model.onnx"
+}

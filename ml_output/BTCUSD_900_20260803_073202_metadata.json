@@ -1,0 +1,176 @@
+{
+  "symbol": "BTCUSD",
+  "granularity": 900,
+  "timestamp": "20260803_073202",
+  "feature_columns": [
+    "rsi_14",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "atr_14",
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "ema_12",
+    "ema_26",
+    "bb_upper",
+    "bb_lower",
+    "bb_width",
+    "bb_pctb",
+    "vol_sma20",
+    "vol_ratio",
+    "price_chg_1",
+    "price_chg_3",
+    "price_chg_5",
+    "body_ratio",
+    "hl_range_pct",
+    "price_vs_sma5",
+    "price_vs_sma20",
+    "sma5_vs_sma20"
+  ],
+  "model_type": "RandomForestClassifier",
+  "model_params": {
+    "bootstrap": true,
+    "ccp_alpha": 0.0,
+    "class_weight": "balanced",
+    "criterion": "gini",
+    "max_depth": 10,
+    "max_features": "sqrt",
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "min_weight_fraction_leaf": 0.0,
+    "monotonic_cst": null,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "oob_score": false,
+    "random_state": 42,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "train_metrics": {
+    "train_accuracy": 0.6879,
+    "val_accuracy": 0.5654,
+    "val_precision": 0.5819,
+    "val_recall": 0.4475,
+    "val_f1": 0.506,
+    "val_auc": 0.587
+  },
+  "test_metrics": {
+    "test_accuracy": 0.5566,
+    "test_precision": 0.5447,
+    "test_recall": 0.6994,
+    "test_f1": 0.6124,
+    "test_auc": 0.5857,
+    "confusion_matrix": [
+      [
+        1084,
+        1538
+      ],
+      [
+        791,
+        1840
+      ]
+    ],
+    "top_features": [
+      {
+        "name": "atr_14",
+        "importance": 0.1477
+      },
+      {
+        "name": "hl_range_pct",
+        "importance": 0.0779
+      },
+      {
+        "name": "bb_width",
+        "importance": 0.0775
+      },
+      {
+        "name": "price_vs_sma20",
+        "importance": 0.0461
+      },
+      {
+        "name": "macd_signal",
+        "importance": 0.0434
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.0408
+      },
+      {
+        "name": "price_chg_5",
+        "importance": 0.0389
+      },
+      {
+        "name": "macd_hist",
+        "importance": 0.037
+      },
+      {
+        "name": "macd",
+        "importance": 0.037
+      },
+      {
+        "name": "sma5_vs_sma20",
+        "importance": 0.0362
+      }
+    ]
+  },
+  "walk_forward_metrics": {
+    "wf_avg_accuracy": 0.6418,
+    "wf_avg_f1": 0.6231,
+    "wf_windows": [
+      {
+        "window": 1,
+        "accuracy": 0.7116,
+        "f1": 0.7021,
+        "train_size": 5252,
+        "test_size": 1751
+      },
+      {
+        "window": 2,
+        "accuracy": 0.7133,
+        "f1": 0.7307,
+        "train_size": 5252,
+        "test_size": 1751
+      },
+      {
+        "window": 3,
+        "accuracy": 0.671,
+        "f1": 0.7555,
+        "train_size": 5252,
+        "test_size": 1751
+      },
+      {
+        "window": 4,
+        "accuracy": 0.5682,
+        "f1": 0.4112,
+        "train_size": 5252,
+        "test_size": 1751
+      },
+      {
+        "window": 5,
+        "accuracy": 0.5448,
+        "f1": 0.5161,
+        "train_size": 5252,
+        "test_size": 1751
+      }
+    ]
+  },
+  "dataset_info": {
+    "total_labeled": 35019,
+    "train_size": 24513,
+    "val_size": 5253,
+    "test_size": 5253,
+    "train_start": 1754206282,
+    "train_end": 1776283200,
+    "val_start": 1776284100,
+    "val_end": 1781010900,
+    "test_start": 1781011800,
+    "test_end": 1785738600
+  },
+  "model_path": "ml_output\\BTCUSD_900_20260803_073202_model.pkl",
+  "onnx_path": "ml_output\\BTCUSD_900_20260803_073202_model.onnx"
+}
