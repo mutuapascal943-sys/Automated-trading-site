@@ -392,7 +392,7 @@
 
   /* ── HISTORY ── */
   function loadPredictionHistory(){
-    fetch('/api/predictions/', {
+    fetch('/api/predictions/?t=' + Date.now(), {
       headers: {'X-Requested-With': 'XMLHttpRequest'},
     })
     .then(function(r){ return r.json() })
@@ -1028,7 +1028,7 @@
   }
 
   function initAnalyticsCharts(){
-    fetch('/api/predictions/', {
+    fetch('/api/predictions/?t=' + Date.now(), {
       headers: {'X-Requested-With': 'XMLHttpRequest'},
     })
     .then(function(r){ return r.json() })
