@@ -909,7 +909,6 @@
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
-      autoscaleInfoProvider: function(){ return null; },
     });
     botEntryLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: entry},
@@ -923,7 +922,6 @@
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
-      autoscaleInfoProvider: function(){ return null; },
     });
     botSLLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: sl},
@@ -931,18 +929,19 @@
     ]);
 
     botTPLine = botChartInstance.addLineSeries({
-      color: '#f5c27a',
+      color: '#60a5fa',
       lineWidth: 1,
       lineStyle: LightweightCharts.LineStyle.Dashed,
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
-      autoscaleInfoProvider: function(){ return null; },
     });
     botTPLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: tp},
       {time: Math.floor(Date.now()/1000), value: tp},
     ]);
+
+    try{ botChartInstance.priceScale('right').applyOptions({ autoScale: true }); }catch(e){}
 
     var legend = document.getElementById('chart-levels-legend');
     if(legend) legend.style.display = 'flex';
