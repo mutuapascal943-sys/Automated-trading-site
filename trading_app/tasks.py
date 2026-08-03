@@ -195,7 +195,9 @@ def run_bot_cycle():
 
 def _run_single_user_bot(user):
     risk = RiskConfig.get_for_user(user)
-    symbols = user.watchlist or ['EUR/USD', 'GBP/USD', 'XAU/USD', 'BTC/USD']
+    # The bot only trades the market the user has selected in the bot panel.
+    selected = (user.selected_market or '').strip() or 'EUR/USD'
+    symbols = [selected]
 
     open_trades = Trade.objects.filter(user=user, status='OPEN')
     open_count = open_trades.count()
@@ -342,6 +344,9 @@ def _run_single_user_bot(user):
             trade = _execute_trade(user, trade, risk, daily_pnl=daily_pnl)
 
             if trade.status == 'OPEN':
+                signal.entry_price = trade.entry_price
+                signal.stop_loss = trade.stop_loss
+                signal.take_profit = trade.take_profit
                 signal.is_executed = True
                 signal.save()
                 user.daily_trades_count += 1

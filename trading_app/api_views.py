@@ -472,17 +472,7 @@ def risk_config_view(request):
 def analyze_and_signal_view(request):
     symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
     try:
-        candles = []
-        if not request.user.paper_mode:
-            adapter = _resolve_adapter(request.user)
-            creds = build_credentials(request.user)
-            adapter.connect(creds)
-            candles = adapter.get_candles(symbol, 3600, 50)
-            adapter.disconnect()
-
-        if not candles:
-            from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
-            candles = generate_simulated_candle_dicts(symbol, count=50)
+        candles = _candles_to_dicts(_fetch_chart_candles(request.user, symbol, count=200))
 
         recent_trades = list(Trade.objects.filter(
             user=request.user, symbol=symbol, status='CLOSED'
@@ -644,20 +634,7 @@ def signal_propose_view(request):
     user = request.user
     risk = RiskConfig.get_for_user(user)
 
-    candles = []
-    try:
-        if not user.paper_mode:
-            adapter = _resolve_adapter(user)
-            creds = build_credentials(user)
-            adapter.connect(creds)
-            candles = adapter.get_candles(symbol, 3600, 50)
-            adapter.disconnect()
-    except Exception as e:
-        logger.warning('Could not fetch candles for SL/TP calc: %s', e)
-
-    if not candles:
-        from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
-        candles = generate_simulated_candle_dicts(symbol, count=50)
+    candles = _candles_to_dicts(_fetch_chart_candles(user, symbol, count=200))
 
     from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
 
@@ -1252,6 +1229,53 @@ def _resolve_adapter(user):
     return get_adapter_for_broker(user.broker or '')
 
 
+CHART_GRANULARITY = 60  # matches the frontend 1-minute candle aggregation
+
+
+def _fetch_chart_candles(user, symbol: str, count: int = 200, granularity: int = CHART_GRANULARITY):
+    """Fetch candles at chart granularity from the user's broker, falling back
+    to the shared simulated market series (paper mode / broker unreachable).
+    The returned series is the same one the chart displays, so predicted
+    entry/SL/TP levels always line up with the visible candles."""
+    if not user.paper_mode:
+        try:
+            adapter = _resolve_adapter(user)
+            creds = build_credentials(user)
+            adapter.connect(creds)
+            candles = adapter.get_candles(symbol, granularity, count)
+            adapter.disconnect()
+            if candles:
+                return candles
+        except Exception as e:
+            logger.warning(f'Chart candle fetch failed for {symbol}: {e}')
+
+    from trading_app.trading_bot.simulated_market import SimulatedMarket
+    return SimulatedMarket.get_candles(symbol, granularity, count)
+
+
+def _candles_to_dicts(candles):
+    from trading_app.trading_bot.simulated_candles import candles_to_dicts
+    return candles_to_dicts(candles)
+
+
+# ---------------------------------------------------------------------------
+# Bot market selection — the bot only trades the market the user selected
+# ---------------------------------------------------------------------------
+
+@api_view(['GET', 'POST'])
+@permission_classes([permissions.IsAuthenticated])
+def bot_market_view(request):
+    if request.method == 'GET':
+        return Response({'market': request.user.selected_market or 'EUR/USD'})
+
+    market = str(request.data.get('market', '')).strip()
+    if not market:
+        return Response({'error': 'market is required'}, status=status.HTTP_400_BAD_REQUEST)
+    request.user.selected_market = market
+    request.user.save(update_fields=['selected_market'])
+    return Response({'market': request.user.selected_market})
+
+
 # ---------------------------------------------------------------------------
 # Chart Candles — real broker history for the bot chart (simulated fallback)
 # ---------------------------------------------------------------------------
@@ -1270,20 +1294,7 @@ def chart_candles_view(request):
         count = 200
     count = max(10, min(count, 2000))
 
-    candles = []
-    if not request.user.paper_mode:
-        try:
-            adapter = _resolve_adapter(request.user)
-            creds = build_credentials(request.user)
-            adapter.connect(creds)
-            candles = adapter.get_candles(symbol, granularity, count)
-            adapter.disconnect()
-        except Exception as e:
-            logger.warning(f'Chart candle fetch failed for {symbol}: {e}')
-
-    if not candles:
-        from trading_app.trading_bot.simulated_candles import generate_simulated_candles
-        candles = generate_simulated_candles(symbol, count=count, granularity=granularity)
+    candles = _fetch_chart_candles(request.user, symbol, count=count, granularity=granularity)
 
     data = [{
         'time': int(c.timestamp.timestamp()),

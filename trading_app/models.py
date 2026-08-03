@@ -19,6 +19,8 @@ class User(AbstractUser):
     stake_amount = models.DecimalField(max_digits=12, decimal_places=2, default=Decimal('10.00'),
                                        help_text='Stake amount per trade in account currency')
     watchlist = models.JSONField(default=list, blank=True, help_text='User-preferred trading symbols')
+    selected_market = models.CharField(max_length=30, blank=True, default='EUR/USD',
+        help_text='The market currently selected in the bot panel — the bot only trades this symbol')
     avatar = models.ImageField(upload_to='avatars/', blank=True, null=True)
     phone = models.CharField(max_length=20, blank=True, default='')
     bio = models.TextField(max_length=500, blank=True, default='')

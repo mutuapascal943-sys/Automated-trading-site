@@ -26,8 +26,30 @@ class MLSignal:
     model_info: str = ""
 
 
+# Maps normalized frontend market names to their canonical training symbol so
+# model files trained as R_75 / BOOM1000 / CRASH1000 etc. are found when the
+# bot asks for "Volatility 75 Index" / "Boom 1000 Index".
+SYMBOL_ALIASES: dict[str, str] = {
+    "VOLATILITY50INDEX": "R50",
+    "VOLATILITY75INDEX": "R75",
+    "VOLATILITY100INDEX": "R100",
+    "VOLATILITY150INDEX": "R150",
+    "VOLATILITY200INDEX": "R200",
+    "VOLATILITY250INDEX": "R250",
+    "BOOM300INDEX": "BOOM300",
+    "CRASH300INDEX": "CRASH300",
+    "BOOM500INDEX": "BOOM500",
+    "CRASH500INDEX": "CRASH500",
+    "BOOM1000INDEX": "BOOM1000",
+    "CRASH1000INDEX": "CRASH1000",
+    "STEPINDEX": "STP",
+    "STEPINDEX100": "STP100N",
+}
+
+
 def _normalize_symbol(symbol: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", symbol.upper())
+    norm = re.sub(r"[^A-Z0-9]", "", symbol.upper())
+    return SYMBOL_ALIASES.get(norm, norm)
 
 
 def _model_prefix(filename: str) -> str:

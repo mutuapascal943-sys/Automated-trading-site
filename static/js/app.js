@@ -313,8 +313,33 @@
     clearChartOverlay();
     lastProposedSignal = null;
     initBotChart();
+
+    fetch('/api/bot/market/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({market: pair}),
+    }).catch(function(){});
   }
   window.updateBotMarket = updateBotMarket;
+
+  function restoreBotMarket(){
+    fetch('/api/bot/market/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(function(r){ return r.json() })
+    .then(function(data){
+      if(!data || !data.market) return;
+      var sel = document.getElementById('bot-market');
+      if(!sel || sel.value === data.market) return;
+      var valid = false;
+      for(var i = 0; i < sel.options.length; i++){
+        if(sel.options[i].value === data.market){ valid = true; break; }
+      }
+      if(!valid) return;
+      sel.value = data.market;
+      updateBotMarket();
+    })
+    .catch(function(){});
+  }
+  window.restoreBotMarket = restoreBotMarket;
 
   function updateSignals(pair, price){
     /* Kept for backward compatibility — SL/TP now come from backend */
@@ -884,6 +909,7 @@
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
+      autoscaleInfoProvider: function(){ return null; },
     });
     botEntryLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: entry},
@@ -897,6 +923,7 @@
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
+      autoscaleInfoProvider: function(){ return null; },
     });
     botSLLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: sl},
@@ -910,6 +937,7 @@
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
+      autoscaleInfoProvider: function(){ return null; },
     });
     botTPLine.setData([
       {time: Math.floor(Date.now()/1000) - 3600 * 5, value: tp},
@@ -1233,6 +1261,7 @@
     populateMarkets();
     updateMarketSummary();
     fetchDashboardStats();
+    restoreBotMarket();
     setTimeout(function(){initArtCanvas(); initBotChart(); initAnalyticsCharts()}, 100);
 
     window.addEventListener('hashchange', handleHashChange);

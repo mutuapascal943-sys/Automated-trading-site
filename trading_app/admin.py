@@ -9,7 +9,7 @@ class CustomUserAdmin(UserAdmin):
     search_fields = ['email', 'broker']
     ordering = ['-date_joined']
     fieldsets = UserAdmin.fieldsets + (
-        ('Trading Profile', {'fields': ('broker', 'balance', 'broker_api_key', 'broker_api_secret', 'broker_account_id', 'two_factor_enabled')}),
+        ('Trading Profile', {'fields': ('broker', 'balance', 'broker_api_key', 'broker_api_secret', 'broker_account_id', 'two_factor_enabled', 'selected_market')}),
     )
 
 

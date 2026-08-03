@@ -59,5 +59,6 @@ urlpatterns = [
     path('api/models/download/<str:filename>/', api_views.model_download_view, name='api_model_download'),
     path('api/health/', api_views.health_check_view, name='api_health_check'),
     path('api/chart/candles/', api_views.chart_candles_view, name='api_chart_candles'),
+    path('api/bot/market/', api_views.bot_market_view, name='api_bot_market'),
     path('api/', include(router.urls)),
 ]
