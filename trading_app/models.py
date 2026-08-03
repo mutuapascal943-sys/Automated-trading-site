@@ -166,6 +166,38 @@ class TradingSignal(models.Model):
         return f'{self.symbol} {self.signal_type} ({self.confidence}%)'
 
 
+class PredictionRecord(models.Model):
+    """Stores each live ML prediction with its feature vector and realized
+    outcome, so the model can be retrained on real trading results."""
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='predictions', null=True, blank=True)
+    symbol = models.CharField(max_length=30)
+    granularity = models.IntegerField(default=900)
+    horizon = models.IntegerField(default=4)
+    bias = models.CharField(max_length=10, choices=[
+        ('bullish', 'Bullish'), ('bearish', 'Bearish'),
+    ])
+    confidence = models.FloatField(default=0.0)
+    probability = models.FloatField(default=0.5)
+    features = models.JSONField(default=dict, blank=True)
+    candle_time = models.BigIntegerField(default=0, help_text='Epoch of the entry candle close')
+    predicted_at = models.DateTimeField(auto_now_add=True)
+    resolved = models.BooleanField(default=False)
+    realized_target = models.IntegerField(null=True, blank=True,
+        help_text='1 = price rose over horizon, 0 = fell')
+    prediction_correct = models.BooleanField(null=True, blank=True)
+    resolved_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['symbol', 'resolved']),
+            models.Index(fields=['predicted_at']),
+        ]
+
+    def __str__(self):
+        return f'{self.symbol} {self.bias} ({self.confidence:.0%})'
+
+
 class Subscription(models.Model):
     TIERS = [
         ('FREE', 'Free'),

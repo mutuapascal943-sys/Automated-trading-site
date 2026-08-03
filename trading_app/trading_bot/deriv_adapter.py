@@ -62,7 +62,7 @@ ERROR_MAP: dict[str, type] = {
 
 
 class DerivAdapter(BrokerAdapter):
-    WS_URL = "wss://ws.deriv.com/websockets/v3"
+    WS_URL = "wss://ws.derivws.com/websockets/v3"
 
     def __init__(self, app_id: str = "1089") -> None:
         if websockets is None:

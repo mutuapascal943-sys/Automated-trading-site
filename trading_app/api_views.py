@@ -1250,3 +1250,54 @@ def health_check_view(request):
 
 def _resolve_adapter(user):
     return get_adapter_for_broker(user.broker or '')
+
+
+# ---------------------------------------------------------------------------
+# Chart Candles — real broker history for the bot chart (simulated fallback)
+# ---------------------------------------------------------------------------
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def chart_candles_view(request):
+    symbol = request.query_params.get('symbol', 'EUR/USD')
+    try:
+        granularity = int(request.query_params.get('granularity', 900))
+    except ValueError:
+        granularity = 900
+    try:
+        count = int(request.query_params.get('count', 200))
+    except ValueError:
+        count = 200
+    count = max(10, min(count, 2000))
+
+    candles = []
+    if not request.user.paper_mode:
+        try:
+            adapter = _resolve_adapter(request.user)
+            creds = build_credentials(request.user)
+            adapter.connect(creds)
+            candles = adapter.get_candles(symbol, granularity, count)
+            adapter.disconnect()
+        except Exception as e:
+            logger.warning(f'Chart candle fetch failed for {symbol}: {e}')
+
+    if not candles:
+        from trading_app.trading_bot.simulated_candles import generate_simulated_candles
+        candles = generate_simulated_candles(symbol, count=count, granularity=granularity)
+
+    data = [{
+        'time': int(c.timestamp.timestamp()),
+        'open': float(c.open),
+        'high': float(c.high),
+        'low': float(c.low),
+        'close': float(c.close),
+        'volume': float(c.volume),
+    } for c in candles]
+
+    data.sort(key=lambda c: c['time'])
+    return Response({
+        'symbol': symbol,
+        'granularity': granularity,
+        'source': 'live' if not request.user.paper_mode and data else 'simulated',
+        'candles': data,
+    })

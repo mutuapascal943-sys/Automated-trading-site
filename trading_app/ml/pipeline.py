@@ -34,6 +34,7 @@ def run_pipeline(
     n_windows: int = 5,
     use_adapter: Any | None = None,
     output_dir: str | None = None,
+    feedback_rows: list[dict] | None = None,
 ) -> dict[str, Any]:
     """
     Run the full ML pipeline end-to-end.
@@ -113,6 +114,21 @@ def run_pipeline(
                 dataset["metadata"]["train_size"], dataset["metadata"]["val_size"],
                 dataset["metadata"]["test_size"], len(walk_forward))
 
+    # ── 5b. FEEDBACK ──
+    # Merge resolved live predictions into the training set so the model
+    # learns from real trading outcomes.
+    if feedback_rows:
+        n_before = dataset["metadata"]["train_size"]
+        _merge_feedback_rows(dataset, feedback_rows)
+        n_after = dataset["metadata"]["train_size"]
+        results["steps"].append({
+            "step": "feedback",
+            "rows_added": n_after - n_before,
+            "feedback_rows": len(feedback_rows),
+        })
+        logger.info("Feedback: added %d rows (train %d -> %d)",
+                    len(feedback_rows), n_before, n_after)
+
     # ── 6. TRAIN ──
     logger.info("Step 6: Training model")
     model, train_metrics = _train_model(dataset)
@@ -143,6 +159,24 @@ def run_pipeline(
 
     logger.info("Pipeline complete. Results saved to %s", results_path)
     return results
+
+
+def _merge_feedback_rows(dataset: dict, feedback_rows: list[dict]) -> None:
+    """Append resolved prediction rows to the training set (train split only)."""
+    n_cols = len(dataset["feature_columns"])
+    valid = [
+        r for r in feedback_rows
+        if r.get("target") in (0, 1)
+        and isinstance(r.get("features"), (list, tuple))
+        and len(r["features"]) == n_cols
+    ]
+    if not valid:
+        logger.info("No valid feedback rows to merge")
+        return
+    dataset["X_train"] = dataset["X_train"] + [list(r["features"]) for r in valid]
+    dataset["y_train"] = dataset["y_train"] + [int(r["target"]) for r in valid]
+    dataset["metadata"]["train_size"] = len(dataset["X_train"])
+    dataset["metadata"]["feedback_rows"] = len(valid)
 
 
 def _train_model(dataset: dict) -> tuple[Any, dict]:

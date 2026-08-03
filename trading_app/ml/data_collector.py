@@ -22,9 +22,13 @@ GRANULARITY_MAP: dict[int, str] = {
 }
 
 # Deriv limits ~5000 candles per request
-MAX_CANDLES_PER_REQUEST = 4990
+MAX_CANDLES_PER_REQUEST = 3000
 # Rate limit: be polite
-REQUEST_DELAY = 0.5
+REQUEST_DELAY = 1.0
+# Per-message read timeout (seconds)
+READ_TIMEOUT = 20
+# Max resend attempts per request
+MAX_ATTEMPTS = 5
 
 
 def collect_candles(
@@ -84,7 +88,7 @@ async def _fetch_all(
     """Paginate backward through Deriv ticks_history."""
     import websockets
 
-    url = f"wss://ws.deriv.com/websockets/v3?app_id={app_id}"
+    url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
     headers = {}
     if token:
         headers["Authorization"] = token
@@ -98,8 +102,7 @@ async def _fetch_all(
         while collected < total_needed:
             count = min(MAX_CANDLES_PER_REQUEST, total_needed - collected)
             req_id += 1
-
-            await ws.send(json.dumps({
+            request = {
                 "ticks_history": symbol,
                 "adjust_start_time": 1,
                 "start": 1,
@@ -108,25 +111,45 @@ async def _fetch_all(
                 "granularity": granularity,
                 "count": count,
                 "req_id": req_id,
-            }))
+            }
 
-            response = None
-            for _ in range(30):
-                raw = await asyncio.wait_for(ws.recv(), timeout=10)
-                msg = json.loads(raw)
-                if msg.get("req_id") == req_id:
-                    response = msg
+            chunks: list[dict] = []
+            for attempt in range(1, MAX_ATTEMPTS + 1):
+                await ws.send(json.dumps(request))
+
+                try:
+                    for _ in range(60):
+                        raw = await asyncio.wait_for(ws.recv(), timeout=READ_TIMEOUT)
+                        msg = json.loads(raw)
+                        if msg.get("req_id") != req_id:
+                            continue
+                        chunks.append(msg)
+                        if not msg.get("more_history"):
+                            break
                     break
+                except asyncio.TimeoutError:
+                    chunks.clear()
+                    if attempt < MAX_ATTEMPTS:
+                        logger.warning(
+                            "Request %d timed out (attempt %d/%d), retrying",
+                            req_id, attempt, MAX_ATTEMPTS,
+                        )
+                        await asyncio.sleep(2 * attempt)
+                    else:
+                        logger.warning("Request %d gave up after %d attempts", req_id, MAX_ATTEMPTS)
 
-            if response is None:
+            if not chunks:
                 logger.warning("No response for request %d, stopping", req_id)
                 break
 
+            response = chunks[0]
             if "error" in response:
                 logger.error("Deriv API error: %s", response["error"])
                 break
 
-            candles = response.get("candles", [])
+            candles = []
+            for chunk in chunks:
+                candles.extend(chunk.get("candles", []))
             if not candles:
                 break
 

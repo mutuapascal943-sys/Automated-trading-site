@@ -6,7 +6,7 @@ from decimal import Decimal
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
-from .models import EmailOTP, Trade, User, TradingSignal, RiskConfig, Notification
+from .models import EmailOTP, Trade, User, TradingSignal, PredictionRecord, RiskConfig, Notification
 from .serializers import TradeCreateSerializer, TradingSignalSerializer
 from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
@@ -265,12 +265,26 @@ def _run_single_user_bot(user):
                     'open': float(c.open), 'high': float(c.high),
                     'low': float(c.low), 'close': float(c.close),
                     'volume': float(c.volume),
+                    'time': int(c.timestamp.timestamp()),
                 })
 
             analysis = analyze_technical(symbol, candle_dicts, trade_history=recent_trades)
 
             from trading_app.ml.inference import predict_signal
-            ml_signal = predict_signal(candle_dicts)
+            ml_signal = predict_signal(candle_dicts, symbol=symbol)
+
+            if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
+                PredictionRecord.objects.create(
+                    user=user,
+                    symbol=symbol,
+                    granularity=CANDLE_GRANULARITY,
+                    horizon=ml_signal.horizon,
+                    bias=ml_signal.bias,
+                    confidence=ml_signal.confidence,
+                    probability=ml_signal.probability,
+                    features=ml_signal.features or {},
+                    candle_time=candle_dicts[-1].get('time', int(time.time())),
+                )
 
             if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
                 confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
@@ -606,3 +620,102 @@ def _apply_trailing_stop(trade, current_price, trailing_pct):
         if new_sl < trade.stop_loss and current_price < trade.entry_price - initial_sl_dist:
             trade.stop_loss = new_sl.quantize(Decimal('0.00001'))
             logger.info(f'Trailing stop moved to {trade.stop_loss} for trade {trade.id}')
+
+
+# ---------------------------------------------------------------------------
+# Prediction Feedback Loop — resolve ML predictions against realized price
+# ---------------------------------------------------------------------------
+
+@shared_task(
+    soft_time_limit=240,
+    time_limit=300,
+)
+def resolve_pending_predictions():
+    """Check pending PredictionRecords that have aged past their horizon and
+    mark them correct/incorrect against realized price. Only predictions made
+    with real (non-paper) market data become training feedback."""
+    pending = list(
+        PredictionRecord.objects
+        .filter(resolved=False)
+        .select_related('user')
+        .order_by('predicted_at')[:200]
+    )
+    resolved_count = 0
+    for pred in pending:
+        try:
+            if _resolve_prediction(pred):
+                resolved_count += 1
+        except Exception as e:
+            logger.error(f'Failed to resolve prediction {pred.id}: {e}')
+    logger.info(f'Resolved {resolved_count}/{len(pending)} pending predictions')
+    return resolved_count
+
+
+def _resolve_prediction(pred) -> bool:
+    """Resolve one prediction. Returns True if it reached a final state."""
+    if pred.resolved:
+        return True
+
+    elapsed = (timezone.now() - pred.predicted_at).total_seconds()
+    horizon_secs = pred.horizon * pred.granularity
+    if elapsed < horizon_secs * 2:
+        return False
+
+    user = pred.user
+    if user is None or user.paper_mode:
+        pred.resolved = True
+        pred.resolved_at = timezone.now()
+        pred.save(update_fields=['resolved', 'resolved_at'])
+        return True
+
+    candles = _fetch_prediction_candles(pred, user)
+    if not candles:
+        if elapsed > 3 * 86400:
+            pred.resolved = True
+            pred.resolved_at = timezone.now()
+            pred.save(update_fields=['resolved', 'resolved_at'])
+            return True
+        return False
+
+    ordered = sorted(candles, key=lambda c: c.timestamp)
+    start_idx = next(
+        (i for i, c in enumerate(ordered) if c.timestamp.timestamp() >= pred.candle_time),
+        None,
+    )
+    if start_idx is None or start_idx + pred.horizon >= len(ordered):
+        pred.resolved = True
+        pred.resolved_at = timezone.now()
+        pred.save(update_fields=['resolved', 'resolved_at'])
+        return True
+
+    entry = float(ordered[start_idx].close)
+    exit_price = float(ordered[start_idx + pred.horizon].close)
+
+    realized = 1 if exit_price > entry else 0
+    pred.realized_target = realized
+    pred.prediction_correct = (
+        (pred.bias == 'bullish' and realized == 1)
+        or (pred.bias == 'bearish' and realized == 0)
+    )
+    pred.resolved = True
+    pred.resolved_at = timezone.now()
+    pred.save(update_fields=['realized_target', 'prediction_correct', 'resolved', 'resolved_at'])
+    return True
+
+
+def _fetch_prediction_candles(pred, user):
+    """Fetch candle history from the user's broker for outcome evaluation."""
+    count = min(
+        5000,
+        max(100, int((time.time() - pred.candle_time) / pred.granularity) + pred.horizon + 10),
+    )
+    try:
+        adapter = get_adapter_for_broker(user.broker or '')
+        creds = build_credentials(user)
+        adapter.connect(creds)
+        candles = adapter.get_candles(pred.symbol, pred.granularity, count)
+        adapter.disconnect()
+        return candles or []
+    except Exception as e:
+        logger.warning(f'Failed to fetch prediction history for {pred.id}: {e}')
+        return []

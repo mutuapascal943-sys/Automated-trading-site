@@ -128,7 +128,7 @@ class TickerBridge:
     def _check_deriv_reachable() -> bool:
         """Quick DNS check before attempting a live WebSocket connection."""
         try:
-            socket.getaddrinfo("ws.deriv.com", 443)
+            socket.getaddrinfo("ws.derivws.com", 443)
             return True
         except socket.gaierror:
             return False
@@ -169,7 +169,7 @@ class TickerBridge:
     ) -> None:
         import websockets
 
-        url = f"wss://ws.deriv.com/websockets/v3?app_id={app_id}"
+        url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
         async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
             token = credentials.get("token", "")
             if token:

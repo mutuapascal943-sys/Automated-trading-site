@@ -43,6 +43,10 @@ class Command(BaseCommand):
             "--output", type=str, default=None,
             help="Output directory (default: ml_output/)",
         )
+        parser.add_argument(
+            "--feedback", action="store_true",
+            help="Include resolved live predictions (PredictionRecords) in training",
+        )
 
     def handle(self, *args, **options):
         symbol = options["symbol"]
@@ -52,6 +56,7 @@ class Command(BaseCommand):
         threshold = options["threshold"]
         windows = options["windows"]
         output = options["output"]
+        use_feedback = options["feedback"]
 
         self.stdout.write(self.style.NOTICE(
             f"Starting ML pipeline for {symbol}\n"
@@ -62,6 +67,14 @@ class Command(BaseCommand):
             f"  Walk-forward windows: {windows}"
         ))
 
+        feedback_rows = None
+        if use_feedback:
+            from trading_app.ml.feedback import load_feedback_rows
+            from trading_app.ml.features import FEATURE_COLUMNS
+
+            feedback_rows = load_feedback_rows(symbol, FEATURE_COLUMNS)
+            self.stdout.write(f"  Feedback rows: {len(feedback_rows) if feedback_rows else 0}")
+
         try:
             results = run_pipeline(
                 symbol=symbol,
@@ -71,6 +84,7 @@ class Command(BaseCommand):
                 threshold_pct=threshold,
                 n_windows=windows,
                 output_dir=output,
+                feedback_rows=feedback_rows,
             )
         except Exception as e:
             raise CommandError(f"Pipeline failed: {e}")

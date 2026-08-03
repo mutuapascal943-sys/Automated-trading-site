@@ -5,6 +5,7 @@ import json
 import logging
 import os
 import pickle
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -20,22 +21,53 @@ class MLSignal:
     confidence: float  # 0.0 - 1.0
     probability: float
     feature_importance: dict[str, float] | None = None
+    features: dict[str, float] | None = None
+    horizon: int = 4
     model_info: str = ""
 
 
-def load_latest_model(output_dir: str | None = None) -> tuple[Any, list[str], dict] | None:
+def _normalize_symbol(symbol: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "", symbol.upper())
+
+
+def _model_prefix(filename: str) -> str:
+    return filename.split("_")[0]
+
+
+def load_latest_model(
+    output_dir: str | None = None,
+    symbol: str | None = None,
+) -> tuple[Any, list[str], dict] | None:
     out = Path(output_dir) if output_dir else OUTPUT_DIR
     if not out.exists():
         logger.warning("ML output directory %s does not exist", out)
         return None
 
     model_files = sorted(out.glob("*_model.pkl"))
+    if symbol:
+        norm_symbol = _normalize_symbol(symbol)
+        matching = [
+            f for f in model_files
+            if _normalize_symbol(_model_prefix(f.name)) == norm_symbol
+        ]
+        if not matching:
+            matching = [
+                f for f in model_files
+                if (norm_symbol in _normalize_symbol(_model_prefix(f.name))
+                    or _normalize_symbol(_model_prefix(f.name)) in norm_symbol)
+            ]
+        if not matching:
+            logger.warning("No trained model found for symbol %s in %s", symbol, out)
+            return None
+        model_files = matching
+
     if not model_files:
         logger.warning("No trained model found in %s", out)
         return None
 
     latest_model = model_files[-1]
-    meta_files = sorted(out.glob("*_metadata.json"))
+    prefix = _model_prefix(latest_model.name)
+    meta_files = sorted(out.glob(f"{prefix}_*metadata.json"))
     metadata = {}
     if meta_files:
         meta_path = meta_files[-1]
@@ -60,14 +92,15 @@ _model_cache: tuple[Any, list[str], dict] | None = None
 _model_cache_key: str | None = None
 
 
-def _get_model(output_dir: str | None = None):
+def _get_model(output_dir: str | None = None, symbol: str | None = None):
     global _model_cache, _model_cache_key
     out = str(Path(output_dir) if output_dir else OUTPUT_DIR)
-    if _model_cache is not None and _model_cache_key == out:
+    key = f"{out}|{symbol or ''}"
+    if _model_cache is not None and _model_cache_key == key:
         return _model_cache
-    result = load_latest_model(output_dir)
+    result = load_latest_model(output_dir, symbol)
     _model_cache = result
-    _model_cache_key = out
+    _model_cache_key = key
     return result
 
 
@@ -75,8 +108,9 @@ def predict_signal(
     candles: list[dict],
     output_dir: str | None = None,
     granularity: int = 900,
+    symbol: str | None = None,
 ) -> MLSignal | None:
-    model_data = _get_model(output_dir)
+    model_data = _get_model(output_dir, symbol)
     if model_data is None:
         return None
 
@@ -131,6 +165,8 @@ def predict_signal(
             confidence=round(confidence, 3),
             probability=round(probability, 4),
             feature_importance=importances,
+            features={col: float(last[col]) for col in feature_columns},
+            horizon=horizon,
             model_info=f"RF horizon={horizon} gran={gran_label}s",
         )
     except Exception as e:

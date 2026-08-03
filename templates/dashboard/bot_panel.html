@@ -94,7 +94,7 @@ function runSignalScan(){
         symbol: pair,
         signal_type: s.signal_type,
         confidence: s.confidence / 100,
-        current_price: pairs[pair] || 0,
+        current_price: 0,
       }),
     }).then(function(r){ return r.json() }).then(function(proposal){
       if(ss) ss.textContent += '> Signal generated: ' + s.signal_type + ' (confidence: ' + s.confidence + '%)\n';

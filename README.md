@@ -42,14 +42,32 @@ The result includes: `bias` (bullish/bearish/neutral), `confidence` (0.0-1.0), `
 
 ### 4. Machine Learning Pipeline (Offline Training)
 
-In addition to rule-based analysis, the platform supports training a **Random Forest classifier** for each symbol:
+In addition to rule-based analysis, the platform supports training a **Random Forest classifier** per symbol:
 
-1. **Data Collection** — Paged WebSocket calls to Deriv API, collecting years of OHLCV data (`trading_app/ml/data_collector.py:76`)
+1. **Data Collection** — Paged WebSocket calls to Deriv API, collecting years of OHLCV data (`trading_app/ml/data_collector.py:34`)
 2. **Cleaning** — Deduplication, invalid OHLC removal, gap detection, linear interpolation of missing bars (`trading_app/ml/data_cleaner.py:19`)
 3. **Feature Engineering** — 25 features including RSI, MACD, ATR, SMA/EMA crossovers, Bollinger Bands, volume ratios, candle body ratios, and price change over multiple horizons (`trading_app/ml/features.py:249`)
 4. **Label Generation** — Binary target: 1 if price rises >= 0.1% within the next 4 candles (`trading_app/ml/labels.py:21`)
-5. **Training** — RandomForestClassifier (200 trees, max depth 10, balanced class weights) with chronological 70/15/15 split and 5-window walk-forward validation (`trading_app/ml/pipeline.py:148`)
+5. **Training** — RandomForestClassifier (200 trees, max depth 10, balanced class weights) with chronological 70/15/15 split and 5-window walk-forward validation (`trading_app/ml/pipeline.py:182`)
 6. **Export** — Pickle + ONNX + metadata JSON, designed for consumption by external MQL5 Expert Advisors
+
+Models are **symbol-aware** (`trading_app/ml/inference.py:29`): each symbol loads its own latest model (exact normalized-name match first, substring match as fallback), so two markets can use different models simultaneously. If no model exists for a symbol, inference returns `None` and the signal falls back to technical analysis only.
+
+### 4b. ML Prediction Feedback Loop
+
+Every directional ML prediction is stored with its **full 25-feature vector** in a `PredictionRecord` (`trading_app/models.py`). A background task (`resolve_pending_predictions` in `trading_app/tasks.py`, every 300s) then:
+
+1. Waits until at least 2× the forecast horizon has elapsed
+2. Fetches realized candles from the user's broker
+3. Marks the prediction correct/incorrect against actual price movement (`realized_target`)
+
+Resolved records are fed back into training as extra labeled rows, so the model improves over time from real trading outcomes:
+
+```bash
+python manage.py train_model --symbol CRASH1000 --granularity 900 --feedback
+```
+
+Feedback rows are merged into the training split (`_merge_feedback_rows` in `trading_app/ml/pipeline.py`), with the count recorded in `pipeline_results.json` under the `feedback` step. Paper-mode predictions are marked resolved without an outcome — they're excluded because simulated candles would inject noise into the model.
 
 ### 5. Risk Management
 
@@ -80,7 +98,7 @@ Before any trade is executed, it passes through a multi-layered risk engine (`tr
 
 ### 7. Position Monitoring
 
-A separate monitoring task runs every 60 seconds (`trading_app/tasks.py:468`) and:
+A separate monitoring task (`monitor_live_positions` in `trading_app/tasks.py`) runs every 60 seconds and:
 - Fetches current price for each open trade
 - Computes unrealized P&L
 - Checks stop-loss and take-profit hit conditions
@@ -89,11 +107,11 @@ A separate monitoring task runs every 60 seconds (`trading_app/tasks.py:468`) an
 
 ### 8. Real-Time Frontend
 
-The SPA frontend (`static/js/app.js`, ~1237 lines of vanilla JS) connects to the backend via:
+The SPA frontend (`static/js/app.js`, ~1280 lines of vanilla JS) connects to the backend via:
 
 - **REST API** — Django REST Framework endpoints for trades, signals, risk config, backtesting, and account management
 - **WebSocket** — Django Channels consumer (`trading_app/consumers.py:12`) streams real-time tick data to the browser via a `TickerBridge` (`trading_app/services/ticker_bridge.py:21`) that connects to Deriv WebSocket or falls back to a simulated random-walk generator
-- **Charting** — TradingView Lightweight Charts renders candlestick charts with live tick aggregation into 60-second candles, plus overlay lines for entry/SL/TP levels
+- **Charting** — TradingView Lightweight Charts renders candlestick charts with live tick aggregation into 60-second candles, plus overlay lines for entry/SL/TP levels. On load, the chart fetches **real historical candles** from the broker via `GET /api/chart/candles/` (60s granularity to match live aggregation), falling back to a simulated random-walk seed when the broker is unreachable or the user is in paper mode
 - **Clean Bot Panel** — Simplified trading bot interface with market selector, paper/live toggle, and real-time signal display. Broker selector, timeframe picker, stake input, and risk settings were removed to keep focus on what matters — the signal
 - **Simplified Settings** — Account settings streamlined by removing the Broker API configuration section. No unnecessary fields cluttering the experience
 
@@ -136,6 +154,9 @@ Every signal, trade, risk rule application, broker connection, and error is logg
 ### 10. Offline-First ML Pipeline
 The machine learning pipeline runs entirely locally — data collection, cleaning, feature engineering, training, and export. No external ML services. The trained model is exported as both Pickle and ONNX, making it usable not just within Django but from any ONNX-compatible runtime (including MQL5 Expert Advisors running inside MetaTrader).
 
+### 11. ML Prediction Feedback Loop
+Unlike a static trained model, the ML layer **learns from its own live results**. Each directional prediction is persisted with its feature vector, resolved against realized broker price after the forecast horizon, and appended to the next training run (via `train_model --feedback`). This closes the loop between signal generation and model improvement — the model continuously adapts to the market conditions it actually trades in.
+
 ## Tech Stack
 
 | Layer | Technology |
@@ -158,10 +179,10 @@ forex_ai_pro/                 # Django project configuration
   asgi.py                     #   ASGI entrypoint (Daphne)
 
 trading_app/                  # Main Django application
-  models.py                   #   User, Trade, Signal, RiskConfig, Subscription, etc.
+  models.py                   #   User, Trade, Signal, PredictionRecord, RiskConfig, etc.
   views.py                    #   Web UI views (dashboard, auth, profiles)
-  api_views.py                #   REST API endpoints (~1250 lines)
-  tasks.py                    #   Celery background tasks (bot cycle, monitoring)
+  api_views.py                #   REST API endpoints (incl. /api/chart/candles/)
+  tasks.py                    #   Celery background tasks (bot cycle, monitoring, prediction resolution)
   forms.py                    #   Registration, login, password reset forms
   serializers.py              #   DRF serializers
   decorators.py               #   2FA enforcement decorators
@@ -197,12 +218,14 @@ trading_app/trading_bot/      # Trading engine core
   symbol_map.py               #   Symbol name mapping
 
 trading_app/ml/               # Machine learning pipeline
-  pipeline.py                 #   Full training pipeline
+  pipeline.py                 #   Full training pipeline (incl. feedback-row merge)
+  inference.py                #   Symbol-aware model loading + prediction
   features.py                 #   25 technical indicator features
   labels.py                   #   Label generation
   data_collector.py           #   Deriv historical data collection
   data_cleaner.py             #   OHLCV cleaning and validation
   dataset.py                  #   Chronological splits + walk-forward
+  feedback.py                 #   Loads resolved predictions as training rows
 
 static/                       # Frontend assets
   css/style.css               #   Dark theme design system
@@ -258,6 +281,8 @@ python manage.py runserver
 
 ### Training ML Models
 
+Train a fresh model per symbol (no feedback):
+
 ```bash
 python manage.py train_model \
   --symbol EURUSD \
@@ -267,6 +292,18 @@ python manage.py train_model \
   --threshold 0.1 \
   --windows 5
 ```
+
+Retrain including resolved live predictions (feedback loop):
+
+```bash
+python manage.py train_model \
+  --symbol CRASH1000 \
+  --granularity 900 \
+  --years 2 \
+  --feedback
+```
+
+The `--feedback` flag pulls resolved `PredictionRecord`s from the database (`trading_app/ml/feedback.py`), aligns them to the model's 25 feature columns, and merges them into the training split before fitting.
 
 ## Testing
 

@@ -6,6 +6,7 @@
   let botInterval = null;
   let artAnimId = null;
   let pairs = {};
+  window.pairs = pairs;
   let changes = {};
   let histData = [];
   let marketCategories = {};
@@ -63,6 +64,7 @@
       'Boom 1000 Index':1423.80,'Crash 1000 Index':987.40,
       'Volatility 75 Index':8742.10,'Volatility 100 Index':5320.60
     };
+    window.pairs = pairs;
     changes = {'EUR/USD':0.12,'GBP/USD':-0.08,'USD/JPY':0.31,'AUD/USD':-0.15,
       'USD/CAD':0.07,'NZD/USD':-0.22,'XAU/USD':0.54,'BTC/USD':1.83,
       'Boom 1000 Index':0.92,'Crash 1000 Index':-0.43,
@@ -771,20 +773,46 @@
 
     var basePrice = pairs[pair] || 1.08;
     var now = Math.floor(Date.now() / 1000);
-    var seedCandles = [];
-    var t = now - 240;
-    var price = basePrice;
-    for (var i = 0; i < 120; i++) {
-      var change = (Math.random() - 0.5) * basePrice * 0.004;
-      var o = price;
-      var c = price + change;
-      var range = Math.abs(c - o) * 1.5 + basePrice * 0.0005;
-      var high = Math.max(o, c) + range * Math.random();
-      var low = Math.min(o, c) - range * Math.random();
-      seedCandles.push({ time: t + i * 2, open: o, high: high, low: low, close: c });
-      price = c;
+
+    function seedRandomCandles(){
+      var seedCandles = [];
+      var t = now - 240;
+      var price = basePrice;
+      for (var i = 0; i < 120; i++) {
+        var change = (Math.random() - 0.5) * basePrice * 0.004;
+        var o = price;
+        var c = price + change;
+        var range = Math.abs(c - o) * 1.5 + basePrice * 0.0005;
+        var high = Math.max(o, c) + range * Math.random();
+        var low = Math.min(o, c) - range * Math.random();
+        seedCandles.push({ time: t + i * 2, open: o, high: high, low: low, close: c });
+        price = c;
+      }
+      if (botCandleSeries) botCandleSeries.setData(seedCandles);
+      if (botChartInstance) botChartInstance.timeScale().fitContent();
     }
-    botCandleSeries.setData(seedCandles);
+
+    fetch('/api/chart/candles/?symbol=' + encodeURIComponent(pair) + '&granularity=60&count=200', {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: { 'X-Requested-With': 'XMLHttpRequest' }
+    })
+    .then(function(r){ return r.json(); })
+    .then(function(res){
+      if (!botCandleSeries || !res || !res.candles || res.candles.length < 10) {
+        seedRandomCandles();
+        return;
+      }
+      var seriesData = res.candles.map(function(c){
+        return { time: c.time, open: c.open, high: c.high, low: c.low, close: c.close };
+      });
+      seriesData.sort(function(a, b){ return a.time - b.time; });
+      botCandleSeries.setData(seriesData);
+      if (botChartInstance) botChartInstance.timeScale().fitContent();
+    })
+    .catch(function(){
+      seedRandomCandles();
+    });
 
     candleBuffer[pair] = { ticks: [], lastCandleTime: now - (now % 60) };
 

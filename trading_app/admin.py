@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
-from .models import User, EmailOTP, Trade, TradingSignal, Subscription
+from .models import User, EmailOTP, Trade, TradingSignal, Subscription, PredictionRecord
 
 
 class CustomUserAdmin(UserAdmin):
@@ -39,6 +39,14 @@ class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ['user', 'tier', 'is_active', 'started_at', 'expires_at']
     list_filter = ['tier', 'is_active']
     search_fields = ['user__email']
+
+
+@admin.register(PredictionRecord)
+class PredictionRecordAdmin(admin.ModelAdmin):
+    list_display = ['symbol', 'bias', 'confidence', 'resolved', 'prediction_correct', 'user', 'predicted_at']
+    list_filter = ['symbol', 'bias', 'resolved', 'prediction_correct']
+    search_fields = ['symbol', 'user__email']
+    readonly_fields = ['features']
 
 
 try:
