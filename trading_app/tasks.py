@@ -677,12 +677,17 @@ def _resolve_prediction(pred) -> bool:
 
     user = pred.user
     if user is None or user.paper_mode:
-        candles = _fetch_paper_prediction_candles(pred)
+        # Prefer REAL market candles so paper predictions resolve against
+        # actual price moves (Deriv candle history is public and needs no
+        # token). Fall back to the shared simulated market when offline.
+        candles = _fetch_real_outcome_candles(pred)
+        if not candles:
+            candles = _fetch_paper_prediction_candles(pred)
         if candles and _apply_prediction_outcome(pred, sorted(candles, key=lambda c: c.timestamp)):
             return True
-        # The simulated market may still be filling in bars after the entry
-        # candle. Wait for a later cycle instead of discarding the outcome;
-        # only give up after a long grace period so records never dangle.
+        # The market may still be filling in bars after the entry candle.
+        # Wait for a later cycle instead of discarding the outcome; only give
+        # up after a long grace period so records never dangle.
         if elapsed > 3 * 86400:
             pred.resolved = True
             pred.resolved_at = timezone.now()
@@ -748,6 +753,70 @@ def _fetch_paper_prediction_candles(pred):
         return []
 
 
+def _deriv_symbol_for_label(label: str) -> str:
+    """Map a frontend market label ('EUR/USD') to its Deriv API symbol
+    ('frxEURUSD'). Falls back to the label unchanged for unknown symbols."""
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+    from trading_app.ml.symbols import deriv_symbol_for
+    prefix = MARKET_SYMBOLS.get(label)
+    if prefix:
+        return deriv_symbol_for(prefix)
+    return deriv_symbol_for(label)
+
+
+def _fetch_real_outcome_candles(pred):
+    """Fetch REAL market candles for the outcome window.
+
+    Uses Deriv's public candle history (works without an API token) via the
+    same async fetcher the training pipeline uses, mapped to the correct
+    Deriv symbol for the prediction's market label. This makes paper-mode
+    predictions resolve against actual price moves instead of the simulated
+    market. Returns [] if Deriv is unreachable — the caller falls back to the
+    simulated market."""
+    import asyncio
+    from decimal import Decimal
+    from datetime import datetime, timezone
+
+    from trading_app.ml.data_collector import _fetch_all
+    from trading_app.trading_bot.interface import Candle
+    from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
+
+    symbol = _deriv_symbol_for_label(pred.symbol)
+    gran = pred.granularity
+    if gran not in GRANULARITY_MAP:
+        return []
+
+    count = min(
+        5000,
+        max(100, int((time.time() - pred.candle_time) / gran) + pred.horizon + 10),
+    )
+    try:
+        loop = asyncio.new_event_loop()
+        try:
+            rows = loop.run_until_complete(
+                _fetch_all(symbol, gran, count, int(time.time()), config("DERIV_APP_ID", default="1089"), None)
+            )
+        finally:
+            loop.close()
+        candles = [
+            Candle(
+                symbol=pred.symbol,
+                open=Decimal(str(r["open"])),
+                high=Decimal(str(r["high"])),
+                low=Decimal(str(r["low"])),
+                close=Decimal(str(r["close"])),
+                volume=Decimal(str(r["volume"])),
+                timestamp=datetime.fromtimestamp(r["time"], tz=timezone.utc),
+                granularity=gran,
+            )
+            for r in rows
+        ]
+        return candles
+    except Exception as e:
+        logger.warning(f'Failed to fetch real prediction history for {pred.id}: {e}')
+        return []
+
+
 def _fetch_prediction_candles(pred, user):
     """Fetch candle history from the user's broker for outcome evaluation."""
     count = min(
@@ -758,7 +827,10 @@ def _fetch_prediction_candles(pred, user):
         adapter = get_adapter_for_broker(user.broker or '')
         creds = build_credentials(user)
         adapter.connect(creds)
-        candles = adapter.get_candles(pred.symbol, pred.granularity, count)
+        symbol = pred.symbol
+        if type(adapter).__name__ == 'DerivAdapter':
+            symbol = _deriv_symbol_for_label(pred.symbol)
+        candles = adapter.get_candles(symbol, pred.granularity, count)
         adapter.disconnect()
         return candles or []
     except Exception as e:
