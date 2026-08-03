@@ -259,7 +259,10 @@ class TickerBridge:
                     if entry is None or entry.get("mode") != "paper":
                         continue
 
-                    price = SimulatedMarket.current_price(sym)
+                    tick = SimulatedMarket.next_tick(sym)
+                    if tick is None:
+                        continue
+                    price = tick.close
 
                     group_name = f"{cls.GROUP_PREFIX}{cls._sanitize_group_name(sym)}"
 

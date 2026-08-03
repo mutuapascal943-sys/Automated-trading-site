@@ -10,6 +10,7 @@ Usage:
 
 from django.core.management.base import BaseCommand, CommandError
 from trading_app.ml.pipeline import run_pipeline
+from trading_app.ml.symbols import deriv_symbol_for
 
 # Frontend market label -> training symbol used for the model prefix.
 MARKET_SYMBOLS: dict[str, str] = {
@@ -104,6 +105,7 @@ class Command(BaseCommand):
             try:
                 results = run_pipeline(
                     symbol=symbol,
+                    data_symbol=deriv_symbol_for(symbol),
                     granularity=granularity,
                     years=years,
                     horizon=horizon,

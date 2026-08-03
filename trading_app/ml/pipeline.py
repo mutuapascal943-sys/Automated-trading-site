@@ -35,6 +35,7 @@ def run_pipeline(
     use_adapter: Any | None = None,
     output_dir: str | None = None,
     feedback_rows: list[dict] | None = None,
+    data_symbol: str | None = None,
 ) -> dict[str, Any]:
     """
     Run the full ML pipeline end-to-end.
@@ -60,10 +61,12 @@ def run_pipeline(
     logger.info("Step 1: Collecting OHLCV data for %s", symbol)
     from .data_collector import collect_candles, collect_from_adapter
 
+    collect_symbol = data_symbol or symbol
+
     if use_adapter is not None:
-        candles_raw = collect_from_adapter(use_adapter, symbol, granularity, years)
+        candles_raw = collect_from_adapter(use_adapter, collect_symbol, granularity, years)
     else:
-        candles_raw = collect_candles(symbol, granularity, years)
+        candles_raw = collect_candles(collect_symbol, granularity, years)
 
     results["steps"].append({"step": "collect", "raw_count": len(candles_raw)})
     logger.info("Collected %d raw candles", len(candles_raw))

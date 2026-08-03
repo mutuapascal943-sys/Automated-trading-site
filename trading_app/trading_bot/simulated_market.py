@@ -40,6 +40,27 @@ BASE_PRICES: dict[str, float] = {
 MASTER_LEN = 200000
 TICK_INTERVAL = 1
 
+# Per-symbol per-tick volatility (standard deviation of simple returns).
+# FX is tight, crypto and synthetic indices are wider.
+VOLATILITIES: dict[str, float] = {
+    "EUR/USD": 0.00012,
+    "GBP/USD": 0.00012,
+    "USD/JPY": 0.00012,
+    "AUD/USD": 0.00014,
+    "USD/CAD": 0.00012,
+    "NZD/USD": 0.00014,
+    "XAU/USD": 0.00040,
+    "BTC/USD": 0.00120,
+    "Boom 1000 Index": 0.00060,
+    "Crash 1000 Index": 0.00060,
+    "Volatility 75 Index": 0.00250,
+    "Volatility 100 Index": 0.00350,
+}
+
+# Mean-reversion strength per tick. Keeps the walk anchored to BASE_PRICES so
+# prices oscillate realistically instead of compounding off to absurd levels.
+KAPPA = 0.0002
+
 
 class SimulatedMarket:
     """Deterministic, shared simulated price series per symbol."""
@@ -62,28 +83,31 @@ class SimulatedMarket:
             if cls._master_start == 0.0:
                 cls._master_start = datetime.now(timezone.utc).timestamp() - MASTER_LEN
 
-            seed_key = symbol
-            rng = random.Random(f"simulated_market:{seed_key}")
+            rng = random.Random(f"simulated_market:{symbol}")
             base = BASE_PRICES.get(symbol, 1.0)
-
-            vol = 0.00012 + (abs(hash(symbol)) % 3) * 0.00004
-            drift = 0.00008 * (1 if (abs(hash(symbol)) % 2) else -1)
+            vol = VOLATILITIES.get(symbol, 0.0002)
 
             prices: list[float] = []
             price = base
             for _ in range(MASTER_LEN):
-                price = max(0.001, price + price * (drift + rng.gauss(0, vol)))
+                price = cls._step(price, base, vol, KAPPA, rng)
                 prices.append(price)
 
             s = {
                 "prices": prices,
                 "rng": rng,
                 "vol": vol,
-                "drift": drift,
+                "base": base,
                 "next_price": price,
             }
             cls._series[symbol] = s
             return s
+
+    @staticmethod
+    def _step(price: float, base: float, vol: float, kappa: float, rng: random.Random) -> float:
+        """One mean-reverting random-walk step around the base price."""
+        ret = kappa * (base - price) / base + rng.gauss(0, vol)
+        return max(0.001, price * (1 + ret))
 
     # ------------------------------------------------------------------
     # Candle history — always a slice of the canonical path ending at the
@@ -118,7 +142,7 @@ class SimulatedMarket:
                     high=Decimal(str(round(h, 5))),
                     low=Decimal(str(round(l, 5))),
                     close=Decimal(str(round(c, 5))),
-                    volume=Decimal(str(round(len(chunk) * (abs(hash(symbol)) % 40 + 20), 2))),
+                    volume=Decimal(str(round(step * 25.0, 2))),
                     timestamp=ts,
                     granularity=granularity,
                 ))
@@ -140,8 +164,7 @@ class SimulatedMarket:
         ticker bridge can publish it; continues the shared walk."""
         s = cls._series_for(symbol)
         with cls._lock:
-            price = s["next_price"]
-            price = max(0.001, price + price * (s["drift"] + s["rng"].gauss(0, s["vol"])))
+            price = cls._step(s["next_price"], s["base"], s["vol"], KAPPA, s["rng"])
             s["next_price"] = price
             ts = datetime.now(timezone.utc)
         return Candle(

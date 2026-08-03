@@ -9,6 +9,7 @@ Usage:
 
 from django.core.management.base import BaseCommand, CommandError
 from trading_app.ml.pipeline import run_pipeline
+from trading_app.ml.symbols import deriv_symbol_for
 
 
 class Command(BaseCommand):
@@ -47,6 +48,10 @@ class Command(BaseCommand):
             "--feedback", action="store_true",
             help="Include resolved live predictions (PredictionRecords) in training",
         )
+        parser.add_argument(
+            "--data-symbol", type=str, default=None,
+            help="Deriv API symbol to collect data for (default: auto-mapped from --symbol)",
+        )
 
     def handle(self, *args, **options):
         symbol = options["symbol"]
@@ -57,9 +62,11 @@ class Command(BaseCommand):
         windows = options["windows"]
         output = options["output"]
         use_feedback = options["feedback"]
+        data_symbol = options["data_symbol"] or deriv_symbol_for(symbol)
 
         self.stdout.write(self.style.NOTICE(
             f"Starting ML pipeline for {symbol}\n"
+            f"  Data symbol: {data_symbol}\n"
             f"  Granularity: {granularity}s ({_gran_label(granularity)})\n"
             f"  History: {years:.1f} years\n"
             f"  Horizon: {horizon} bars\n"
@@ -78,6 +85,7 @@ class Command(BaseCommand):
         try:
             results = run_pipeline(
                 symbol=symbol,
+                data_symbol=data_symbol,
                 granularity=granularity,
                 years=years,
                 horizon=horizon,
