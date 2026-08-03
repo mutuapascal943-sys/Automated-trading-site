@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
-    Trade, TradingSignal,
+    Trade, TradingSignal, PredictionRecord,
     Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
 )
 from .serializers import (
@@ -483,6 +483,26 @@ def analyze_and_signal_view(request):
 
         bias = analysis.bias
         confidence = int(analysis.confidence * 100)
+
+        # Record the ML prediction so the Analytics/History panels and the
+        # feedback loop capture every manual scan, not just bot-cycle runs.
+        try:
+            from trading_app.ml.inference import predict_signal
+            ml_signal = predict_signal(candles, symbol=symbol)
+            if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
+                PredictionRecord.objects.create(
+                    user=request.user,
+                    symbol=symbol,
+                    granularity=900,
+                    horizon=ml_signal.horizon,
+                    bias=ml_signal.bias,
+                    confidence=ml_signal.confidence,
+                    probability=ml_signal.probability,
+                    features=ml_signal.features or {},
+                    candle_time=int(candles[-1].get('time', 0)),
+                )
+        except Exception as e:
+            logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
 
         signal = TradingSignal.objects.create(
             user=request.user,

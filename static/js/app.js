@@ -134,6 +134,7 @@
   /* ── NAVIGATION ── */
   function navigateToPanel(panelId){
     if(!panelId || !panelTitles[panelId]) return;
+    if(window.analyticsRefreshTimer){clearInterval(window.analyticsRefreshTimer); window.analyticsRefreshTimer = null}
     var panel = document.getElementById('panel-' + panelId);
     if(!panel) return;
     document.querySelectorAll('.section-panel').forEach(function(p){p.classList.remove('active')});
@@ -149,7 +150,11 @@
     if(panelId === 'bot'){setTimeout(function(){
       initBotChart();
     },100)}
-    if(panelId === 'analytics'){setTimeout(initAnalyticsCharts,100)}
+    if(panelId === 'analytics'){
+      setTimeout(initAnalyticsCharts,100);
+      if(window.analyticsRefreshTimer){clearInterval(window.analyticsRefreshTimer)}
+      window.analyticsRefreshTimer = setInterval(initAnalyticsCharts, 30000);
+    }
     if(panelId === 'history'){setTimeout(loadPredictionHistory,100)}
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
     if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}

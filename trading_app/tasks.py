@@ -183,9 +183,12 @@ def reset_daily_trade_counts():
     time_limit=180,
 )
 def run_bot_cycle():
+    # Signal/prediction generation runs for every user with trading enabled.
+    # auto_execute only controls whether trades are opened — not whether the
+    # bot produces signals, so the Analytics/History panels stay populated
+    # even for users who prefer to review before executing.
     users = User.objects.filter(
         risk_config__trading_enabled=True,
-        risk_config__auto_execute=True,
     ).select_related('risk_config')[:50]
 
     for user in users:
@@ -261,13 +264,20 @@ def _run_single_user_bot(user):
                     if cached and cached.get('price'):
                         candles = _make_fallback_candle(symbol, cached)
 
+            if not candles and user.paper_mode:
+                # Unknown broker / no live adapter in paper mode: fall back to
+                # the shared simulated series so the bot still generates
+                # predictions and signals for every paper user.
+                from trading_app.trading_bot.simulated_market import SimulatedMarket
+                candles = SimulatedMarket.get_candles(symbol, CANDLE_GRANULARITY, 50)
+
             if not candles:
                 continue
 
             recent_trades = list(
                 Trade.objects.filter(user=user, symbol=symbol, status='CLOSED')
                 .order_by('-closed_at')[:10]
-                .values('action', 'pnl', 'confidence', 'symbol')
+                .values('action', 'pnl', 'symbol')
             )
 
             candle_dicts = []
@@ -347,6 +357,15 @@ def _run_single_user_bot(user):
             }
             inner_serializer = TradeCreateSerializer(data=signal_data)
             if not inner_serializer.is_valid():
+                continue
+
+            # Execution is opt-in per risk config: generate signals for every
+            # enabled user but only open trades when auto_execute is on.
+            if not risk.auto_execute:
+                logger.info(
+                    f'Signal {signal_type} {symbol} for user {user.id} generated '
+                    f'(auto_execute off, no trade opened)'
+                )
                 continue
 
             trade = inner_serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
