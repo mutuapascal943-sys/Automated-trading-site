@@ -15,7 +15,9 @@
 
   var wsConnections = {};
   var botChartInstance = null;
+
   var botCandleSeries = null;
+  var botChartTimeRange = null;
   var candleBuffer = {};
   var currentChartPair = null;
 
@@ -596,8 +598,8 @@
         if(s.entry_price){
           var proposal = {
             current_price: s.entry_price,
-            stop_loss: s.stop_loss || '0',
-            take_profit: s.take_profit || '0',
+            stop_loss: s.stop_loss,
+            take_profit: s.take_profit,
             sl_distance: '0',
             tp_distance: '0',
             atr: '0',
@@ -858,6 +860,7 @@
         price = c;
       }
       if (botCandleSeries) botCandleSeries.setData(seedCandles);
+      botChartTimeRange = seedCandles.length ? { min: seedCandles[0].time, max: seedCandles[seedCandles.length - 1].time } : null;
       if (botChartInstance) botChartInstance.timeScale().fitContent();
     }
 
@@ -877,6 +880,7 @@
       });
       seriesData.sort(function(a, b){ return a.time - b.time; });
       botCandleSeries.setData(seriesData);
+      botChartTimeRange = seriesData.length ? { min: seriesData[0].time, max: seriesData[seriesData.length - 1].time } : null;
       if (botChartInstance) botChartInstance.timeScale().fitContent();
     })
     .catch(function(){
@@ -944,7 +948,10 @@
     var sl = parseFloat(proposal.stop_loss);
     var tp = parseFloat(proposal.take_profit);
 
-    if(isNaN(entry) || isNaN(sl) || isNaN(tp)) return;
+    if(isNaN(entry) || isNaN(sl) || isNaN(tp) || entry <= 0 || sl <= 0 || tp <= 0) return;
+
+    var endT = Math.floor(Date.now() / 1000);
+    var startT = (botChartTimeRange && botChartTimeRange.min) ? botChartTimeRange.min : endT - 3600 * 5;
 
     botEntryLine = botChartInstance.addLineSeries({
       color: '#00d4aa',
@@ -955,8 +962,8 @@
       crosshairMarkerVisible: false,
     });
     botEntryLine.setData([
-      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: entry},
-      {time: Math.floor(Date.now()/1000), value: entry},
+      {time: startT, value: entry},
+      {time: endT, value: entry},
     ]);
 
     botSLLine = botChartInstance.addLineSeries({
@@ -968,8 +975,8 @@
       crosshairMarkerVisible: false,
     });
     botSLLine.setData([
-      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: sl},
-      {time: Math.floor(Date.now()/1000), value: sl},
+      {time: startT, value: sl},
+      {time: endT, value: sl},
     ]);
 
     botTPLine = botChartInstance.addLineSeries({
@@ -981,11 +988,12 @@
       crosshairMarkerVisible: false,
     });
     botTPLine.setData([
-      {time: Math.floor(Date.now()/1000) - 3600 * 5, value: tp},
-      {time: Math.floor(Date.now()/1000), value: tp},
+      {time: startT, value: tp},
+      {time: endT, value: tp},
     ]);
 
     try{ botChartInstance.priceScale('right').applyOptions({ autoScale: true }); }catch(e){}
+    try{ botChartInstance.timeScale().fitContent(); }catch(e){}
 
     var legend = document.getElementById('chart-levels-legend');
     if(legend) legend.style.display = 'flex';

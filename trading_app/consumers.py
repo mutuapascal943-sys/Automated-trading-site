@@ -14,7 +14,7 @@ class MarketConsumer(AsyncWebsocketConsumer):
         symbol = self.scope['url_route']['kwargs']['symbol']
         normalised = symbol.replace('-', '/')
         self.symbol = normalised
-        safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', symbol)
+        safe = re.sub(r'[^a-zA-Z0-9_.-]', '_', normalised)
         self.group_name = f'market_{safe}'
 
         await self.channel_layer.group_add(self.group_name, self.channel_name)
