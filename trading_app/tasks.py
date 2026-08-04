@@ -760,8 +760,12 @@ def _resolve_prediction(pred) -> bool:
 
 
 def _apply_prediction_outcome(pred, ordered) -> bool:
-    """Compare the entry candle close with the close `horizon` bars later and
-    store the realized target. Returns True when an outcome was computed."""
+    """Compare the entry candle close with the price `horizon` bars later and
+    store the realized target. The label mirrors the training definition in
+    labels.py: 1 when price touches a +LABEL_THRESHOLD_PCT move up anywhere in
+    the horizon window, 0 otherwise. Returns True when an outcome was computed."""
+    from trading_app.ml.labels import LABEL_THRESHOLD_PCT
+
     start_idx = next(
         (i for i, c in enumerate(ordered) if c.timestamp.timestamp() >= pred.candle_time),
         None,
@@ -772,7 +776,10 @@ def _apply_prediction_outcome(pred, ordered) -> bool:
     entry = float(ordered[start_idx].close)
     exit_price = float(ordered[start_idx + pred.horizon].close)
 
-    realized = 1 if exit_price > entry else 0
+    window = [float(c.close) for c in ordered[start_idx + 1: start_idx + 1 + pred.horizon]]
+    max_up_pct = (max(window) - entry) / max(entry, 1e-8) * 100
+    realized = 1 if max_up_pct >= LABEL_THRESHOLD_PCT else 0
+
     pred.entry_price = ordered[start_idx].close
     pred.exit_price = ordered[start_idx + pred.horizon].close
     pred.realized_target = realized
@@ -925,6 +932,7 @@ def _run_feedback_retrain():
     from trading_app.ml import inference as ml_inference
     from trading_app.ml.feedback import load_feedback_rows
     from trading_app.ml.features import FEATURE_COLUMNS
+    from trading_app.ml.labels import LABEL_THRESHOLD_PCT
     from trading_app.ml.pipeline import run_pipeline
     from trading_app.ml.symbols import deriv_symbol_for
 
@@ -963,7 +971,7 @@ def _run_feedback_retrain():
                 granularity=CANDLE_GRANULARITY,
                 years=2.0,
                 horizon=4,
-                threshold_pct=0.1,
+                threshold_pct=LABEL_THRESHOLD_PCT,
                 n_windows=5,
                 output_dir=str(ml_inference.OUTPUT_DIR),
                 feedback_rows=feedback_rows,

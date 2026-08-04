@@ -58,6 +58,30 @@ class FeedbackResolutionTests(TestCase):
         self.assertEqual(pred.realized_target, 0)
         self.assertFalse(pred.prediction_correct)
 
+    def test_apply_outcome_small_up_move_is_miss(self):
+        base = int(timezone.now().timestamp())
+        pred = self._pred(candle_time=base)
+        candles = [_candle(base + i * 900, 1.10 if i < 4 else 1.101) for i in range(6)]
+        self.assertTrue(_apply_prediction_outcome(pred, candles))
+        pred.refresh_from_db()
+        self.assertEqual(pred.realized_target, 0)
+
+    def test_apply_outcome_touch_label(self):
+        base = int(timezone.now().timestamp())
+        pred = self._pred(candle_time=base)
+        candles = [
+            _candle(base + 0 * 900, 1.10),
+            _candle(base + 1 * 900, 1.1035),
+            _candle(base + 2 * 900, 1.101),
+            _candle(base + 3 * 900, 1.1005),
+            _candle(base + 4 * 900, 1.1005),
+            _candle(base + 5 * 900, 1.1005),
+        ]
+        self.assertTrue(_apply_prediction_outcome(pred, candles))
+        pred.refresh_from_db()
+        self.assertEqual(pred.realized_target, 1)
+        self.assertEqual(pred.exit_price, Decimal('1.10050'))
+
     def test_apply_outcome_insufficient_data(self):
         base = int(timezone.now().timestamp())
         pred = self._pred(candle_time=base + 5000)  # no candle reaches candle_time

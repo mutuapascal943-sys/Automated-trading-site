@@ -34,8 +34,8 @@ class Command(BaseCommand):
             help="Prediction horizon in bars (default: 4)",
         )
         parser.add_argument(
-            "--threshold", type=float, default=0.1,
-            help="Price change threshold in %% (default: 0.1)",
+            "--threshold", type=float, default=LABEL_THRESHOLD_PCT,
+            help=f"Price change threshold in %% (default: {LABEL_THRESHOLD_PCT})",
         )
         parser.add_argument(
             "--windows", type=int, default=5,
