@@ -1,5 +1,5 @@
 {
-  "symbol": "CRASH1000",
+  "symbol": "R_100",
   "granularity": 300,
   "steps": [
     {
@@ -9,14 +9,14 @@
     {
       "step": "clean",
       "count": 105121,
-      "start": 1754299634,
-      "end": 1785835500,
-      "span_days": 364.9984490740741,
-      "avg_gap": 299.99872526636227,
+      "start": 1754300391,
+      "end": 1785836100,
+      "span_days": 364.99663194444446,
+      "avg_gap": 299.9972317351598,
       "max_gap": 300,
       "interpolated_bars": 3,
-      "avg_return": 7.577822021107977e-07,
-      "return_std": 0.0006649445210842779,
+      "avg_return": -3.1285700431365025e-08,
+      "return_std": 0.0030842100977177657,
       "valid": true
     },
     {
@@ -27,12 +27,12 @@
     {
       "step": "labels",
       "total": 105117,
-      "positive": 36487,
-      "negative": 68630,
-      "pos_ratio": 0.3471,
-      "avg_return": 0.000303,
-      "max_return": 0.13011,
-      "min_return": -1.122143
+      "positive": 66941,
+      "negative": 38176,
+      "pos_ratio": 0.6368,
+      "avg_return": -4e-05,
+      "max_return": 2.385867,
+      "min_return": -2.769893
     },
     {
       "step": "dataset",
@@ -40,12 +40,12 @@
       "train_size": 73581,
       "val_size": 15768,
       "test_size": 15768,
-      "train_start": 1754299634,
-      "train_end": 1776373500,
-      "val_start": 1776373800,
-      "val_end": 1781103900,
-      "test_start": 1781104200,
-      "test_end": 1785834300
+      "train_start": 1754300391,
+      "train_end": 1776374100,
+      "val_start": 1776374400,
+      "val_end": 1781104500,
+      "test_start": 1781104800,
+      "test_end": 1785834900
     },
     {
       "step": "walk_forward",
@@ -75,217 +75,217 @@
     },
     {
       "step": "train",
-      "train_accuracy": 0.6787,
-      "val_accuracy": 0.4807,
-      "val_precision": 0.3585,
-      "val_recall": 0.5999,
-      "val_f1": 0.4488,
-      "val_auc": 0.5094
+      "train_accuracy": 0.653,
+      "val_accuracy": 0.5585,
+      "val_precision": 0.6234,
+      "val_recall": 0.7527,
+      "val_f1": 0.682,
+      "val_auc": 0.4921
     },
     {
       "step": "test",
-      "test_accuracy": 0.4895,
-      "test_precision": 0.3574,
-      "test_recall": 0.598,
-      "test_f1": 0.4474,
-      "test_auc": 0.5213,
+      "test_accuracy": 0.5921,
+      "test_precision": 0.6457,
+      "test_recall": 0.8179,
+      "test_f1": 0.7217,
+      "test_auc": 0.4928,
       "confusion_matrix": [
         [
-          4461,
-          5859
+          997,
+          4576
         ],
         [
-          2190,
-          3258
+          1856,
+          8339
         ]
       ],
       "top_features": [
         {
-          "name": "sma_50",
-          "importance": 0.0657
-        },
-        {
-          "name": "bb_lower",
-          "importance": 0.0617
-        },
-        {
-          "name": "ema_26",
-          "importance": 0.0595
-        },
-        {
-          "name": "bb_upper",
-          "importance": 0.0549
-        },
-        {
-          "name": "sma_20",
-          "importance": 0.0549
+          "name": "macd_hist",
+          "importance": 0.0609
         },
         {
           "name": "macd_signal",
-          "importance": 0.0517
-        },
-        {
-          "name": "macd_hist",
-          "importance": 0.0516
-        },
-        {
-          "name": "sma_10",
-          "importance": 0.0514
-        },
-        {
-          "name": "ema_12",
-          "importance": 0.0502
+          "importance": 0.0528
         },
         {
           "name": "bb_width",
-          "importance": 0.0501
+          "importance": 0.0526
+        },
+        {
+          "name": "sma_50",
+          "importance": 0.0525
+        },
+        {
+          "name": "rsi_14",
+          "importance": 0.0472
+        },
+        {
+          "name": "price_vs_sma20",
+          "importance": 0.0471
+        },
+        {
+          "name": "bb_upper",
+          "importance": 0.0461
+        },
+        {
+          "name": "sma_20",
+          "importance": 0.0454
+        },
+        {
+          "name": "macd",
+          "importance": 0.0441
+        },
+        {
+          "name": "sma5_vs_sma20",
+          "importance": 0.0441
         }
       ]
     },
     {
       "step": "walk_forward_eval",
-      "wf_avg_accuracy": 0.5979,
-      "wf_avg_f1": 0.4851,
+      "wf_avg_accuracy": 0.6254,
+      "wf_avg_f1": 0.7206,
       "wf_windows": [
         {
           "window": 1,
-          "accuracy": 0.6695,
-          "f1": 0.395,
+          "accuracy": 0.6444,
+          "f1": 0.7245,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 2,
-          "accuracy": 0.6889,
-          "f1": 0.4791,
+          "accuracy": 0.6965,
+          "f1": 0.7646,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 3,
-          "accuracy": 0.6819,
-          "f1": 0.6613,
+          "accuracy": 0.618,
+          "f1": 0.6895,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 4,
-          "accuracy": 0.4652,
-          "f1": 0.4614,
+          "accuracy": 0.5871,
+          "f1": 0.725,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 5,
-          "accuracy": 0.484,
-          "f1": 0.4288,
+          "accuracy": 0.5811,
+          "f1": 0.6992,
           "train_size": 15767,
           "test_size": 5256
         }
       ]
     }
   ],
-  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\CRASH1000_300_20260804_093130_model.pkl",
-  "metadata_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\CRASH1000_300_20260804_093130_metadata.json",
+  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\R_100_300_20260804_094405_model.pkl",
+  "metadata_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\R_100_300_20260804_094405_metadata.json",
   "metrics": {
-    "train_accuracy": 0.6787,
-    "val_accuracy": 0.4807,
-    "val_precision": 0.3585,
-    "val_recall": 0.5999,
-    "val_f1": 0.4488,
-    "val_auc": 0.5094,
-    "test_accuracy": 0.4895,
-    "test_precision": 0.3574,
-    "test_recall": 0.598,
-    "test_f1": 0.4474,
-    "test_auc": 0.5213,
+    "train_accuracy": 0.653,
+    "val_accuracy": 0.5585,
+    "val_precision": 0.6234,
+    "val_recall": 0.7527,
+    "val_f1": 0.682,
+    "val_auc": 0.4921,
+    "test_accuracy": 0.5921,
+    "test_precision": 0.6457,
+    "test_recall": 0.8179,
+    "test_f1": 0.7217,
+    "test_auc": 0.4928,
     "confusion_matrix": [
       [
-        4461,
-        5859
+        997,
+        4576
       ],
       [
-        2190,
-        3258
+        1856,
+        8339
       ]
     ],
     "top_features": [
       {
-        "name": "sma_50",
-        "importance": 0.0657
-      },
-      {
-        "name": "bb_lower",
-        "importance": 0.0617
-      },
-      {
-        "name": "ema_26",
-        "importance": 0.0595
-      },
-      {
-        "name": "bb_upper",
-        "importance": 0.0549
-      },
-      {
-        "name": "sma_20",
-        "importance": 0.0549
+        "name": "macd_hist",
+        "importance": 0.0609
       },
       {
         "name": "macd_signal",
-        "importance": 0.0517
-      },
-      {
-        "name": "macd_hist",
-        "importance": 0.0516
-      },
-      {
-        "name": "sma_10",
-        "importance": 0.0514
-      },
-      {
-        "name": "ema_12",
-        "importance": 0.0502
+        "importance": 0.0528
       },
       {
         "name": "bb_width",
-        "importance": 0.0501
+        "importance": 0.0526
+      },
+      {
+        "name": "sma_50",
+        "importance": 0.0525
+      },
+      {
+        "name": "rsi_14",
+        "importance": 0.0472
+      },
+      {
+        "name": "price_vs_sma20",
+        "importance": 0.0471
+      },
+      {
+        "name": "bb_upper",
+        "importance": 0.0461
+      },
+      {
+        "name": "sma_20",
+        "importance": 0.0454
+      },
+      {
+        "name": "macd",
+        "importance": 0.0441
+      },
+      {
+        "name": "sma5_vs_sma20",
+        "importance": 0.0441
       }
     ],
-    "wf_avg_accuracy": 0.5979,
-    "wf_avg_f1": 0.4851,
+    "wf_avg_accuracy": 0.6254,
+    "wf_avg_f1": 0.7206,
     "wf_windows": [
       {
         "window": 1,
-        "accuracy": 0.6695,
-        "f1": 0.395,
+        "accuracy": 0.6444,
+        "f1": 0.7245,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 2,
-        "accuracy": 0.6889,
-        "f1": 0.4791,
+        "accuracy": 0.6965,
+        "f1": 0.7646,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 3,
-        "accuracy": 0.6819,
-        "f1": 0.6613,
+        "accuracy": 0.618,
+        "f1": 0.6895,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 4,
-        "accuracy": 0.4652,
-        "f1": 0.4614,
+        "accuracy": 0.5871,
+        "f1": 0.725,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 5,
-        "accuracy": 0.484,
-        "f1": 0.4288,
+        "accuracy": 0.5811,
+        "f1": 0.6992,
         "train_size": 15767,
         "test_size": 5256
       }

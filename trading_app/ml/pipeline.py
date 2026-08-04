@@ -24,13 +24,15 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "ml_output"
 
+from .labels import LABEL_THRESHOLD_PCT  # noqa: E402
+
 
 def run_pipeline(
     symbol: str = "EURUSD",
     granularity: int = 900,
     years: float = 2.0,
     horizon: int = 4,
-    threshold_pct: float = 0.1,
+    threshold_pct: float = LABEL_THRESHOLD_PCT,
     n_windows: int = 5,
     use_adapter: Any | None = None,
     output_dir: str | None = None,

@@ -17,11 +17,17 @@ from __future__ import annotations
 import math
 from typing import Literal
 
+# Single source of truth for the minimum move (in %) that counts as a "hit".
+# Used by training (labels.py/pipeline.py), the training commands, and the
+# runtime outcome resolver (tasks.py) so feedback labels always match the
+# label definition the model was trained on.
+LABEL_THRESHOLD_PCT = 0.25
+
 
 def generate_labels(
     candles: list[dict],
     horizon: int = 4,
-    threshold_pct: float = 0.1,
+    threshold_pct: float = LABEL_THRESHOLD_PCT,
     target_type: Literal["binary", "regression"] = "binary",
 ) -> list[dict]:
     """

@@ -8,6 +8,7 @@ Usage:
 """
 
 from django.core.management.base import BaseCommand, CommandError
+from trading_app.ml.labels import LABEL_THRESHOLD_PCT
 from trading_app.ml.pipeline import run_pipeline
 from trading_app.ml.symbols import deriv_symbol_for
 
