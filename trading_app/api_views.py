@@ -877,7 +877,7 @@ def predictions_view(request):
             status = 'Pending'
         history.append({
             'id': p.id,
-            'date': (p.resolved_at or p.predicted_at).strftime('%Y-%m-%d %H:%M'),
+            'date': (p.resolved_at or p.predicted_at).isoformat(),
             'symbol': p.symbol,
             'signal': 'BUY' if p.bias == 'bullish' else 'SELL',
             'confidence': p.confidence,

@@ -391,6 +391,15 @@
   }
 
   /* ── HISTORY ── */
+  var prevPredStatus = {};
+
+  function formatLocalDate(iso){
+    if(!iso) return '—';
+    var d = new Date(iso);
+    if(isNaN(d.getTime())) return iso;
+    return d.toLocaleString([], {month:'2-digit',day:'2-digit',year:'2-digit',hour:'2-digit',minute:'2-digit'});
+  }
+
   function loadPredictionHistory(){
     fetch('/api/predictions/?t=' + Date.now(), {
       headers: {'X-Requested-With': 'XMLHttpRequest'},
@@ -398,11 +407,19 @@
     .then(function(r){ return r.json() })
     .then(function(data){
       var rows = data.history || [];
+      rows.forEach(function(p){
+        var prev = prevPredStatus[p.id];
+        if(prev === 'Pending' && p.status !== 'Pending'){
+          var emoji = p.status === 'Correct' ? '✅' : '❌';
+          showToast(emoji + ' ' + p.symbol + ' ' + p.signal + ' prediction ' + p.status + ' — new signal in progress', p.status === 'Correct' ? 'success' : 'error');
+        }
+        prevPredStatus[p.id] = p.status;
+      });
       if(rows.length > 0){
         histData = rows.map(function(p){
           var status = p.status || 'Pending';
           return [
-            p.date,
+            formatLocalDate(p.date),
             p.symbol,
             p.signal,
             p.entry_price != null ? p.entry_price : '—',
