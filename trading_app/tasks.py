@@ -168,8 +168,9 @@ def check_paper_positions():
 
 
 def _update_user_balance(user, pnl):
-    user.balance += pnl
-    user.save(update_fields=['balance'])
+    from django.db.models import F
+    User.objects.filter(pk=user.pk).update(balance=F('balance') + pnl)
+    user.refresh_from_db()
 
 
 @shared_task

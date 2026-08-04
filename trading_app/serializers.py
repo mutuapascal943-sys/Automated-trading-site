@@ -10,7 +10,8 @@ class UserSerializer(serializers.ModelSerializer):
         model = User
         fields = ['id', 'email', 'broker', 'two_factor_enabled', 'balance',
                   'broker_api_key', 'broker_account_id', 'date_joined']
-        read_only_fields = ['id', 'date_joined']
+        read_only_fields = ['id', 'date_joined', 'balance', 'two_factor_enabled',
+                            'broker_api_key', 'broker_account_id']
         extra_kwargs = {
             'broker_api_key': {'write_only': True},
         }

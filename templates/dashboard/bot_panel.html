@@ -57,8 +57,10 @@
 </div>
 
 <script>
-var botScanInterval = null;
+var botScanInterval = false;
+var botScanTimer = null;
 var lastSignalKey = null;
+var lastPendingSignalId = null;
 
 function toggleBot(){
   var btn = document.getElementById('bot-toggle-btn');
@@ -88,10 +90,43 @@ function runSignalScan(){
       return;
     }
     if(data.pending){
-      if(ss) ss.textContent += '> Prediction pending — signal unchanged.\n';
-      return;
+      var s = data.signal;
+      if(!s){
+        if(ss) ss.textContent += '> Prediction pending — signal unchanged.\n';
+        return;
+      }
+      if(s.entry_price && s.stop_loss && s.take_profit){
+        displaySignal({
+          current_price: s.entry_price,
+          stop_loss: s.stop_loss,
+          take_profit: s.take_profit,
+        }, s);
+        if(ss) ss.textContent += '> Prediction: ' + s.signal_type + ' (confidence: ' + s.confidence + '%) — pending, signal unchanged.\n';
+        return;
+      }
+      if(lastPendingSignalId === s.id){
+        if(ss) ss.textContent += '> Prediction pending — signal unchanged.\n';
+        return;
+      }
+      lastPendingSignalId = s.id;
+      return fetch('/api/signal/propose/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+        body: JSON.stringify({
+          symbol: pair,
+          signal_type: s.signal_type,
+          confidence: s.confidence / 100,
+          current_price: 0,
+        }),
+      }).then(function(r){ return r.json() }).then(function(proposal){
+        if(ss) ss.textContent += '> Prediction: ' + s.signal_type + ' (confidence: ' + s.confidence + '%)\n';
+        if(ss) ss.textContent += '> Entry: ' + proposal.current_price + ' | SL: ' + proposal.stop_loss + ' | TP: ' + proposal.take_profit + '\n';
+        displaySignal(proposal, s);
+        if(ss) ss.textContent += '> Prediction pending — signal unchanged.\n';
+      });
     }
     var s = data.signal;
+    lastPendingSignalId = s.id;
     return fetch('/api/signal/propose/', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
@@ -110,6 +145,11 @@ function runSignalScan(){
   .catch(function(err){
     var ss = document.getElementById('scanStatus');
     if(ss) ss.textContent += '> Scan error: ' + err + '\n';
+  })
+  .then(function(){
+    if(botScanInterval){
+      botScanTimer = setTimeout(runSignalScan, 30000);
+    }
   });
 }
 
@@ -123,12 +163,14 @@ function displaySignal(proposal, signalData){
   if(sigKey === lastSignalKey) return;
   lastSignalKey = sigKey;
   var timeStr = new Date().toLocaleTimeString();
+  var safePair = escapeHtml(pair);
+  var safeType = escapeHtml(signalType);
   sigEl.innerHTML =
-    '<div style="margin-bottom:8px"><strong>' + signalType + '</strong> <span style="color:var(--accent)">' + pair + '</span></div>' +
+    '<div style="margin-bottom:8px"><strong>' + safeType + '</strong> <span style="color:var(--accent)">' + safePair + '</span></div>' +
     '<div style="display:grid;gap:4px;font-size:11px">' +
-    '<div><span style="color:var(--text3)">Entry:</span> ' + proposal.current_price + '</div>' +
-    '<div><span style="color:var(--text3)">SL:</span> ' + proposal.stop_loss + '</div>' +
-    '<div><span style="color:var(--text3)">TP:</span> ' + proposal.take_profit + '</div>' +
+    '<div><span style="color:var(--text3)">Entry:</span> ' + escapeHtml(String(proposal.current_price)) + '</div>' +
+    '<div><span style="color:var(--text3)">SL:</span> ' + escapeHtml(String(proposal.stop_loss)) + '</div>' +
+    '<div><span style="color:var(--text3)">TP:</span> ' + escapeHtml(String(proposal.take_profit)) + '</div>' +
     '<div><span style="color:var(--text3)">Confidence:</span> ' + confidence + '%</div>' +
     '<div><span style="color:var(--text3)">Time:</span> ' + timeStr + '</div>' +
     '</div>';
@@ -150,14 +192,15 @@ function startBot(){
   if(ss){ ss.style.display = 'block'; ss.textContent = '> Bot started scanning...\n'; }
 
   runSignalScan();
-  botScanInterval = setInterval(runSignalScan, 30000);
+  botScanInterval = true;
 }
 
 function stopBot(){
-  if(botScanInterval){
-    clearInterval(botScanInterval);
-    botScanInterval = null;
+  if(botScanTimer){
+    clearTimeout(botScanTimer);
+    botScanTimer = null;
   }
+  botScanInterval = false;
   var btn = document.getElementById('bot-toggle-btn');
   var dot = document.getElementById('bot-status-dot');
   var txt = document.getElementById('bot-status-text');

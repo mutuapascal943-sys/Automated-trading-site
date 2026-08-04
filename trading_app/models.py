@@ -96,7 +96,7 @@ class EmailOTP(models.Model):
         return not self.is_used and not self.is_expired()
 
     def __str__(self):
-        return f'{self.user.email} - {self.purpose} - {self.code}'
+        return f'{self.user.email} - {self.purpose}'
 
 
 class Trade(models.Model):

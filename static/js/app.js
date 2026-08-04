@@ -228,8 +228,10 @@
       var ask = (p * 1.0002).toFixed(p > 100 ? 2 : 5);
       var dailyHigh = (p * 1.003).toFixed(p > 100 ? 2 : 5);
       var dailyLow = (p * 0.997).toFixed(p > 100 ? 2 : 5);
-      return '<div class="market-card ' + cls + '" onclick="navigateToBot(\'' + k + '\')">' +
-        '<div class="market-pair">' + k + '<span class="market-category-badge">' + cat + '</span></div>' +
+      var safeK = escapeHtml(k);
+      var safeCat = escapeHtml(cat);
+      return '<div class="market-card ' + cls + '" onclick="navigateToBot(\'' + safeK + '\')">' +
+        '<div class="market-pair">' + safeK + '<span class="market-category-badge">' + safeCat + '</span></div>' +
         '<div class="market-price-row">' +
         '<span class="market-price">' + pStr + '</span>' +
         '<span class="market-change ' + cls + '">' + sign + changeVal + '%</span></div>' +
@@ -332,6 +334,7 @@
     clearChartOverlay();
     lastProposedSignal = null;
     if(typeof lastSignalKey !== 'undefined') lastSignalKey = null;
+    if(typeof lastPendingSignalId !== 'undefined') lastPendingSignalId = null;
     initBotChart();
 
     fetch('/api/bot/market/', {
@@ -457,14 +460,14 @@
       var color = r[2] === 'BUY' ? 'var(--teal)' : 'var(--red)';
       var resultColor = r[5] === 'Correct' ? 'var(--teal)' : r[5] === 'Missed' ? 'var(--red)' : 'var(--text2)';
       var badgeClass = r[6].toLowerCase();
-      return '<tr data-status="' + r[6] + '">' +
-        '<td class="mono" style="font-size:12px">' + r[0] + '</td>' +
-        '<td><strong>' + r[1] + '</strong></td>' +
-        '<td class="mono" style="color:' + color + '">' + r[2] + '</td>' +
-        '<td class="mono">' + r[3] + '</td>' +
-        '<td class="mono">' + r[4] + '</td>' +
-        '<td class="mono" style="color:' + resultColor + '">' + r[5] + '</td>' +
-        '<td><span class="badge ' + badgeClass + '">' + r[6] + '</span></td>' +
+      return '<tr data-status="' + escapeHtml(r[6]) + '">' +
+        '<td class="mono" style="font-size:12px">' + escapeHtml(r[0]) + '</td>' +
+        '<td><strong>' + escapeHtml(r[1]) + '</strong></td>' +
+        '<td class="mono" style="color:' + color + '">' + escapeHtml(r[2]) + '</td>' +
+        '<td class="mono">' + escapeHtml(String(r[3])) + '</td>' +
+        '<td class="mono">' + escapeHtml(String(r[4])) + '</td>' +
+        '<td class="mono" style="color:' + resultColor + '">' + escapeHtml(r[5]) + '</td>' +
+        '<td><span class="badge ' + badgeClass + '">' + escapeHtml(r[6]) + '</span></td>' +
         '</tr>';
     }).join('');
   }
@@ -717,6 +720,8 @@
   window.executeTrade = executeTrade;
 
   function getCSRF(){
+    var meta = document.querySelector('meta[name="csrf-token"]');
+    if(meta && meta.content) return meta.content;
     var m = document.cookie.match(/csrftoken=([^;]+)/);
     return m ? m[1] : '';
   }
@@ -737,7 +742,7 @@
     overviewPairs.forEach(function(sym){
       var wrap = document.createElement('div');
       wrap.className = 'mini-chart-wrap';
-      wrap.innerHTML = '<div class="mini-chart-label">' + sym + '</div><div class="mini-chart-container" id="mc-' + sym.replace(/[^a-zA-Z0-9]/g, '_') + '"></div>';
+      wrap.innerHTML = '<div class="mini-chart-label">' + escapeHtml(sym) + '</div><div class="mini-chart-container" id="mc-' + sym.replace(/[^a-zA-Z0-9]/g, '_') + '"></div>';
       grid.appendChild(wrap);
     });
 
@@ -1246,7 +1251,7 @@
           else if(diff < 86400) timeAgo = Math.floor(diff/3600) + 'h ago';
           else timeAgo = Math.floor(diff/86400) + 'd ago';
           return '<div class="notif-item' + (n.is_read ? '' : ' unread') + '" onclick="markAsRead(' + n.id + ')">' +
-            '<div class="notif-item-icon ' + n.type + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span></div>' +
+            '<div class="notif-item-icon ' + escapeHtml(n.type) + '"><span class="material-symbols-outlined" style="font-size:16px">' + icon + '</span></div>' +
             '<div class="notif-item-content">' +
             '<div class="notif-item-title">' + escapeHtml(n.title) + '</div>' +
             (n.message ? '<div class="notif-item-msg">' + escapeHtml(n.message) + '</div>' : '') +
@@ -1262,6 +1267,7 @@
     d.textContent = text;
     return d.innerHTML;
   }
+  window.escapeHtml = escapeHtml;
 
   function markAsRead(id){
     var xhr = new XMLHttpRequest();

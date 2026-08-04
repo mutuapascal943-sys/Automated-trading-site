@@ -1,13 +1,15 @@
 import secrets
 import time
 import logging
+import decimal
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.contrib.auth import get_user_model
 from django.conf import settings
 from rest_framework import status, viewsets, generics, permissions
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
+from rest_framework.throttling import UserRateThrottle
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
@@ -135,8 +137,11 @@ def execute_trade_view(request):
 def _execute_trade_impl(request):
     data = request.data.copy()
 
-    if not data.get('volume') or float(data.get('volume', 0)) <= 0:
-        data['volume'] = float(request.user.stake_amount)
+    try:
+        if not data.get('volume') or float(data.get('volume', 0)) <= 0:
+            data['volume'] = float(request.user.stake_amount)
+    except (ValueError, TypeError):
+        return Response({'error': 'Invalid volume value'}, status=status.HTTP_400_BAD_REQUEST)
 
     # Serialise concurrent trade requests per user with a row-level lock
     user = request.user.__class__.objects.select_for_update().get(pk=request.user.pk)
@@ -144,8 +149,11 @@ def _execute_trade_impl(request):
 
     if not data.get('stop_loss') or not data.get('take_profit'):
         signal_type = data.get('action', 'BUY').upper()
-        confidence = float(data.get('confidence', 0.65))
-        current_price = float(data.get('entry_price', 0)) or float(data.get('current_price', 0))
+        try:
+            confidence = float(data.get('confidence', 0.65))
+            current_price = float(data.get('entry_price', 0)) or float(data.get('current_price', 0))
+        except (ValueError, TypeError):
+            return Response({'error': 'Invalid price or confidence value'}, status=status.HTTP_400_BAD_REQUEST)
 
         candles = []
         try:
@@ -328,10 +336,14 @@ def modify_trade_view(request, trade_id):
     stop_loss = request.data.get('stop_loss')
     take_profit = request.data.get('take_profit')
 
-    if stop_loss is not None:
-        trade.stop_loss = Decimal(str(stop_loss))
-    if take_profit is not None:
-        trade.take_profit = Decimal(str(take_profit))
+    try:
+        if stop_loss is not None:
+            trade.stop_loss = Decimal(str(stop_loss))
+        if take_profit is not None:
+            trade.take_profit = Decimal(str(take_profit))
+    except (ValueError, TypeError, decimal.InvalidOperation):
+        return Response({'error': 'Invalid stop loss or take profit value'},
+                        status=status.HTTP_400_BAD_REQUEST)
 
     trade.save()
     audit.log_order('trade_modified', str(trade.id), {
@@ -374,7 +386,7 @@ def configure_broker_view(request):
         adapter.disconnect()
         connected = True
     except Exception as e:
-        error_msg = str(e)
+        error_msg = 'Connection test failed'
         logger.warning(f'Broker connection test failed for user {user.id}: {e}')
 
     audit.log_connection(user.broker or 'unknown', 'configured', {
@@ -406,7 +418,8 @@ def broker_status_view(request):
             adapter.disconnect()
             health['reachable'] = True
         except Exception as e:
-            health['error'] = str(e)
+            health['error'] = 'Connection failed'
+            logger.warning(f'Broker health check failed for user {user.id}: {e}')
 
     return Response({
         'broker': user.broker,
@@ -469,6 +482,7 @@ def risk_config_view(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@throttle_classes([UserRateThrottle])
 def analyze_and_signal_view(request):
     symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
     try:
@@ -676,7 +690,10 @@ def signal_propose_view(request):
     """
     symbol = request.data.get('symbol', 'EUR/USD')
     signal_type = request.data.get('signal_type', 'BUY').upper()
-    confidence = float(request.data.get('confidence', 0.65))
+    try:
+        confidence = float(request.data.get('confidence', 0.65))
+    except (ValueError, TypeError):
+        return Response({'error': 'Invalid confidence value'}, status=status.HTTP_400_BAD_REQUEST)
 
     user = request.user
     risk = RiskConfig.get_for_user(user)
@@ -774,7 +791,7 @@ def verify_otp_view(request):
         if otp and otp.is_valid():
             otp.is_used = True
             otp.save()
-            return Response({'status': 'verified', 'user_id': user.id})
+            return Response({'status': 'verified'})
 
     otp = EmailOTP.objects.filter(
         user=user, code=code, purpose=purpose, is_used=False
@@ -784,7 +801,7 @@ def verify_otp_view(request):
         otp.is_used = True
         otp.save()
         CacheService.delete_otp(user.id)
-        return Response({'status': 'verified', 'user_id': user.id})
+        return Response({'status': 'verified'})
 
     return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
 
@@ -1102,15 +1119,19 @@ def mark_all_notifications_read(request):
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
+@throttle_classes([UserRateThrottle])
 def run_backtest_view(request):
     from .trading_bot.backtest import run_backtest, BacktestResult
     from .trading_bot.interface import Candle, OrderRequest
 
     symbol = request.data.get('symbol', 'EUR/USD')
-    initial_balance = Decimal(str(request.data.get('initial_balance', 10000)))
-    days = int(request.data.get('days', 30))
-    stop_loss_pct = Decimal(str(request.data.get('stop_loss_pct', '2')))
-    take_profit_pct = Decimal(str(request.data.get('take_profit_pct', '4')))
+    try:
+        initial_balance = Decimal(str(request.data.get('initial_balance', 10000)))
+        days = min(int(request.data.get('days', 30)), 90)
+        stop_loss_pct = Decimal(str(request.data.get('stop_loss_pct', '2')))
+        take_profit_pct = Decimal(str(request.data.get('take_profit_pct', '4')))
+    except (ValueError, TypeError, decimal.InvalidOperation):
+        return Response({'error': 'Invalid parameter value'}, status=status.HTTP_400_BAD_REQUEST)
 
     paper = PaperBrokerAdapter(initial_balance=initial_balance)
     paper.connect({})
@@ -1273,16 +1294,16 @@ def model_download_view(request, filename):
     from django.http import FileResponse, Http404
 
     ml_output = Path(settings.BASE_DIR) / "ml_output"
-    file_path = ml_output / filename
+    file_path = (ml_output / filename).resolve()
+
+    # Prevent path traversal — must run before file existence check
+    try:
+        file_path.relative_to(ml_output.resolve())
+    except ValueError:
+        raise Http404("Invalid path")
 
     if not file_path.exists() or not file_path.is_file():
         raise Http404("Model file not found")
-
-    # Prevent path traversal
-    try:
-        file_path.resolve().relative_to(ml_output.resolve())
-    except ValueError:
-        raise Http404("Invalid path")
 
     return FileResponse(open(file_path, 'rb'), as_attachment=True, name=filename)
 
@@ -1388,6 +1409,7 @@ def bot_market_view(request):
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
+@throttle_classes([UserRateThrottle])
 def chart_candles_view(request):
     symbol = request.query_params.get('symbol', 'EUR/USD')
     try:
