@@ -1,22 +1,22 @@
 {
-  "symbol": "CRASH1000",
+  "symbol": "R_100",
   "granularity": 300,
   "steps": [
     {
       "step": "collect",
-      "raw_count": 108117
+      "raw_count": 108118
     },
     {
       "step": "clean",
       "count": 105121,
-      "start": 1754308523,
-      "end": 1785844500,
-      "span_days": 364.9997337962963,
-      "avg_gap": 299.9997812024353,
+      "start": 1754309349,
+      "end": 1785845100,
+      "span_days": 364.9971180555556,
+      "avg_gap": 299.9976312785388,
       "max_gap": 300,
       "interpolated_bars": 3,
-      "avg_return": 6.63099669073697e-07,
-      "return_std": 0.0006651674292611409,
+      "avg_return": -5.6389597640922764e-08,
+      "return_std": 0.0030840039940073006,
       "valid": true
     },
     {
@@ -27,12 +27,12 @@
     {
       "step": "labels",
       "total": 105117,
-      "positive": 16818,
-      "negative": 88299,
-      "pos_ratio": 0.16,
-      "avg_return": 0.000268,
-      "max_return": 0.13011,
-      "min_return": -1.122143
+      "positive": 47165,
+      "negative": 57952,
+      "pos_ratio": 0.4487,
+      "avg_return": -1.4e-05,
+      "max_return": 2.385867,
+      "min_return": -2.769893
     },
     {
       "step": "dataset",
@@ -40,12 +40,12 @@
       "train_size": 73581,
       "val_size": 15768,
       "test_size": 15768,
-      "train_start": 1754308523,
-      "train_end": 1776382500,
-      "val_start": 1776382800,
-      "val_end": 1781112900,
-      "test_start": 1781113200,
-      "test_end": 1785843300
+      "train_start": 1754309349,
+      "train_end": 1776383100,
+      "val_start": 1776383400,
+      "val_end": 1781113500,
+      "test_start": 1781113800,
+      "test_end": 1785843900
     },
     {
       "step": "walk_forward",
@@ -75,217 +75,217 @@
     },
     {
       "step": "train",
-      "train_accuracy": 0.6879,
-      "val_accuracy": 0.4515,
-      "val_precision": 0.1643,
-      "val_recall": 0.5718,
-      "val_f1": 0.2553,
-      "val_auc": 0.5033
+      "train_accuracy": 0.6572,
+      "val_accuracy": 0.4729,
+      "val_precision": 0.4385,
+      "val_recall": 0.7077,
+      "val_f1": 0.5415,
+      "val_auc": 0.5014
     },
     {
       "step": "test",
-      "test_accuracy": 0.4007,
-      "test_precision": 0.1683,
-      "test_recall": 0.6925,
-      "test_f1": 0.2707,
-      "test_auc": 0.5234,
+      "test_accuracy": 0.4753,
+      "test_precision": 0.4558,
+      "test_recall": 0.7667,
+      "test_f1": 0.5717,
+      "test_auc": 0.503,
       "confusion_matrix": [
         [
-          4565,
-          8670
+          1973,
+          6593
         ],
         [
-          779,
-          1754
+          1680,
+          5522
         ]
       ],
       "top_features": [
         {
+          "name": "bb_width",
+          "importance": 0.0574
+        },
+        {
           "name": "sma_50",
-          "importance": 0.0597
-        },
-        {
-          "name": "bb_lower",
-          "importance": 0.058
-        },
-        {
-          "name": "bb_upper",
-          "importance": 0.0552
-        },
-        {
-          "name": "sma_20",
-          "importance": 0.0538
-        },
-        {
-          "name": "macd_hist",
           "importance": 0.0531
         },
         {
-          "name": "ema_12",
-          "importance": 0.0514
+          "name": "atr_14",
+          "importance": 0.053
         },
         {
-          "name": "sma_10",
-          "importance": 0.0506
+          "name": "macd_hist",
+          "importance": 0.0519
         },
         {
-          "name": "sma_5",
-          "importance": 0.0503
-        },
-        {
-          "name": "ema_26",
-          "importance": 0.0501
+          "name": "bb_upper",
+          "importance": 0.0509
         },
         {
           "name": "macd_signal",
-          "importance": 0.0487
+          "importance": 0.0506
+        },
+        {
+          "name": "rsi_14",
+          "importance": 0.0486
+        },
+        {
+          "name": "bb_lower",
+          "importance": 0.047
+        },
+        {
+          "name": "macd",
+          "importance": 0.0469
+        },
+        {
+          "name": "sma_20",
+          "importance": 0.0466
         }
       ]
     },
     {
       "step": "walk_forward_eval",
-      "wf_avg_accuracy": 0.6024,
-      "wf_avg_f1": 0.3277,
+      "wf_avg_accuracy": 0.5785,
+      "wf_avg_f1": 0.6106,
       "wf_windows": [
         {
           "window": 1,
-          "accuracy": 0.8153,
-          "f1": 0.3205,
+          "accuracy": 0.6364,
+          "f1": 0.6521,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 2,
-          "accuracy": 0.8044,
-          "f1": 0.3607,
+          "accuracy": 0.683,
+          "f1": 0.6857,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 3,
-          "accuracy": 0.5782,
-          "f1": 0.4279,
+          "accuracy": 0.6202,
+          "f1": 0.5796,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 4,
-          "accuracy": 0.4233,
-          "f1": 0.2591,
+          "accuracy": 0.4637,
+          "f1": 0.5776,
           "train_size": 15767,
           "test_size": 5256
         },
         {
           "window": 5,
-          "accuracy": 0.391,
-          "f1": 0.2703,
+          "accuracy": 0.489,
+          "f1": 0.5579,
           "train_size": 15767,
           "test_size": 5256
         }
       ]
     }
   ],
-  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\CRASH1000_300_20260804_115946_model.pkl",
-  "metadata_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\CRASH1000_300_20260804_115946_metadata.json",
+  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\R_100_300_20260804_121349_model.pkl",
+  "metadata_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\R_100_300_20260804_121349_metadata.json",
   "metrics": {
-    "train_accuracy": 0.6879,
-    "val_accuracy": 0.4515,
-    "val_precision": 0.1643,
-    "val_recall": 0.5718,
-    "val_f1": 0.2553,
-    "val_auc": 0.5033,
-    "test_accuracy": 0.4007,
-    "test_precision": 0.1683,
-    "test_recall": 0.6925,
-    "test_f1": 0.2707,
-    "test_auc": 0.5234,
+    "train_accuracy": 0.6572,
+    "val_accuracy": 0.4729,
+    "val_precision": 0.4385,
+    "val_recall": 0.7077,
+    "val_f1": 0.5415,
+    "val_auc": 0.5014,
+    "test_accuracy": 0.4753,
+    "test_precision": 0.4558,
+    "test_recall": 0.7667,
+    "test_f1": 0.5717,
+    "test_auc": 0.503,
     "confusion_matrix": [
       [
-        4565,
-        8670
+        1973,
+        6593
       ],
       [
-        779,
-        1754
+        1680,
+        5522
       ]
     ],
     "top_features": [
       {
+        "name": "bb_width",
+        "importance": 0.0574
+      },
+      {
         "name": "sma_50",
-        "importance": 0.0597
-      },
-      {
-        "name": "bb_lower",
-        "importance": 0.058
-      },
-      {
-        "name": "bb_upper",
-        "importance": 0.0552
-      },
-      {
-        "name": "sma_20",
-        "importance": 0.0538
-      },
-      {
-        "name": "macd_hist",
         "importance": 0.0531
       },
       {
-        "name": "ema_12",
-        "importance": 0.0514
+        "name": "atr_14",
+        "importance": 0.053
       },
       {
-        "name": "sma_10",
-        "importance": 0.0506
+        "name": "macd_hist",
+        "importance": 0.0519
       },
       {
-        "name": "sma_5",
-        "importance": 0.0503
-      },
-      {
-        "name": "ema_26",
-        "importance": 0.0501
+        "name": "bb_upper",
+        "importance": 0.0509
       },
       {
         "name": "macd_signal",
-        "importance": 0.0487
+        "importance": 0.0506
+      },
+      {
+        "name": "rsi_14",
+        "importance": 0.0486
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.047
+      },
+      {
+        "name": "macd",
+        "importance": 0.0469
+      },
+      {
+        "name": "sma_20",
+        "importance": 0.0466
       }
     ],
-    "wf_avg_accuracy": 0.6024,
-    "wf_avg_f1": 0.3277,
+    "wf_avg_accuracy": 0.5785,
+    "wf_avg_f1": 0.6106,
     "wf_windows": [
       {
         "window": 1,
-        "accuracy": 0.8153,
-        "f1": 0.3205,
+        "accuracy": 0.6364,
+        "f1": 0.6521,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 2,
-        "accuracy": 0.8044,
-        "f1": 0.3607,
+        "accuracy": 0.683,
+        "f1": 0.6857,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 3,
-        "accuracy": 0.5782,
-        "f1": 0.4279,
+        "accuracy": 0.6202,
+        "f1": 0.5796,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 4,
-        "accuracy": 0.4233,
-        "f1": 0.2591,
+        "accuracy": 0.4637,
+        "f1": 0.5776,
         "train_size": 15767,
         "test_size": 5256
       },
       {
         "window": 5,
-        "accuracy": 0.391,
-        "f1": 0.2703,
+        "accuracy": 0.489,
+        "f1": 0.5579,
         "train_size": 15767,
         "test_size": 5256
       }
