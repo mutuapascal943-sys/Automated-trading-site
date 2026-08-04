@@ -3,6 +3,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 
+from django.db import connections
+
 logger = logging.getLogger(__name__)
 
 
@@ -57,5 +59,7 @@ class BackgroundScheduler:
                         fn()
                     except Exception as e:
                         logger.error("BackgroundScheduler: %s failed: %s", name, e)
+                    finally:
+                        connections.close_all()
                     last_run[name] = now
             time.sleep(5)

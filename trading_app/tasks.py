@@ -319,11 +319,16 @@ def _run_single_user_bot(user):
 
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
                 pred_candle_time = candle_dicts[-1].get('time', int(time.time()))
-                _record_prediction(
+                new_pred = _record_prediction(
                     user, symbol, CANDLE_GRANULARITY, pred_candle_time,
                     ml_signal,
                     entry_price=candle_dicts[-1].get('close'),
                 )
+                if new_pred is None:
+                    # A prediction is already pending for this symbol — hold
+                    # the current signal until it resolves instead of creating
+                    # a new one every bot cycle.
+                    continue
 
             if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
                 confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
