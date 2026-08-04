@@ -9,7 +9,6 @@ Usage:
 """
 
 from django.core.management.base import BaseCommand, CommandError
-from trading_app.ml.labels import LABEL_THRESHOLD_PCT
 from trading_app.ml.pipeline import run_pipeline
 from trading_app.ml.symbols import deriv_symbol_for
 
@@ -47,8 +46,8 @@ class Command(BaseCommand):
             help="Prediction horizon in bars (default: 4)",
         )
         parser.add_argument(
-            "--threshold", type=float, default=LABEL_THRESHOLD_PCT,
-            help=f"Price change threshold in %% (default: {LABEL_THRESHOLD_PCT})",
+            "--threshold", type=float, default=None,
+            help="Price change threshold in %% (default: per-symbol from labels.LABEL_THRESHOLDS)",
         )
         parser.add_argument(
             "--windows", type=int, default=5,
@@ -94,7 +93,7 @@ class Command(BaseCommand):
         self.stdout.write(self.style.NOTICE(
             f"Training {len(targets)} market(s): {', '.join(s for _, s in targets)}\n"
             f"  Granularity: {granularity}s | Years: {years:.1f} | Horizon: {horizon} | "
-            f"Threshold: {threshold}% | Feedback: {use_feedback}"
+            f"Threshold: {threshold if threshold is not None else 'per-symbol'}% | Feedback: {use_feedback}"
         ))
 
         failed = []

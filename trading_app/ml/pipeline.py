@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 OUTPUT_DIR = Path(__file__).resolve().parent.parent.parent / "ml_output"
 
-from .labels import LABEL_THRESHOLD_PCT  # noqa: E402
+from .labels import label_threshold_pct  # noqa: E402
 
 
 def run_pipeline(
@@ -32,7 +32,7 @@ def run_pipeline(
     granularity: int = 900,
     years: float = 2.0,
     horizon: int = 4,
-    threshold_pct: float = LABEL_THRESHOLD_PCT,
+    threshold_pct: float | None = None,
     n_windows: int = 5,
     use_adapter: Any | None = None,
     output_dir: str | None = None,
@@ -94,10 +94,11 @@ def run_pipeline(
     logger.info("Computed 25 features for %d candles", len(candles_featured))
 
     # ── 4. LABELS ──
-    logger.info("Step 4: Generating labels (horizon=%d, threshold=%.2f%%)", horizon, threshold_pct)
+    threshold = threshold_pct if threshold_pct is not None else label_threshold_pct(symbol)
+    logger.info("Step 4: Generating labels (horizon=%d, threshold=%.2f%%)", horizon, threshold)
     from .labels import generate_labels, label_distribution
 
-    candles_labeled = generate_labels(candles_featured, horizon=horizon, threshold_pct=threshold_pct)
+    candles_labeled = generate_labels(candles_featured, horizon=horizon, threshold_pct=threshold)
     dist = label_distribution(candles_labeled)
     results["steps"].append({"step": "labels", **dist})
     logger.info("Labels: %d total, %d positive, ratio=%.2f", dist["total"], dist["positive"], dist["pos_ratio"])
@@ -209,7 +210,11 @@ def _train_model(dataset: dict) -> tuple[Any, dict]:
 
     train_pred = clf.predict(X_train)
     val_pred = clf.predict(X_val)
-    val_proba = clf.predict_proba(X_val)[:, 1] if hasattr(clf, "predict_proba") else val_pred
+    if hasattr(clf, "predict_proba"):
+        proba = clf.predict_proba(X_val)
+        val_proba = proba[:, 1] if proba.shape[1] > 1 else proba[:, 0]
+    else:
+        val_proba = val_pred
 
     metrics = {
         "train_accuracy": round(accuracy_score(y_train, train_pred), 4),
@@ -235,7 +240,11 @@ def _evaluate(model: Any, X_test: list, y_test: list, feature_columns: list) -> 
     )
 
     y_pred = model.predict(X_test)
-    y_proba = model.predict_proba(X_test)[:, 1] if hasattr(model, "predict_proba") else y_pred
+    if hasattr(model, "predict_proba"):
+        proba = model.predict_proba(X_test)
+        y_proba = proba[:, 1] if proba.shape[1] > 1 else proba[:, 0]
+    else:
+        y_proba = y_pred
 
     metrics = {
         "test_accuracy": round(accuracy_score(y_test, y_pred), 4),

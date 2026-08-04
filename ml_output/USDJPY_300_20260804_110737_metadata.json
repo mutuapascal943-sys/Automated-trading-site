@@ -1,0 +1,176 @@
+{
+  "symbol": "USDJPY",
+  "granularity": 300,
+  "timestamp": "20260804_110737",
+  "feature_columns": [
+    "rsi_14",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "atr_14",
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "ema_12",
+    "ema_26",
+    "bb_upper",
+    "bb_lower",
+    "bb_width",
+    "bb_pctb",
+    "vol_sma20",
+    "vol_ratio",
+    "price_chg_1",
+    "price_chg_3",
+    "price_chg_5",
+    "body_ratio",
+    "hl_range_pct",
+    "price_vs_sma5",
+    "price_vs_sma20",
+    "sma5_vs_sma20"
+  ],
+  "model_type": "RandomForestClassifier",
+  "model_params": {
+    "bootstrap": true,
+    "ccp_alpha": 0.0,
+    "class_weight": "balanced",
+    "criterion": "gini",
+    "max_depth": 10,
+    "max_features": "sqrt",
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "min_weight_fraction_leaf": 0.0,
+    "monotonic_cst": null,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "oob_score": false,
+    "random_state": 42,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "train_metrics": {
+    "train_accuracy": 0.6436,
+    "val_accuracy": 0.8473,
+    "val_precision": 0.3322,
+    "val_recall": 0.395,
+    "val_f1": 0.3608,
+    "val_auc": 0.7749
+  },
+  "test_metrics": {
+    "test_accuracy": 0.8862,
+    "test_precision": 0.4765,
+    "test_recall": 0.251,
+    "test_f1": 0.3288,
+    "test_auc": 0.7951,
+    "confusion_matrix": [
+      [
+        9356,
+        334
+      ],
+      [
+        907,
+        304
+      ]
+    ],
+    "top_features": [
+      {
+        "name": "atr_14",
+        "importance": 0.2676
+      },
+      {
+        "name": "hl_range_pct",
+        "importance": 0.1506
+      },
+      {
+        "name": "bb_width",
+        "importance": 0.0927
+      },
+      {
+        "name": "macd_signal",
+        "importance": 0.0359
+      },
+      {
+        "name": "macd",
+        "importance": 0.0358
+      },
+      {
+        "name": "price_vs_sma20",
+        "importance": 0.0354
+      },
+      {
+        "name": "sma5_vs_sma20",
+        "importance": 0.0314
+      },
+      {
+        "name": "macd_hist",
+        "importance": 0.0277
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.0266
+      },
+      {
+        "name": "price_chg_1",
+        "importance": 0.0253
+      }
+    ]
+  },
+  "walk_forward_metrics": {
+    "wf_avg_accuracy": 0.6867,
+    "wf_avg_f1": 0.4667,
+    "wf_windows": [
+      {
+        "window": 1,
+        "accuracy": 0.6029,
+        "f1": 0.5022,
+        "train_size": 10900,
+        "test_size": 3634
+      },
+      {
+        "window": 2,
+        "accuracy": 0.6436,
+        "f1": 0.4638,
+        "train_size": 10900,
+        "test_size": 3634
+      },
+      {
+        "window": 3,
+        "accuracy": 0.5113,
+        "f1": 0.5307,
+        "train_size": 10900,
+        "test_size": 3634
+      },
+      {
+        "window": 4,
+        "accuracy": 0.8269,
+        "f1": 0.3535,
+        "train_size": 10900,
+        "test_size": 3634
+      },
+      {
+        "window": 5,
+        "accuracy": 0.8489,
+        "f1": 0.4835,
+        "train_size": 10900,
+        "test_size": 3634
+      }
+    ]
+  },
+  "dataset_info": {
+    "total_labeled": 72671,
+    "train_size": 50869,
+    "val_size": 10901,
+    "test_size": 10901,
+    "train_start": 1754305517,
+    "train_end": 1776362100,
+    "val_start": 1776362400,
+    "val_end": 1781101200,
+    "test_start": 1781101500,
+    "test_end": 1785840300
+  },
+  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\USDJPY_300_20260804_110737_model.pkl",
+  "onnx_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\USDJPY_300_20260804_110737_model.onnx"
+}

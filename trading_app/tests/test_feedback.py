@@ -61,7 +61,7 @@ class FeedbackResolutionTests(TestCase):
     def test_apply_outcome_small_up_move_is_miss(self):
         base = int(timezone.now().timestamp())
         pred = self._pred(candle_time=base)
-        candles = [_candle(base + i * 900, 1.10 if i < 4 else 1.101) for i in range(6)]
+        candles = [_candle(base + i * 900, 1.10 if i < 4 else 1.1003) for i in range(6)]
         self.assertTrue(_apply_prediction_outcome(pred, candles))
         pred.refresh_from_db()
         self.assertEqual(pred.realized_target, 0)
@@ -73,14 +73,14 @@ class FeedbackResolutionTests(TestCase):
             _candle(base + 0 * 900, 1.10),
             _candle(base + 1 * 900, 1.1035),
             _candle(base + 2 * 900, 1.101),
-            _candle(base + 3 * 900, 1.1005),
-            _candle(base + 4 * 900, 1.1005),
-            _candle(base + 5 * 900, 1.1005),
+            _candle(base + 3 * 900, 1.1002),
+            _candle(base + 4 * 900, 1.1002),
+            _candle(base + 5 * 900, 1.1002),
         ]
         self.assertTrue(_apply_prediction_outcome(pred, candles))
         pred.refresh_from_db()
         self.assertEqual(pred.realized_target, 1)
-        self.assertEqual(pred.exit_price, Decimal('1.10050'))
+        self.assertEqual(pred.exit_price, Decimal('1.10020'))
 
     def test_apply_outcome_insufficient_data(self):
         base = int(timezone.now().timestamp())

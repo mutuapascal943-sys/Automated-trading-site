@@ -17,17 +17,40 @@ from __future__ import annotations
 import math
 from typing import Literal
 
-# Single source of truth for the minimum move (in %) that counts as a "hit".
-# Used by training (labels.py/pipeline.py), the training commands, and the
-# runtime outcome resolver (tasks.py) so feedback labels always match the
-# label definition the model was trained on.
-LABEL_THRESHOLD_PCT = 0.25
+# Minimum move (in %) that counts as a "hit", resolved per symbol so every
+# market keeps a balanced positive/negative label ratio. Calibrated from the
+# label distributions of two full 2-year / 5-minute retrains (0.1% and 0.25%):
+# calm FX pairs need ~0.03-0.05%, BTC/XAU ~0.08-0.10%, BOOM/CRASH ~0.12%, and
+# the volatile synthetic indices ~0.25-0.30%. Used by training
+# (labels.py/pipeline.py), the training commands, and the runtime outcome
+# resolver (tasks.py) so feedback labels always match what the model learned.
+DEFAULT_LABEL_THRESHOLD_PCT = 0.10
+
+LABEL_THRESHOLDS = {
+    "EURUSD": 0.04,
+    "GBPUSD": 0.04,
+    "USDJPY": 0.04,
+    "AUDUSD": 0.04,
+    "USDCAD": 0.03,
+    "NZDUSD": 0.04,
+    "XAUUSD": 0.08,
+    "BTCUSD": 0.10,
+    "BOOM1000": 0.12,
+    "CRASH1000": 0.12,
+    "R_75": 0.25,
+    "R_100": 0.30,
+}
+
+
+def label_threshold_pct(symbol: str) -> float:
+    """Resolve the label threshold (%) for a training/inference symbol."""
+    return LABEL_THRESHOLDS.get(symbol, DEFAULT_LABEL_THRESHOLD_PCT)
 
 
 def generate_labels(
     candles: list[dict],
     horizon: int = 4,
-    threshold_pct: float = LABEL_THRESHOLD_PCT,
+    threshold_pct: float = DEFAULT_LABEL_THRESHOLD_PCT,
     target_type: Literal["binary", "regression"] = "binary",
 ) -> list[dict]:
     """
