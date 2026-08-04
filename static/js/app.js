@@ -31,6 +31,7 @@
   var botSLMarker = null;
   var botTPMarker = null;
   var lastProposedSignal = null;
+  var lastSignalCardKey = null;
 
   var loadingSteps = [
     'Connecting Broker...',
@@ -164,7 +165,12 @@
       window.historyRefreshTimer = setInterval(loadPredictionHistory, 30000);
     }
     if(panelId === 'markets'){setTimeout(function(){populateMarkets(); updateMarketSummary()},50)}
-    if(panelId === 'dashboard'){fetchDashboardStats(); if(!artAnimId){initArtCanvas()}}
+    if(panelId === 'dashboard'){
+      fetchDashboardStats();
+      if(!artAnimId){initArtCanvas()}
+      if(window.dashboardRefreshTimer){clearInterval(window.dashboardRefreshTimer)}
+      window.dashboardRefreshTimer = setInterval(fetchDashboardStats, 30000);
+    }
     if(window.innerWidth < 768){
       var sb = document.getElementById('sidebar');
       var backdrop = document.getElementById('sidebar-backdrop');
@@ -325,6 +331,7 @@
     if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
     clearChartOverlay();
     lastProposedSignal = null;
+    if(typeof lastSignalKey !== 'undefined') lastSignalKey = null;
     initBotChart();
 
     fetch('/api/bot/market/', {
@@ -392,6 +399,7 @@
 
   /* ── HISTORY ── */
   var prevPredStatus = {};
+  var lastHistoryKey = null;
 
   function formatLocalDate(iso){
     if(!iso) return '—';
@@ -442,6 +450,9 @@
       tbody.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text2)">No signals yet — run a scan or wait for the bot cycle.</td></tr>';
       return;
     }
+    var dataKey = JSON.stringify(histData);
+    if(dataKey === lastHistoryKey) return;
+    lastHistoryKey = dataKey;
     tbody.innerHTML = histData.map(function(r){
       var color = r[2] === 'BUY' ? 'var(--teal)' : 'var(--red)';
       var resultColor = r[5] === 'Correct' ? 'var(--teal)' : r[5] === 'Missed' ? 'var(--red)' : 'var(--text2)';
@@ -602,6 +613,9 @@
       var signals = data.results || data || [];
       if(signals.length > 0){
         var s = signals[0];
+        var sigKey = s.id + '|' + s.signal_type + '|' + s.entry_price + '|' + s.confidence;
+        if(sigKey === lastSignalCardKey) return;
+        lastSignalCardKey = sigKey;
         var confVal = document.getElementById('conf-val');
         var confBar = document.getElementById('conf-bar');
         if(confVal) confVal.textContent = s.confidence + '%';
@@ -1036,10 +1050,10 @@
         if(el) el.textContent = val;
       }
 
-      setText('hero-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
+      setText('hero-signals', data.total_signals || 0);
 
       setText('dash-win-rate', (data.win_rate || 0) + '%');
-      setText('dash-signals', (Array.isArray(data.recent_signals) ? data.recent_signals.length : data.recent_signals) || 0);
+      setText('dash-signals', data.total_signals || 0);
     })
     .catch(function(){});
   }

@@ -58,6 +58,7 @@
 
 <script>
 var botScanInterval = null;
+var lastSignalKey = null;
 
 function toggleBot(){
   var btn = document.getElementById('bot-toggle-btn');
@@ -84,6 +85,10 @@ function runSignalScan(){
   .then(function(data){
     if(!data.signal || data.signal.signal_type === 'HOLD'){
       if(ss) ss.textContent += '> No actionable signal. Continuing scan...\n';
+      return;
+    }
+    if(data.pending){
+      if(ss) ss.textContent += '> Prediction pending — signal unchanged.\n';
       return;
     }
     var s = data.signal;
@@ -114,6 +119,9 @@ function displaySignal(proposal, signalData){
   var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
   var signalType = signalData ? signalData.signal_type : 'SIGNAL';
   var confidence = signalData ? signalData.confidence : 0;
+  var sigKey = pair + '|' + signalType + '|' + proposal.current_price + '|' + proposal.stop_loss + '|' + proposal.take_profit + '|' + confidence;
+  if(sigKey === lastSignalKey) return;
+  lastSignalKey = sigKey;
   var timeStr = new Date().toLocaleTimeString();
   sigEl.innerHTML =
     '<div style="margin-bottom:8px"><strong>' + signalType + '</strong> <span style="color:var(--accent)">' + pair + '</span></div>' +

@@ -504,6 +504,33 @@ def analyze_and_signal_view(request):
         except Exception as e:
             logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
 
+        # If a prediction is already pending for this symbol, the UI should
+        # not flicker with a new signal every 30s bot scan — return the
+        # existing signal so the "Latest Signal" card stays static until the
+        # current prediction resolves.
+        from trading_app.models import PredictionRecord
+        has_pending = PredictionRecord.objects.filter(
+            user=request.user, symbol=symbol, resolved=False,
+        ).exists()
+        if has_pending:
+            existing = TradingSignal.objects.filter(
+                user=request.user, symbol=symbol,
+            ).order_by('-created_at').first()
+            if existing:
+                return Response({
+                    'signal': TradingSignalSerializer(existing).data,
+                    'analysis': {
+                        'bias': bias,
+                        'confidence': confidence,
+                        'rationale': analysis.rationale,
+                        'rsi': analysis.rsi,
+                        'sma_short': analysis.sma_short,
+                        'sma_long': analysis.sma_long,
+                        'atr': analysis.atr,
+                    },
+                    'pending': True,
+                })
+
         signal = TradingSignal.objects.create(
             user=request.user,
             symbol=symbol,
@@ -824,6 +851,7 @@ def dashboard_stats_view(request):
     risk = RiskConfig.get_for_user(user)
     recent_signals = TradingSignal.objects.filter(user=user).order_by('-created_at')[:5]
     signal_data = TradingSignalSerializer(recent_signals, many=True).data
+    total_signals = TradingSignal.objects.filter(user=user).count()
 
     return Response({
         'balance': float(user.balance),
@@ -844,6 +872,7 @@ def dashboard_stats_view(request):
         'paper_mode': user.paper_mode,
         'trading_enabled': risk.trading_enabled,
         'recent_signals': signal_data,
+        'total_signals': total_signals,
     })
 
 
