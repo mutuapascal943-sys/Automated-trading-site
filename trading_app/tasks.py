@@ -19,7 +19,7 @@ import logging
 logger = logging.getLogger(__name__)
 audit = ConsoleAuditLogger()
 
-CANDLE_GRANULARITY = 900  # 15-minute candles for faster signal generation
+CANDLE_GRANULARITY = 300  # 5-minute candles for faster signal generation
 
 
 @shared_task(
@@ -198,6 +198,29 @@ def run_bot_cycle():
             logger.error(f'Bot cycle failed for user {user.id}: {e}')
 
 
+def _record_prediction(user, symbol, granularity, candle_time, ml_signal, entry_price=None):
+    """Create a new live prediction only when no prediction is currently open
+    for this symbol. The active prediction is held until it resolves as
+    correct or missed instead of being replaced on every bot cycle, so the
+    History/Analytics panels show one prediction per candle outcome."""
+    if PredictionRecord.objects.filter(
+        user=user, symbol=symbol, granularity=granularity, resolved=False,
+    ).exists():
+        return None
+    return PredictionRecord.objects.create(
+        user=user,
+        symbol=symbol,
+        granularity=granularity,
+        horizon=ml_signal.horizon,
+        bias=ml_signal.bias,
+        confidence=ml_signal.confidence,
+        probability=ml_signal.probability,
+        features=ml_signal.features or {},
+        candle_time=candle_time,
+        entry_price=Decimal(str(entry_price)) if entry_price is not None else None,
+    )
+
+
 def _run_single_user_bot(user):
     risk = RiskConfig.get_for_user(user)
     # The bot only trades the market the user has selected in the bot panel.
@@ -296,27 +319,11 @@ def _run_single_user_bot(user):
 
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
                 pred_candle_time = candle_dicts[-1].get('time', int(time.time()))
-                pred_exists = PredictionRecord.objects.filter(
-                    user=user, symbol=symbol,
-                    granularity=CANDLE_GRANULARITY,
-                    candle_time=pred_candle_time,
-                ).exists()
-                if pred_exists:
-                    logger.info(
-                        f'Prediction already exists for {symbol} at candle {pred_candle_time}'
-                    )
-                else:
-                    PredictionRecord.objects.create(
-                        user=user,
-                        symbol=symbol,
-                        granularity=CANDLE_GRANULARITY,
-                        horizon=ml_signal.horizon,
-                        bias=ml_signal.bias,
-                        confidence=ml_signal.confidence,
-                        probability=ml_signal.probability,
-                        features=ml_signal.features or {},
-                        candle_time=pred_candle_time,
-                    )
+                _record_prediction(
+                    user, symbol, CANDLE_GRANULARITY, pred_candle_time,
+                    ml_signal,
+                    entry_price=candle_dicts[-1].get('close'),
+                )
 
             if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
                 confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
@@ -675,7 +682,7 @@ def _apply_trailing_stop(trade, current_price, trailing_pct):
     time_limit=300,
 )
 def resolve_pending_predictions():
-    """Check pending PredictionRecords that have aged past their horizon and
+    """Check pending PredictionRecords whose horizon window has passed and
     mark them correct/incorrect against realized price. Only predictions made
     with real (non-paper) market data become training feedback."""
     pending = list(
@@ -700,9 +707,19 @@ def _resolve_prediction(pred) -> bool:
     if pred.resolved:
         return True
 
-    elapsed = (timezone.now() - pred.predicted_at).total_seconds()
+    # A prediction can only be judged once the `horizon`th candle after the
+    # entry candle has closed. Resolve as soon as that window has passed so
+    # the History/Analytics panels update in real time instead of lingering
+    # in "Pending" for twice the horizon.
     horizon_secs = pred.horizon * pred.granularity
-    if elapsed < horizon_secs * 2:
+    now_ts = time.time()
+    elapsed = now_ts - pred.predicted_at.timestamp()
+    if pred.candle_time and pred.candle_time > 0:
+        entry_close = pred.candle_time + pred.granularity
+        outcome_close = entry_close + horizon_secs
+    else:
+        outcome_close = pred.predicted_at.timestamp() + horizon_secs
+    if now_ts < outcome_close:
         return False
 
     user = pred.user
@@ -926,6 +943,7 @@ def _run_feedback_retrain():
             resolved=True,
             realized_target__isnull=False,
             symbol=label,
+            granularity=CANDLE_GRANULARITY,
             id__gt=last_id,
         ).count()
         if new_count < RETRAIN_MIN_NEW:
@@ -933,7 +951,7 @@ def _run_feedback_retrain():
         if not _model_exists(symbol, str(ml_inference.OUTPUT_DIR)):
             continue
 
-        feedback_rows = load_feedback_rows(symbol, FEATURE_COLUMNS)
+        feedback_rows = load_feedback_rows(symbol, FEATURE_COLUMNS, granularity=CANDLE_GRANULARITY)
         if not feedback_rows:
             continue
 
@@ -942,7 +960,7 @@ def _run_feedback_retrain():
             run_pipeline(
                 symbol=symbol,
                 data_symbol=deriv_symbol_for(symbol),
-                granularity=900,
+                granularity=CANDLE_GRANULARITY,
                 years=2.0,
                 horizon=4,
                 threshold_pct=0.1,
@@ -951,7 +969,8 @@ def _run_feedback_retrain():
                 feedback_rows=feedback_rows,
             )
             max_id = PredictionRecord.objects.filter(
-                resolved=True, realized_target__isnull=False, symbol=label
+                resolved=True, realized_target__isnull=False, symbol=label,
+                granularity=CANDLE_GRANULARITY,
             ).aggregate(m=Max('id'))['m']
             if max_id:
                 marker[symbol] = max_id

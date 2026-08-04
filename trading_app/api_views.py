@@ -11,7 +11,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
-    Trade, TradingSignal, PredictionRecord,
+    Trade, TradingSignal,
     Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
 )
 from .serializers import (
@@ -485,21 +485,21 @@ def analyze_and_signal_view(request):
         confidence = int(analysis.confidence * 100)
 
         # Record the ML prediction so the Analytics/History panels and the
-        # feedback loop capture every manual scan, not just bot-cycle runs.
+        # feedback loop capture every manual scan. The prediction is held
+        # until it resolves as correct/missed — a new one is only recorded
+        # once the current prediction for this symbol has been decided.
         try:
             from trading_app.ml.inference import predict_signal
-            ml_signal = predict_signal(candles, symbol=symbol)
+            from trading_app.tasks import _record_prediction, CANDLE_GRANULARITY
+            ml_candles = _candles_to_dicts(
+                _fetch_chart_candles(request.user, symbol, count=200, granularity=CANDLE_GRANULARITY)
+            )
+            ml_signal = predict_signal(ml_candles, symbol=symbol)
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
-                PredictionRecord.objects.create(
-                    user=request.user,
-                    symbol=symbol,
-                    granularity=900,
-                    horizon=ml_signal.horizon,
-                    bias=ml_signal.bias,
-                    confidence=ml_signal.confidence,
-                    probability=ml_signal.probability,
-                    features=ml_signal.features or {},
-                    candle_time=int(candles[-1].get('time', 0)),
+                _record_prediction(
+                    request.user, symbol, CANDLE_GRANULARITY,
+                    int(ml_candles[-1].get('time', 0)), ml_signal,
+                    entry_price=ml_candles[-1].get('close'),
                 )
         except Exception as e:
             logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')

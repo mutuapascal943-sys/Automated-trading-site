@@ -327,6 +327,14 @@ CELERY_BEAT_SCHEDULE = {
         'task': 'trading_app.tasks.cleanup_expired_otps',
         'schedule': crontab(hour='*/1'),
     },
+    'resolve-pending-predictions': {
+        'task': 'trading_app.tasks.resolve_pending_predictions',
+        'schedule': crontab(minute='*/5'),
+    },
+    'retrain-models-with-feedback': {
+        'task': 'trading_app.tasks.retrain_models_with_feedback',
+        'schedule': crontab(minute='*/15'),
+    },
 }
 
 # Logging Configuration

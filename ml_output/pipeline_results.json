@@ -1,295 +1,295 @@
 {
-  "symbol": "R_100",
-  "granularity": 900,
+  "symbol": "EURUSD",
+  "granularity": 300,
   "steps": [
     {
       "step": "collect",
-      "raw_count": 38040
+      "raw_count": 75672
     },
     {
       "step": "clean",
-      "count": 35041,
-      "start": 1754206538,
-      "end": 1785742200,
-      "span_days": 364.996087962963,
-      "avg_gap": 899.9903538812786,
-      "max_gap": 900,
-      "interpolated_bars": 1,
-      "avg_return": 2.847552435836907e-06,
-      "return_std": 0.005348908466353587,
+      "count": 72675,
+      "start": 1754297311,
+      "end": 1785833100,
+      "span_days": 364.9975578703704,
+      "avg_gap": 433.93495610534717,
+      "max_gap": 183900,
+      "interpolated_bars": 3,
+      "avg_return": -2.9531935242916435e-08,
+      "return_std": 0.00023198255230446805,
       "valid": true
     },
     {
       "step": "features",
-      "count": 35041,
+      "count": 72675,
       "feature_count": 25
     },
     {
       "step": "labels",
-      "total": 35037,
-      "positive": 23617,
-      "negative": 11420,
-      "pos_ratio": 0.6741,
-      "avg_return": 0.001006,
-      "max_return": 4.725137,
-      "min_return": -4.307976
+      "total": 72671,
+      "positive": 1674,
+      "negative": 70997,
+      "pos_ratio": 0.023,
+      "avg_return": -1.3e-05,
+      "max_return": 0.859431,
+      "min_return": -0.766587
     },
     {
       "step": "dataset",
-      "total_labeled": 35037,
-      "train_size": 24525,
-      "val_size": 5256,
-      "test_size": 5256,
-      "train_start": 1754206538,
-      "train_end": 1776277800,
-      "val_start": 1776278700,
-      "val_end": 1781008200,
-      "test_start": 1781009100,
-      "test_end": 1785738600
+      "total_labeled": 72671,
+      "train_size": 50869,
+      "val_size": 10901,
+      "test_size": 10901,
+      "train_start": 1754297311,
+      "train_end": 1776353700,
+      "val_start": 1776354000,
+      "val_end": 1781092800,
+      "test_start": 1781093100,
+      "test_end": 1785831900
     },
     {
       "step": "walk_forward",
       "windows": 5,
       "window_sizes": [
         {
-          "train": 5255,
-          "test": 1752
+          "train": 10900,
+          "test": 3634
         },
         {
-          "train": 5255,
-          "test": 1752
+          "train": 10900,
+          "test": 3634
         },
         {
-          "train": 5255,
-          "test": 1752
+          "train": 10900,
+          "test": 3634
         },
         {
-          "train": 5255,
-          "test": 1752
+          "train": 10900,
+          "test": 3634
         },
         {
-          "train": 5255,
-          "test": 1752
+          "train": 10900,
+          "test": 3634
         }
       ]
     },
     {
       "step": "train",
-      "train_accuracy": 0.6765,
-      "val_accuracy": 0.593,
-      "val_precision": 0.6601,
-      "val_recall": 0.7821,
-      "val_f1": 0.716,
-      "val_auc": 0.4951
+      "train_accuracy": 0.833,
+      "val_accuracy": 0.903,
+      "val_precision": 0.0493,
+      "val_recall": 0.3043,
+      "val_f1": 0.0848,
+      "val_auc": 0.7282
     },
     {
       "step": "test",
-      "test_accuracy": 0.657,
-      "test_precision": 0.69,
-      "test_recall": 0.9159,
-      "test_f1": 0.7871,
-      "test_auc": 0.5094,
+      "test_accuracy": 0.7205,
+      "test_precision": 0.0391,
+      "test_recall": 0.6335,
+      "test_f1": 0.0736,
+      "test_auc": 0.7533,
       "confusion_matrix": [
         [
-          121,
-          1497
+          7733,
+          2977
         ],
         [
-          306,
-          3332
+          70,
+          121
         ]
       ],
       "top_features": [
         {
-          "name": "macd_signal",
-          "importance": 0.0638
+          "name": "atr_14",
+          "importance": 0.2823
+        },
+        {
+          "name": "hl_range_pct",
+          "importance": 0.1551
         },
         {
           "name": "bb_width",
-          "importance": 0.055
+          "importance": 0.1012
         },
         {
-          "name": "sma5_vs_sma20",
-          "importance": 0.0547
+          "name": "macd_signal",
+          "importance": 0.037
         },
         {
           "name": "macd",
-          "importance": 0.0542
-        },
-        {
-          "name": "sma_50",
-          "importance": 0.0541
-        },
-        {
-          "name": "rsi_14",
-          "importance": 0.0504
+          "importance": 0.0358
         },
         {
           "name": "bb_lower",
-          "importance": 0.049
+          "importance": 0.0319
         },
         {
-          "name": "atr_14",
-          "importance": 0.0489
+          "name": "sma5_vs_sma20",
+          "importance": 0.0269
+        },
+        {
+          "name": "price_vs_sma20",
+          "importance": 0.0263
         },
         {
           "name": "macd_hist",
-          "importance": 0.0458
+          "importance": 0.0254
         },
         {
-          "name": "ema_12",
-          "importance": 0.0439
+          "name": "price_chg_5",
+          "importance": 0.0253
         }
       ]
     },
     {
       "step": "walk_forward_eval",
-      "wf_avg_accuracy": 0.6656,
-      "wf_avg_f1": 0.7498,
+      "wf_avg_accuracy": 0.8258,
+      "wf_avg_f1": 0.1629,
       "wf_windows": [
         {
           "window": 1,
-          "accuracy": 0.6644,
-          "f1": 0.7095,
-          "train_size": 5255,
-          "test_size": 1752
+          "accuracy": 0.8222,
+          "f1": 0.1864,
+          "train_size": 10900,
+          "test_size": 3634
         },
         {
           "window": 2,
-          "accuracy": 0.7597,
-          "f1": 0.8192,
-          "train_size": 5255,
-          "test_size": 1752
+          "accuracy": 0.9441,
+          "f1": 0.2397,
+          "train_size": 10900,
+          "test_size": 3634
         },
         {
           "window": 3,
-          "accuracy": 0.6781,
-          "f1": 0.7367,
-          "train_size": 5255,
-          "test_size": 1752
+          "accuracy": 0.686,
+          "f1": 0.2429,
+          "train_size": 10900,
+          "test_size": 3634
         },
         {
           "window": 4,
-          "accuracy": 0.6056,
-          "f1": 0.737,
-          "train_size": 5255,
-          "test_size": 1752
+          "accuracy": 0.9196,
+          "f1": 0.0759,
+          "train_size": 10900,
+          "test_size": 3634
         },
         {
           "window": 5,
-          "accuracy": 0.6204,
-          "f1": 0.7467,
-          "train_size": 5255,
-          "test_size": 1752
+          "accuracy": 0.757,
+          "f1": 0.0695,
+          "train_size": 10900,
+          "test_size": 3634
         }
       ]
     }
   ],
-  "model_path": "ml_output\\R_100_900_20260803_073618_model.pkl",
-  "metadata_path": "ml_output\\R_100_900_20260803_073618_metadata.json",
+  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\EURUSD_300_20260804_085040_model.pkl",
+  "metadata_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\EURUSD_300_20260804_085040_metadata.json",
   "metrics": {
-    "train_accuracy": 0.6765,
-    "val_accuracy": 0.593,
-    "val_precision": 0.6601,
-    "val_recall": 0.7821,
-    "val_f1": 0.716,
-    "val_auc": 0.4951,
-    "test_accuracy": 0.657,
-    "test_precision": 0.69,
-    "test_recall": 0.9159,
-    "test_f1": 0.7871,
-    "test_auc": 0.5094,
+    "train_accuracy": 0.833,
+    "val_accuracy": 0.903,
+    "val_precision": 0.0493,
+    "val_recall": 0.3043,
+    "val_f1": 0.0848,
+    "val_auc": 0.7282,
+    "test_accuracy": 0.7205,
+    "test_precision": 0.0391,
+    "test_recall": 0.6335,
+    "test_f1": 0.0736,
+    "test_auc": 0.7533,
     "confusion_matrix": [
       [
-        121,
-        1497
+        7733,
+        2977
       ],
       [
-        306,
-        3332
+        70,
+        121
       ]
     ],
     "top_features": [
       {
-        "name": "macd_signal",
-        "importance": 0.0638
+        "name": "atr_14",
+        "importance": 0.2823
+      },
+      {
+        "name": "hl_range_pct",
+        "importance": 0.1551
       },
       {
         "name": "bb_width",
-        "importance": 0.055
+        "importance": 0.1012
       },
       {
-        "name": "sma5_vs_sma20",
-        "importance": 0.0547
+        "name": "macd_signal",
+        "importance": 0.037
       },
       {
         "name": "macd",
-        "importance": 0.0542
-      },
-      {
-        "name": "sma_50",
-        "importance": 0.0541
-      },
-      {
-        "name": "rsi_14",
-        "importance": 0.0504
+        "importance": 0.0358
       },
       {
         "name": "bb_lower",
-        "importance": 0.049
+        "importance": 0.0319
       },
       {
-        "name": "atr_14",
-        "importance": 0.0489
+        "name": "sma5_vs_sma20",
+        "importance": 0.0269
+      },
+      {
+        "name": "price_vs_sma20",
+        "importance": 0.0263
       },
       {
         "name": "macd_hist",
-        "importance": 0.0458
+        "importance": 0.0254
       },
       {
-        "name": "ema_12",
-        "importance": 0.0439
+        "name": "price_chg_5",
+        "importance": 0.0253
       }
     ],
-    "wf_avg_accuracy": 0.6656,
-    "wf_avg_f1": 0.7498,
+    "wf_avg_accuracy": 0.8258,
+    "wf_avg_f1": 0.1629,
     "wf_windows": [
       {
         "window": 1,
-        "accuracy": 0.6644,
-        "f1": 0.7095,
-        "train_size": 5255,
-        "test_size": 1752
+        "accuracy": 0.8222,
+        "f1": 0.1864,
+        "train_size": 10900,
+        "test_size": 3634
       },
       {
         "window": 2,
-        "accuracy": 0.7597,
-        "f1": 0.8192,
-        "train_size": 5255,
-        "test_size": 1752
+        "accuracy": 0.9441,
+        "f1": 0.2397,
+        "train_size": 10900,
+        "test_size": 3634
       },
       {
         "window": 3,
-        "accuracy": 0.6781,
-        "f1": 0.7367,
-        "train_size": 5255,
-        "test_size": 1752
+        "accuracy": 0.686,
+        "f1": 0.2429,
+        "train_size": 10900,
+        "test_size": 3634
       },
       {
         "window": 4,
-        "accuracy": 0.6056,
-        "f1": 0.737,
-        "train_size": 5255,
-        "test_size": 1752
+        "accuracy": 0.9196,
+        "f1": 0.0759,
+        "train_size": 10900,
+        "test_size": 3634
       },
       {
         "window": 5,
-        "accuracy": 0.6204,
-        "f1": 0.7467,
-        "train_size": 5255,
-        "test_size": 1752
+        "accuracy": 0.757,
+        "f1": 0.0695,
+        "train_size": 10900,
+        "test_size": 3634
       }
     ]
   },
-  "output_dir": "ml_output"
+  "output_dir": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output"
 }

@@ -7,7 +7,10 @@ from django.test import TestCase
 from django.utils import timezone
 
 from trading_app.models import PredictionRecord
-from trading_app.tasks import _apply_prediction_outcome, _fetch_paper_prediction_candles
+from trading_app.tasks import (
+    _apply_prediction_outcome, _fetch_paper_prediction_candles, _record_prediction,
+)
+from trading_app.ml.inference import MLSignal
 from trading_app.trading_bot.interface import Candle
 
 User = get_user_model()
@@ -65,6 +68,25 @@ class FeedbackResolutionTests(TestCase):
         pred = self._pred()
         candles = _fetch_paper_prediction_candles(pred)
         self.assertGreater(len(candles), 0)
+
+    def test_record_prediction_holds_until_resolved(self):
+        base = int(timezone.now().timestamp())
+        signal = MLSignal(bias='bullish', confidence=0.6, probability=0.6, horizon=4)
+        first = _record_prediction(self.user, 'EUR/USD', 900, base, signal, entry_price=1.10)
+        self.assertIsNotNone(first)
+        self.assertEqual(first.entry_price, Decimal('1.10000'))
+
+        second = _record_prediction(self.user, 'EUR/USD', 900, base + 60, signal, entry_price=1.11)
+        self.assertIsNone(second)
+
+        first.resolved = True
+        first.prediction_correct = True
+        first.save()
+
+        third = _record_prediction(self.user, 'EUR/USD', 900, base + 120, signal, entry_price=1.12)
+        self.assertIsNotNone(third)
+        self.assertEqual(PredictionRecord.objects.filter(
+            user=self.user, symbol='EUR/USD', resolved=False).count(), 1)
 
     def test_predictions_view_stats_and_history(self):
         from django.urls import reverse

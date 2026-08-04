@@ -1,0 +1,155 @@
+{
+  "symbol": "EURUSD",
+  "granularity": 300,
+  "timestamp": "20260804_084639",
+  "feature_columns": [
+    "rsi_14",
+    "macd",
+    "macd_signal",
+    "macd_hist",
+    "atr_14",
+    "sma_5",
+    "sma_10",
+    "sma_20",
+    "sma_50",
+    "ema_12",
+    "ema_26",
+    "bb_upper",
+    "bb_lower",
+    "bb_width",
+    "bb_pctb",
+    "vol_sma20",
+    "vol_ratio",
+    "price_chg_1",
+    "price_chg_3",
+    "price_chg_5",
+    "body_ratio",
+    "hl_range_pct",
+    "price_vs_sma5",
+    "price_vs_sma20",
+    "sma5_vs_sma20"
+  ],
+  "model_type": "RandomForestClassifier",
+  "model_params": {
+    "bootstrap": true,
+    "ccp_alpha": 0.0,
+    "class_weight": "balanced",
+    "criterion": "gini",
+    "max_depth": 10,
+    "max_features": "sqrt",
+    "max_leaf_nodes": null,
+    "max_samples": null,
+    "min_impurity_decrease": 0.0,
+    "min_samples_leaf": 20,
+    "min_samples_split": 50,
+    "min_weight_fraction_leaf": 0.0,
+    "monotonic_cst": null,
+    "n_estimators": 200,
+    "n_jobs": -1,
+    "oob_score": false,
+    "random_state": 42,
+    "verbose": 0,
+    "warm_start": false
+  },
+  "train_metrics": {
+    "train_accuracy": 0.907,
+    "val_accuracy": 0.9223,
+    "val_precision": 0.0133,
+    "val_recall": 0.1154,
+    "val_f1": 0.0239,
+    "val_auc": 0.7521
+  },
+  "test_metrics": {
+    "test_accuracy": 0.8999,
+    "test_precision": 0.0836,
+    "test_recall": 0.4561,
+    "test_f1": 0.1413,
+    "test_auc": 0.8346,
+    "confusion_matrix": [
+      [
+        2814,
+        285
+      ],
+      [
+        31,
+        26
+      ]
+    ],
+    "top_features": [
+      {
+        "name": "atr_14",
+        "importance": 0.1887
+      },
+      {
+        "name": "hl_range_pct",
+        "importance": 0.0951
+      },
+      {
+        "name": "bb_width",
+        "importance": 0.0939
+      },
+      {
+        "name": "macd",
+        "importance": 0.0711
+      },
+      {
+        "name": "macd_signal",
+        "importance": 0.0682
+      },
+      {
+        "name": "sma5_vs_sma20",
+        "importance": 0.0437
+      },
+      {
+        "name": "sma_50",
+        "importance": 0.0378
+      },
+      {
+        "name": "rsi_14",
+        "importance": 0.0325
+      },
+      {
+        "name": "bb_lower",
+        "importance": 0.0315
+      },
+      {
+        "name": "macd_hist",
+        "importance": 0.0311
+      }
+    ]
+  },
+  "walk_forward_metrics": {
+    "wf_avg_accuracy": 0.894,
+    "wf_avg_f1": 0.1679,
+    "wf_windows": [
+      {
+        "window": 1,
+        "accuracy": 0.9008,
+        "f1": 0.1869,
+        "train_size": 7887,
+        "test_size": 2630
+      },
+      {
+        "window": 2,
+        "accuracy": 0.8871,
+        "f1": 0.149,
+        "train_size": 7887,
+        "test_size": 2630
+      }
+    ]
+  },
+  "dataset_info": {
+    "total_labeled": 21034,
+    "train_size": 14723,
+    "val_size": 3155,
+    "test_size": 3156,
+    "train_start": 1776768000,
+    "train_end": 1783020600,
+    "val_start": 1783020900,
+    "val_end": 1784517900,
+    "test_start": 1784518200,
+    "test_end": 1785831900
+  },
+  "model_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\EURUSD_300_20260804_084639_model.pkl",
+  "onnx_path": "C:\\Users\\ADMIN\\Documents\\GitHub\\Automated-trading-site\\ml_output\\EURUSD_300_20260804_084639_model.onnx"
+}

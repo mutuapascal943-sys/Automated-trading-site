@@ -166,7 +166,7 @@ body{
 /* Page transitions */
 .fade-in{animation:fadeIn .4s ease}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
-.fade-in-up{animation:fadeInUp .5s ease}
+.fade-in-up{animation:fadeInUp .5s ease forwards}
 @keyframes fadeInUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
 .stagger>*{animation:fadeInUp .4s ease forwards;opacity:0}
 .stagger>*:nth-child(1){animation-delay:.04s}
