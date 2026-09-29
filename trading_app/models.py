@@ -8,8 +8,16 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     broker = models.CharField(max_length=100, blank=True, default='')
     two_factor_enabled = models.BooleanField(default=False)
+    subscription_bypass = models.BooleanField(
+        default=False,
+        help_text='Admin grant for bot access without an active paid subscription or trial',
+    )
+    subscription_access_denied = models.BooleanField(
+        default=False,
+        help_text='Admin revocation of bot access, including during an active trial or subscription',
+    )
     balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('12430.00'))
-    trial_started_at = models.DateTimeField(null=True, blank=True)
+    trial_started_at = models.DateTimeField(null=True, blank=True, default=timezone.now)
     broker_api_key = models.CharField(max_length=500, blank=True, default='')
     broker_api_secret = models.CharField(max_length=500, blank=True, default='')
     broker_account_id = models.CharField(max_length=100, blank=True, default='')
@@ -148,6 +156,11 @@ class TradingSignal(models.Model):
     entry_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
     stop_loss = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
     take_profit = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
+    outcome = models.CharField(max_length=10, default='PENDING', choices=[
+        ('PENDING', 'Pending'), ('WIN', 'Win'), ('LOSS', 'Loss'), ('UNKNOWN', 'Unknown'),
+    ])
+    outcome_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
+    outcome_resolved_at = models.DateTimeField(null=True, blank=True)
     reasoning = models.TextField(blank=True, default='')
     risk_level = models.CharField(max_length=10, default='MEDIUM', choices=[
         ('LOW', 'Low'), ('MEDIUM', 'Medium'), ('HIGH', 'High'),

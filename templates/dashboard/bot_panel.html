@@ -83,7 +83,12 @@ function runSignalScan(){
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
     body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
   })
-  .then(function(r){ return r.json() })
+  .then(function(response){
+    return response.json().then(function(data){
+      if(!response.ok) throw new Error(data.error || 'Market analysis could not start');
+      return data;
+    });
+  })
   .then(function(data){
     if(!data.signal || data.signal.signal_type === 'HOLD'){
       if(ss) ss.textContent += '> No actionable signal. Continuing scan...\n';
@@ -127,6 +132,16 @@ function runSignalScan(){
     }
     var s = data.signal;
     lastPendingSignalId = s.id;
+    if(s.entry_price && s.stop_loss && s.take_profit){
+      displaySignal({
+        current_price: s.entry_price,
+        stop_loss: s.stop_loss,
+        take_profit: s.take_profit,
+      }, s);
+      if(ss) ss.textContent += '> Signal generated: ' + s.signal_type + ' (confidence: ' + s.confidence + '%)\n';
+      if(ss) ss.textContent += '> Entry: ' + s.entry_price + ' | SL: ' + s.stop_loss + ' | TP: ' + s.take_profit + '\n';
+      return;
+    }
     return fetch('/api/signal/propose/', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
@@ -144,11 +159,32 @@ function runSignalScan(){
   })
   .catch(function(err){
     var ss = document.getElementById('scanStatus');
-    if(ss) ss.textContent += '> Scan error: ' + err + '\n';
+    if(ss) ss.textContent += '> Scan error: ' + err.message + '\n';
+    if(typeof showToast === 'function') showToast(err.message, 'error');
   })
   .then(function(){
     if(botScanInterval){
-      botScanTimer = setTimeout(runSignalScan, 30000);
+      fetch('/api/bot/control/', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+        body: JSON.stringify({action: 'results'}),
+      }).finally(function(){
+        var statusText = document.getElementById('bot-status-text');
+        if(statusText && botScanInterval) statusText.textContent = 'Results';
+        botScanTimer = setTimeout(function(){
+          fetch('/api/bot/control/', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+            body: JSON.stringify({action: 'running'}),
+          }).finally(function(){
+            if(botScanInterval){
+              var nextStatus = document.getElementById('bot-status-text');
+              if(nextStatus) nextStatus.textContent = 'Scanning...';
+              runSignalScan();
+            }
+          });
+        }, 30000);
+      });
     }
   });
 }
@@ -182,6 +218,27 @@ function displaySignal(proposal, signalData){
 
 function startBot(){
   if(botScanInterval) return;
+  var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+  var btn = document.getElementById('bot-toggle-btn');
+  if(btn) btn.disabled = true;
+  fetch('/api/bot/control/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({action: 'start', market: pair}),
+  }).then(function(response){
+    if(!response.ok) return response.json().then(function(data){ throw new Error(data.error || 'Bot could not start'); });
+    return response.json();
+  }).then(function(){
+    botScanInterval = true;
+    startBotAfterAuthorization();
+  }).catch(function(error){
+    showToast(error.message, 'error');
+  }).finally(function(){
+    if(btn) btn.disabled = false;
+  });
+}
+
+function startBotAfterAuthorization(){
   var btn = document.getElementById('bot-toggle-btn');
   var dot = document.getElementById('bot-status-dot');
   var txt = document.getElementById('bot-status-text');
@@ -192,7 +249,6 @@ function startBot(){
   if(ss){ ss.style.display = 'block'; ss.textContent = '> Bot started scanning...\n'; }
 
   runSignalScan();
-  botScanInterval = true;
 }
 
 function stopBot(){
@@ -201,6 +257,11 @@ function stopBot(){
     botScanTimer = null;
   }
   botScanInterval = false;
+  fetch('/api/bot/control/', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+    body: JSON.stringify({action: 'stop'}),
+  }).catch(function(){});
   var btn = document.getElementById('bot-toggle-btn');
   var dot = document.getElementById('bot-status-dot');
   var txt = document.getElementById('bot-status-text');

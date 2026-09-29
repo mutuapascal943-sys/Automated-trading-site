@@ -33,6 +33,8 @@ from trading_app.trading_bot.symbol_map import SymbolMap, load_symbol_map
 from trading_app.trading_bot.risk_engine import RiskEngine, PositionSizing, RiskRule
 from trading_app.trading_bot.logging_utils import ConsoleAuditLogger, NullAuditLogger
 from trading_app.trading_bot.backtest import BacktestResult, run_backtest
+from trading_app.trading_bot.candlestick_strategies import detect_price_action_signals
+from trading_app.trading_bot.technical_analyzer import analyze_technical
 
 
 def make_candle(
@@ -82,6 +84,83 @@ class InterfaceTests(TestCase):
     def test_broker_adapter_is_abstract(self) -> None:
         with self.assertRaises(TypeError):
             BrokerAdapter()  # type: ignore[abstract]
+
+
+class CandlestickStrategyTests(TestCase):
+    def _candles(self, direction: str = "bullish", count: int = 32) -> list[dict[str, float]]:
+        candles = []
+        for index in range(count):
+            close = 100 + index * 0.01 if direction == "bullish" else 110 - index * 0.01
+            open_price = close - 0.01 if direction == "bullish" else close + 0.01
+            candles.append({
+                "open": open_price,
+                "high": max(open_price, close) + 0.05,
+                "low": min(open_price, close) - 0.05,
+                "close": close,
+            })
+        return candles
+
+    def test_detects_bullish_pin_bar_in_uptrend(self) -> None:
+        candles = self._candles()
+        previous_close = candles[-2]["close"]
+        candles[-1] = {
+            "open": previous_close - 0.02,
+            "high": previous_close + 0.08,
+            "low": previous_close - 0.40,
+            "close": previous_close + 0.06,
+        }
+        signals = detect_price_action_signals(candles)
+        signal = next(s for s in signals if s.name == "Pin Bar" and s.bias == "bullish")
+        self.assertLess(signal.stop_loss, candles[-1]["close"])
+        self.assertGreaterEqual(
+            signal.take_profit - candles[-1]["close"],
+            2 * (candles[-1]["close"] - signal.stop_loss),
+        )
+
+    def test_detects_bullish_engulfing_in_uptrend(self) -> None:
+        candles = self._candles()
+        previous_close = candles[-2]["close"]
+        candles[-2] = {"open": previous_close + 0.08, "high": previous_close + 0.10,
+                       "low": previous_close - 0.04, "close": previous_close - 0.02}
+        candles[-1] = {"open": previous_close - 0.04, "high": previous_close + 0.15,
+                       "low": previous_close - 0.06, "close": previous_close + 0.12}
+        signals = detect_price_action_signals(candles)
+        self.assertIn(("Engulfing Bar", "bullish"), {(s.name, s.bias) for s in signals})
+
+    def test_detects_inside_bar_breakout_with_trend(self) -> None:
+        candles = self._candles()
+        mother_close = candles[-4]["close"] - 0.08
+        candles[-3] = {"open": mother_close - 0.02, "high": mother_close + 0.12,
+                       "low": mother_close - 0.12, "close": mother_close + 0.08}
+        candles[-2] = {"open": mother_close + 0.03, "high": mother_close + 0.08,
+                       "low": mother_close - 0.04, "close": mother_close + 0.05}
+        candles[-1] = {"open": mother_close + 0.06, "high": mother_close + 0.20,
+                       "low": mother_close + 0.04, "close": mother_close + 0.18}
+        signals = detect_price_action_signals(candles)
+        self.assertIn(("Inside Bar Breakout", "bullish"), {(s.name, s.bias) for s in signals})
+
+    def test_detects_bearish_inside_bar_false_breakout_at_resistance(self) -> None:
+        candles = self._candles()
+        prior_high = max(candle["high"] for candle in candles[-23:-3])
+        mother_close = candles[-4]["close"] - 0.08
+        mother_high = prior_high
+        mother_low = mother_close - 0.12
+        candles[-3] = {"open": mother_close - 0.02, "high": mother_high,
+                       "low": mother_low, "close": mother_close + 0.08}
+        candles[-2] = {"open": mother_close + 0.03, "high": mother_high - 0.02,
+                       "low": mother_low + 0.02, "close": mother_close + 0.05}
+        candles[-1] = {"open": mother_close + 0.07, "high": mother_high + 0.10,
+                       "low": mother_low + 0.03, "close": mother_high - 0.04}
+        signals = detect_price_action_signals(candles)
+        self.assertIn(("Inside Bar False Breakout", "bearish"), {(s.name, s.bias) for s in signals})
+
+    def test_no_pattern_means_no_rule_based_signal(self) -> None:
+        candles = [
+            {"open": 100.0, "high": 100.1, "low": 99.9, "close": 100.0}
+            for _ in range(32)
+        ]
+        self.assertEqual(detect_price_action_signals(candles), [])
+        self.assertEqual(analyze_technical("EUR/USD", candles).bias, "neutral")
 
 
 class PaperBrokerTests(TestCase):

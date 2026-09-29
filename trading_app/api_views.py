@@ -63,6 +63,9 @@ class TradeViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
     def create(self, request, *args, **kwargs):
+        access = _subscription_access_response(request.user)
+        if access is not None:
+            return access
         serializer = TradeCreateSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         trade = serializer.save(user=request.user, status='PENDING')
@@ -78,8 +81,34 @@ class SignalViewSet(viewsets.ModelViewSet):
     def get_queryset(self):
         return TradingSignal.objects.filter(user=self.request.user).order_by('-created_at')
 
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
+    def create(self, request, *args, **kwargs):
+        access = _subscription_access_response(request.user)
+        if access is not None:
+            return access
+        return super().create(request, *args, **kwargs)
+
+
+def _subscription_access_response(user):
+    from trading_app.services.subscription_access import subscription_status
+
+    access = subscription_status(user)
+    if access['has_access']:
+        return None
+    return Response({
+        'error': 'Bot access is unavailable. Start a subscription to continue.',
+        'subscription': _serialize_subscription_status(access),
+    }, status=status.HTTP_403_FORBIDDEN)
+
+
+def _serialize_subscription_status(access: dict) -> dict:
+    expires_at = access['expires_at']
+    return {
+        'has_access': access['has_access'],
+        'status': access['status'],
+        'tier': access['tier'],
+        'expires_at': expires_at.isoformat() if expires_at else None,
+        'seconds_remaining': access['seconds_remaining'],
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -128,6 +157,9 @@ def market_data_view(request):
 @permission_classes([permissions.IsAuthenticated])
 @two_factor_required_api
 def execute_trade_view(request):
+    access = _subscription_access_response(request.user)
+    if access is not None:
+        return access
     from django.db import transaction
 
     with transaction.atomic():
@@ -484,7 +516,16 @@ def risk_config_view(request):
 @permission_classes([permissions.IsAuthenticated])
 @throttle_classes([UserRateThrottle])
 def analyze_and_signal_view(request):
+    access = _subscription_access_response(request.user)
+    if access is not None:
+        return access
+    bot_status = CacheService.get(f'bot_status_{request.user.id}', {'status': 'idle'})
+    if bot_status.get('status') != 'running':
+        return Response({'error': 'Start the bot before requesting an analysis.'}, status=status.HTTP_409_CONFLICT)
+
     symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
+    if symbol != request.user.selected_market:
+        return Response({'error': 'Analysis is limited to your selected market.'}, status=status.HTTP_400_BAD_REQUEST)
     try:
         candles = _candles_to_dicts(_fetch_chart_candles(request.user, symbol, count=200))
 
@@ -518,38 +559,33 @@ def analyze_and_signal_view(request):
         except Exception as e:
             logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
 
-        # If a prediction is already pending for this symbol, the UI should
-        # not flicker with a new signal every 30s bot scan — return the
-        # existing signal so the "Latest Signal" card stays static until the
-        # current prediction resolves.
-        from trading_app.models import PredictionRecord
-        has_pending = PredictionRecord.objects.filter(
-            user=request.user, symbol=symbol, resolved=False,
-        ).exists()
-        if has_pending:
-            existing = TradingSignal.objects.filter(
-                user=request.user, symbol=symbol,
-            ).order_by('-created_at').first()
-            if existing:
-                return Response({
-                    'signal': TradingSignalSerializer(existing).data,
-                    'analysis': {
-                        'bias': bias,
-                        'confidence': confidence,
-                        'rationale': analysis.rationale,
-                        'rsi': analysis.rsi,
-                        'sma_short': analysis.sma_short,
-                        'sma_long': analysis.sma_long,
-                        'atr': analysis.atr,
-                    },
-                    'pending': True,
-                })
+        existing = TradingSignal.objects.filter(
+            user=request.user, symbol=symbol, signal_type__in=('BUY', 'SELL'),
+            outcome='PENDING',
+        ).order_by('-created_at').first()
+        if existing:
+            return Response({
+                'signal': TradingSignalSerializer(existing).data,
+                'analysis': {
+                    'bias': bias,
+                    'confidence': confidence,
+                    'rationale': analysis.rationale,
+                    'rsi': analysis.rsi,
+                    'sma_short': analysis.sma_short,
+                    'sma_long': analysis.sma_long,
+                    'atr': analysis.atr,
+                },
+                'pending': True,
+            })
 
         signal = TradingSignal.objects.create(
             user=request.user,
             symbol=symbol,
             signal_type='BUY' if bias == 'bullish' else 'SELL' if bias == 'bearish' else 'HOLD',
             confidence=confidence,
+            entry_price=Decimal(str(candles[-1]['close'])).quantize(Decimal('0.00001')) if bias != 'neutral' else None,
+            stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')) if analysis.stop_loss is not None else None,
+            take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')) if analysis.take_profit is not None else None,
             reasoning=analysis.rationale,
             source='SYSTEM',
             risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
@@ -684,6 +720,10 @@ def stake_config_view(request):
 @permission_classes([permissions.IsAuthenticated])
 def signal_propose_view(request):
     """
+    access = _subscription_access_response(request.user)
+    if access is not None:
+        return access
+
     Given a symbol and optional signal_type, compute bot-calculated SL/TP
     using ATR + confidence scaling. Returns the proposed levels with reasoning
     so the frontend can display them before the user confirms execution.
@@ -813,7 +853,47 @@ def subscription_view(request):
         user=request.user,
         defaults={'tier': 'FREE', 'is_active': True},
     )
-    return Response(SubscriptionSerializer(sub).data)
+    from trading_app.services.subscription_access import subscription_status
+
+    access = subscription_status(request.user)
+    payload = SubscriptionSerializer(sub).data
+    payload['access'] = _serialize_subscription_status(access)
+    return Response(payload)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def subscription_checkout_view(request):
+    if not settings.MOCK_SUBSCRIPTIONS_ENABLED:
+        return Response({
+            'status': 'provider_required',
+            'access_granted': False,
+            'message': 'Payment checkout is not configured. Please contact support.',
+            'required_provider': 'Payment processor checkout and signed webhook/callback',
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    tier = str(request.data.get('tier', 'BASIC')).upper()
+    if tier != 'BASIC':
+        return Response({'error': 'Only the $10 BASIC monthly plan is available in Phase 1.'}, status=status.HTTP_400_BAD_REQUEST)
+    now = timezone.now()
+    subscription, _ = Subscription.objects.get_or_create(user=request.user)
+    subscription.tier = 'BASIC'
+    subscription.is_active = True
+    subscription.started_at = now
+    subscription.expires_at = now + timezone.timedelta(days=30)
+    subscription.save(update_fields=['tier', 'is_active', 'started_at', 'expires_at'])
+
+    from trading_app.services.subscription_access import subscription_status
+
+    return Response({
+        'status': 'mock_activated',
+        'tier': 'BASIC',
+        'amount_usd': '10.00',
+        'duration_days': 30,
+        'access_granted': subscription_status(request.user)['has_access'],
+        'expires_at': subscription.expires_at.isoformat(),
+        'message': 'Mock subscription activated for development. No payment was processed.',
+    }, status=status.HTTP_200_OK)
 
 
 @api_view(['GET'])
@@ -824,12 +904,24 @@ def dashboard_stats_view(request):
     from datetime import timedelta
 
     user = request.user
+    from trading_app.models import PredictionRecord
+    from trading_app.services.subscription_access import subscription_status
+
     open_trades = Trade.objects.filter(user=user, status='OPEN').count()
     total_trades = Trade.objects.filter(user=user).count()
     closed_trades = Trade.objects.filter(user=user, status='CLOSED')
-    win_trades = closed_trades.filter(pnl__gt=0).count()
-    loss_trades = closed_trades.filter(pnl__lt=0).count()
-    win_rate = (win_trades / closed_trades.count() * 100) if closed_trades.count() > 0 else 0
+    resolved_signals = TradingSignal.objects.filter(
+        user=user, outcome__in=('WIN', 'LOSS'),
+    )
+    win_trades = resolved_signals.filter(outcome='WIN').count()
+    loss_trades = resolved_signals.filter(outcome='LOSS').count()
+    resolved_count = win_trades + loss_trades
+    win_rate = (win_trades / resolved_count * 100) if resolved_count else 0
+    week_start = timezone.now() - timedelta(days=timezone.now().weekday())
+    weekly_resolved = resolved_signals.filter(outcome_resolved_at__gte=week_start)
+    weekly_total = weekly_resolved.count()
+    weekly_wins = weekly_resolved.filter(outcome='WIN').count()
+    weekly_win_rate = round(weekly_wins / weekly_total * 100, 1) if weekly_total else 0
 
     closed_pnl = closed_trades.aggregate(total_pnl=Sum('pnl'))
     total_pnl = float(closed_pnl['total_pnl'] or 0)
@@ -863,18 +955,24 @@ def dashboard_stats_view(request):
             'pnl': round(running, 2),
         })
 
-    loss_rate = round(loss_trades / closed_trades.count() * 100, 1) if closed_trades.count() > 0 else 0
+    loss_rate = round(loss_trades / resolved_count * 100, 1) if resolved_count else 0
 
     risk = RiskConfig.get_for_user(user)
-    recent_signals = TradingSignal.objects.filter(user=user).order_by('-created_at')[:5]
+    recent_signals = TradingSignal.objects.filter(
+        user=user, signal_type__in=('BUY', 'SELL'),
+    ).order_by('-created_at')[:5]
     signal_data = TradingSignalSerializer(recent_signals, many=True).data
-    total_signals = TradingSignal.objects.filter(user=user).count()
+    total_signals = TradingSignal.objects.filter(
+        user=user, signal_type__in=('BUY', 'SELL'),
+    ).count()
 
     return Response({
         'balance': float(user.balance),
         'open_trades': open_trades,
         'total_trades': total_trades,
         'win_rate': round(win_rate, 1),
+        'weekly_win_rate': weekly_win_rate,
+        'weekly_resolved_signals': weekly_total,
         'loss_rate': loss_rate,
         'profit_factor': profit_factor,
         'avg_trade': avg_trade,
@@ -890,6 +988,8 @@ def dashboard_stats_view(request):
         'trading_enabled': risk.trading_enabled,
         'recent_signals': signal_data,
         'total_signals': total_signals,
+        'resolved_signals': resolved_count,
+        'subscription': _serialize_subscription_status(subscription_status(user)),
     })
 
 
@@ -902,9 +1002,18 @@ def predictions_view(request):
     from trading_app.models import PredictionRecord
 
     qs = PredictionRecord.objects.filter(user=request.user)
-    resolved = qs.filter(resolved=True, prediction_correct__isnull=False)
-    correct = resolved.filter(prediction_correct=True).count()
-    missed = resolved.filter(prediction_correct=False).count()
+    ml_resolved = qs.filter(resolved=True, prediction_correct__isnull=False)
+    ml_correct = ml_resolved.filter(prediction_correct=True).count()
+    ml_missed = ml_resolved.filter(prediction_correct=False).count()
+    ml_decided = ml_correct + ml_missed
+    ml_win_rate = round(ml_correct / ml_decided * 100, 1) if ml_decided else 0
+    ml_loss_rate = round(ml_missed / ml_decided * 100, 1) if ml_decided else 0
+    signal_qs = TradingSignal.objects.filter(
+        user=request.user, signal_type__in=('BUY', 'SELL'),
+    )
+    resolved_signals = signal_qs.filter(outcome__in=('WIN', 'LOSS'))
+    correct = resolved_signals.filter(outcome='WIN').count()
+    missed = resolved_signals.filter(outcome='LOSS').count()
     decided = correct + missed
 
     win_rate = round(correct / decided * 100, 1) if decided else 0
@@ -912,41 +1021,62 @@ def predictions_view(request):
     profit_factor = round(correct / missed, 2) if missed else (correct if correct else 0)
 
     history = []
-    for p in qs.order_by('-predicted_at')[:50]:
-        if p.prediction_correct is True:
-            status = 'Correct'
-        elif p.prediction_correct is False:
-            status = 'Missed'
-        elif not p.resolved:
-            status = 'Pending'
-        else:
-            status = 'Pending'
+    for signal in signal_qs.order_by('-created_at')[:100]:
+        status = {'WIN': 'Correct', 'LOSS': 'Missed'}.get(signal.outcome, 'Pending')
         history.append({
-            'id': p.id,
-            'date': (p.resolved_at or p.predicted_at).isoformat(),
-            'symbol': p.symbol,
-            'signal': 'BUY' if p.bias == 'bullish' else 'SELL',
-            'confidence': p.confidence,
-            'granularity': p.granularity,
-            'horizon': p.horizon,
-            'entry_price': float(p.entry_price) if p.entry_price is not None else None,
-            'exit_price': float(p.exit_price) if p.exit_price is not None else None,
+            'id': signal.id,
+            'date': (signal.outcome_resolved_at or signal.created_at).isoformat(),
+            'symbol': signal.symbol,
+            'signal': signal.signal_type,
+            'confidence': signal.confidence,
+            'entry_price': float(signal.entry_price) if signal.entry_price is not None else None,
+            'stop_loss': float(signal.stop_loss) if signal.stop_loss is not None else None,
+            'take_profit': float(signal.take_profit) if signal.take_profit is not None else None,
+            'exit_price': float(signal.outcome_price) if signal.outcome_price is not None else None,
             'result': status,
             'status': status,
         })
 
+    if not history:
+        for prediction in qs.order_by('-predicted_at')[:100]:
+            result = (
+                'Correct' if prediction.prediction_correct is True else
+                'Missed' if prediction.prediction_correct is False else 'Pending'
+            )
+            history.append({
+                'id': prediction.id,
+                'date': (prediction.resolved_at or prediction.predicted_at).isoformat(),
+                'symbol': prediction.symbol,
+                'signal': 'BUY' if prediction.bias == 'bullish' else 'SELL',
+                'confidence': prediction.confidence,
+                'entry_price': float(prediction.entry_price) if prediction.entry_price is not None else None,
+                'exit_price': float(prediction.exit_price) if prediction.exit_price is not None else None,
+                'result': result,
+                'status': result,
+            })
+
     return Response({
         'stats': {
-            'total': qs.count(),
-            'resolved': decided,
+            'total': signal_qs.count(),
+            'resolved': ml_decided,
             'pending': qs.filter(resolved=False).count(),
-            'correct_signals': correct,
-            'missed_signals': missed,
-            'win_rate': win_rate,
-            'loss_rate': loss_rate,
-            'profit_factor': profit_factor,
+            'correct_signals': ml_correct,
+            'missed_signals': ml_missed,
+            'win_rate': ml_win_rate,
+            'loss_rate': ml_loss_rate,
+            'profit_factor': round(ml_correct / ml_missed, 2) if ml_missed else (ml_correct if ml_correct else 0),
+            'strategy_resolved': decided,
+            'strategy_pending': signal_qs.filter(outcome='PENDING').count(),
+            'strategy_wins': correct,
+            'strategy_losses': missed,
+            'strategy_win_rate': win_rate,
+            'strategy_loss_rate': loss_rate,
+            'strategy_profit_factor': profit_factor,
         },
         'history': history,
+        'ml_predictions': list(qs.order_by('-predicted_at').values(
+            'id', 'symbol', 'bias', 'confidence', 'resolved', 'prediction_correct',
+        )[:100]),
     })
 
 
@@ -1398,9 +1528,52 @@ def bot_market_view(request):
     market = str(request.data.get('market', '')).strip()
     if not market:
         return Response({'error': 'market is required'}, status=status.HTTP_400_BAD_REQUEST)
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+    if market not in MARKET_SYMBOLS:
+        return Response({'error': 'Unsupported market'}, status=status.HTTP_400_BAD_REQUEST)
     request.user.selected_market = market
     request.user.save(update_fields=['selected_market'])
     return Response({'market': request.user.selected_market})
+
+
+@api_view(['GET', 'POST'])
+@permission_classes([permissions.IsAuthenticated])
+def bot_control_view(request):
+    cache_key = f'bot_status_{request.user.id}'
+    current = CacheService.get(cache_key, {'status': 'idle', 'market': request.user.selected_market or 'EUR/USD'})
+    if request.method == 'GET':
+        return Response(current)
+
+    action = str(request.data.get('action', '')).lower()
+    if action not in ('start', 'stop', 'running', 'results'):
+        return Response({'error': 'action must be start, stop, running, or results'}, status=status.HTTP_400_BAD_REQUEST)
+    if action == 'start':
+        access = _subscription_access_response(request.user)
+        if access is not None:
+            return access
+        if current.get('status') == 'running':
+            return Response({'error': 'Bot is already running'}, status=status.HTTP_409_CONFLICT)
+        market = str(request.data.get('market', request.user.selected_market or 'EUR/USD')).strip()
+        from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+        if market not in MARKET_SYMBOLS:
+            return Response({'error': 'Unsupported market'}, status=status.HTTP_400_BAD_REQUEST)
+        if request.user.selected_market != market:
+            request.user.selected_market = market
+            request.user.save(update_fields=['selected_market'])
+        current = {'status': 'running', 'market': market}
+    elif action == 'stop':
+        current = {'status': 'idle', 'market': request.user.selected_market or 'EUR/USD'}
+    elif action == 'results':
+        if current.get('status') != 'running':
+            return Response({'error': 'Bot is not running'}, status=status.HTTP_409_CONFLICT)
+        current = {'status': 'results', 'market': request.user.selected_market or 'EUR/USD'}
+    else:
+        if current.get('status') not in ('running', 'results'):
+            return Response({'error': 'Bot must be started before analysis'}, status=status.HTTP_409_CONFLICT)
+        current = {'status': 'running', 'market': request.user.selected_market or 'EUR/USD'}
+
+    CacheService.set(cache_key, current, timeout=3600)
+    return Response(current)
 
 
 # ---------------------------------------------------------------------------

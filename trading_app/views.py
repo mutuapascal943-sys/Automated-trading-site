@@ -43,6 +43,7 @@ def register_view(request):
                 username = f'{base_username}{counter}'
                 counter += 1
             user.username = username
+            user.trial_started_at = timezone.now()
             user.save()
             create_notification(user, 'Account Created', 'Welcome to Automated Trading Signal Application! Please verify your email to get started.', 'account')
             login(request, user)

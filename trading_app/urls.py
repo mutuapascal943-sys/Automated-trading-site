@@ -41,6 +41,7 @@ urlpatterns = [
     path('api/broker/health/', api_views.broker_health_check_view, name='api_broker_health'),
 
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
+    path('api/subscription/checkout/', api_views.subscription_checkout_view, name='api_subscription_checkout'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
@@ -61,5 +62,6 @@ urlpatterns = [
     path('api/health/', api_views.health_check_view, name='api_health_check'),
     path('api/chart/candles/', api_views.chart_candles_view, name='api_chart_candles'),
     path('api/bot/market/', api_views.bot_market_view, name='api_bot_market'),
+    path('api/bot/control/', api_views.bot_control_view, name='api_bot_control'),
     path('api/', include(router.urls)),
 ]

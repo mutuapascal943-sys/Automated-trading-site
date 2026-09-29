@@ -4,13 +4,26 @@ from .models import User, EmailOTP, Trade, TradingSignal, Subscription, Predicti
 
 
 class CustomUserAdmin(UserAdmin):
-    list_display = ['email', 'broker', 'two_factor_enabled', 'balance', 'is_active', 'date_joined']
-    list_filter = ['two_factor_enabled', 'broker', 'is_active']
-    search_fields = ['email', 'broker']
+    list_display = ['id', 'first_name', 'last_name', 'phone', 'email', 'subscription_bypass', 'subscription_access_denied', 'is_active', 'date_joined']
+    list_filter = ['two_factor_enabled', 'subscription_bypass', 'subscription_access_denied', 'broker', 'is_active']
+    search_fields = ['email', 'first_name', 'last_name', 'phone']
     ordering = ['-date_joined']
+    readonly_fields = [
+        'username', 'password', 'last_login', 'date_joined', 'email',
+        'first_name', 'last_name', 'phone', 'broker', 'balance',
+        'two_factor_enabled', 'selected_market', 'is_active', 'is_staff',
+        'is_superuser', 'groups', 'user_permissions',
+    ]
     fieldsets = UserAdmin.fieldsets + (
         ('Trading Profile', {'fields': ('broker', 'balance', 'broker_api_key', 'broker_api_secret', 'broker_account_id', 'two_factor_enabled', 'selected_market')}),
+        ('Subscription Access', {'fields': ('subscription_bypass', 'subscription_access_denied')}),
     )
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(EmailOTP)
@@ -39,6 +52,13 @@ class SubscriptionAdmin(admin.ModelAdmin):
     list_display = ['user', 'tier', 'is_active', 'started_at', 'expires_at']
     list_filter = ['tier', 'is_active']
     search_fields = ['user__email']
+    readonly_fields = [field.name for field in Subscription._meta.fields]
+
+    def has_add_permission(self, request):
+        return False
+
+    def has_delete_permission(self, request, obj=None):
+        return False
 
 
 @admin.register(PredictionRecord)

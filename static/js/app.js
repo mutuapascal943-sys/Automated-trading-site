@@ -80,16 +80,7 @@
       'Boom 1000 Index':'indices','Crash 1000 Index':'indices',
       'Volatility 75 Index':'indices','Volatility 100 Index':'indices'
     };
-    histData = [
-      ['2025-06-14','EUR/USD','BUY','1.08350','1.08690','Hit TP','Correct'],
-      ['2025-06-13','XAU/USD','SELL','2314.20','2298.50','Hit TP','Correct'],
-      ['2025-06-13','GBP/USD','BUY','1.27180','1.26940','Hit SL','Missed'],
-      ['2025-06-12','USD/JPY','SELL','149.620','148.980','Hit TP','Correct'],
-      ['2025-06-12','BTC/USD','BUY','61240','63100','Hit TP','Correct'],
-      ['2025-06-11','AUD/USD','BUY','0.65020','0.64880','Hit SL','Missed'],
-      ['2025-06-11','EUR/USD','SELL','1.08920','1.08540','Hit TP','Correct'],
-      ['2025-06-10','NZD/USD','BUY','0.60180','—','Active','Pending']
-    ];
+    histData = [];
   }
 
   /* ── WebSocket Market Stream ── */
@@ -242,6 +233,28 @@
         '<div class="mkt-detail"><span class="mkt-detail-label">Day Range</span><span class="mkt-detail-value">' + dailyLow + ' – ' + dailyHigh + '</span></div>' +
         '</div></div>';
     }).join('');
+  }
+
+  function refreshMarketSnapshots(){
+    Object.keys(pairs).forEach(function(symbol){
+      fetch('/api/chart/candles/?symbol=' + encodeURIComponent(symbol) + '&granularity=900&count=2', {
+        headers: {'X-Requested-With': 'XMLHttpRequest'},
+      })
+      .then(function(response){
+        if(!response.ok) throw new Error('Market data unavailable');
+        return response.json();
+      })
+      .then(function(data){
+        var candles = data.candles || [];
+        if(!candles.length) return;
+        var previous = candles.length > 1 ? Number(candles[candles.length - 2].close) : Number(candles[0].open);
+        var latest = Number(candles[candles.length - 1].close);
+        pairs[symbol] = latest;
+        changes[symbol] = previous ? (latest - previous) / previous * 100 : 0;
+        updateMarketCards();
+      })
+      .catch(function(){});
+    });
   }
 
   function filterMarkets(text){
@@ -1057,11 +1070,54 @@
 
       setText('hero-signals', data.total_signals || 0);
 
-      setText('dash-win-rate', (data.win_rate || 0) + '%');
+      setText('dash-win-rate', (data.weekly_win_rate || 0) + '%');
       setText('dash-signals', data.total_signals || 0);
+      var winRateDelta = document.getElementById('dash-win-rate-delta');
+      if(winRateDelta){
+        winRateDelta.textContent = 'This week: ' + (data.weekly_win_rate || 0) +
+          '% (' + (data.weekly_resolved_signals || 0) + ' resolved)';
+      }
+      var subscription = data.subscription || {};
+      var trialTitle = document.getElementById('trial-title');
+      var trialTimer = document.getElementById('trial-timer');
+      if(trialTitle){
+        trialTitle.textContent = subscription.status === 'subscribed' ? 'Subscription Active' :
+          subscription.status === 'admin_bypass' ? 'Access Granted' :
+          subscription.status === 'admin_denied' ? 'Access Disabled' :
+          subscription.status === 'trial' ? 'Free Trial Active' : 'Trial Expired';
+      }
+      if(trialTimer && subscription.seconds_remaining != null){
+        trialSeconds = Math.max(0, subscription.seconds_remaining);
+        var h = Math.floor(trialSeconds / 3600);
+        var m = Math.floor((trialSeconds % 3600) / 60);
+        var s = trialSeconds % 60;
+        trialTimer.textContent = String(h).padStart(2,'0') + ':' +
+          String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+      }
+      var botButton = document.getElementById('bot-toggle-btn');
+      if(botButton){
+        botButton.disabled = subscription.has_access === false;
+        botButton.title = subscription.has_access === false ? 'An active subscription is required' : '';
+      }
+      ['dashboard-start-bot', 'dashboard-activate-bot'].forEach(function(id){
+        var actionButton = document.getElementById(id);
+        if(!actionButton) return;
+        actionButton.textContent = subscription.status === 'admin_denied' ? 'Contact Support' :
+          subscription.has_access === false ? 'Activate Subscription' :
+          id === 'dashboard-start-bot' ? 'Start Bot' : 'Activate Bot';
+      });
     })
     .catch(function(){});
   }
+  window.fetchDashboardStats = fetchDashboardStats;
+  window.openBotOrSubscription = function(){
+    var button = document.getElementById('bot-toggle-btn');
+    if(button && button.disabled){
+      navigateToPanel('subscription');
+      return;
+    }
+    navigateToPanel('bot');
+  };
 
   function initAnalyticsCharts(){
     fetch('/api/predictions/?t=' + Date.now(), {
@@ -1078,15 +1134,15 @@
       }
 
       var st = data.stats || {};
-      var hasData = (st.correct_signals || 0) + (st.missed_signals || 0) > 0;
-      setText('kpi-win-rate', hasData ? st.win_rate + '%' : '—');
-      setText('kpi-loss-rate', hasData ? st.loss_rate + '%' : '—');
-      setText('kpi-profit-factor', hasData ? st.profit_factor : '—');
-      setText('kpi-correct-signals', st.correct_signals || '0');
-      setText('kpi-missed-signals', st.missed_signals || '0');
+      var hasData = (st.strategy_wins || 0) + (st.strategy_losses || 0) > 0;
+      setText('kpi-win-rate', hasData ? st.strategy_win_rate + '%' : '—');
+      setText('kpi-loss-rate', hasData ? st.strategy_loss_rate + '%' : '—');
+      setText('kpi-profit-factor', hasData ? st.strategy_profit_factor : '—');
+      setText('kpi-correct-signals', st.strategy_wins || '0');
+      setText('kpi-missed-signals', st.strategy_losses || '0');
 
-      var winPct = hasData ? st.win_rate : 0;
-      var lossPct = hasData ? st.loss_rate : 0;
+      var winPct = hasData ? st.strategy_win_rate : 0;
+      var lossPct = hasData ? st.strategy_loss_rate : 0;
 
       /* ── Win/Loss Donut (Canvas) ── */
         var winContainer = document.getElementById('winChartContainer');
@@ -1350,9 +1406,11 @@
     startPriceTicker();
     populateHistory();
     populateMarkets();
+    refreshMarketSnapshots();
     updateMarketSummary();
     fetchDashboardStats();
     restoreBotMarket();
+    restoreBotStatus();
     setTimeout(function(){initArtCanvas(); initBotChart(); initAnalyticsCharts()}, 100);
 
     window.addEventListener('hashchange', handleHashChange);
@@ -1374,6 +1432,23 @@
     });
 
     setTimeout(initScrollAnimations, 500);
+  }
+
+  function restoreBotStatus(){
+    fetch('/api/bot/control/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
+    .then(function(response){ return response.json(); })
+    .then(function(data){
+      if(!data || data.status !== 'running') return;
+      botScanInterval = true;
+      var button = document.getElementById('bot-toggle-btn');
+      var dot = document.getElementById('bot-status-dot');
+      var text = document.getElementById('bot-status-text');
+      if(button){ button.classList.add('running'); button.textContent = 'STOP BOT'; }
+      if(dot) dot.className = 'status-dot running';
+      if(text) text.textContent = 'Running';
+      if(window.location.hash === '#bot') runSignalScan();
+    })
+    .catch(function(){});
   }
 
   if(document.readyState === 'loading'){

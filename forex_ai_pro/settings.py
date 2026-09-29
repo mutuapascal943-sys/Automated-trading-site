@@ -12,6 +12,9 @@ if not SECRET_KEY:
     )
 
 DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
+MOCK_SUBSCRIPTIONS_ENABLED = config(
+    'MOCK_SUBSCRIPTIONS_ENABLED', default=DEBUG, cast=bool,
+)
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 

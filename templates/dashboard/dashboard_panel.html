@@ -5,7 +5,7 @@
     <div class="dash-hero-stat"><span class="material-symbols-outlined" style="font-size:16px;color:var(--accent)">auto_awesome</span> <strong id="hero-signals">--</strong> Signals Today</div>
   </div>
   <div class="hero-btns" style="margin-top:20px">
-    <button class="btn-primary" onclick="navigateToPanel('bot')">Start Bot</button>
+    <button class="btn-primary" id="dashboard-start-bot" onclick="openBotOrSubscription()">Start Bot</button>
     <button class="btn-secondary" onclick="navigateToPanel('subscription')">View Plans</button>
   </div>
 </div>
@@ -19,7 +19,7 @@
     </div>
   </div>
   <div style="display:flex;gap:10px">
-    <button class="sub-banner-btn" onclick="navigateToPanel('bot')">Activate Bot</button>
+    <button class="sub-banner-btn" id="dashboard-activate-bot" onclick="openBotOrSubscription()">Activate Bot</button>
   </div>
 </div>
 
@@ -29,7 +29,7 @@
     <div class="dash-kpi-body">
       <div class="dash-kpi-value text-teal" id="dash-win-rate">68.4%</div>
       <div class="dash-kpi-label">Win Rate</div>
-      <div class="dash-kpi-delta up" id="dash-win-rate-delta">▲ +2.1% this week</div>
+      <div class="dash-kpi-delta" id="dash-win-rate-delta">This week</div>
     </div>
   </div>
   <div class="dashboard-kpi-card">
@@ -37,7 +37,7 @@
     <div class="dash-kpi-body">
       <div class="dash-kpi-value" id="dash-signals">127</div>
       <div class="dash-kpi-label">Signals Generated</div>
-      <div class="dash-kpi-delta" id="dash-signals-delta" style="color:var(--text3)">This month</div>
+      <div class="dash-kpi-delta" id="dash-signals-delta" style="color:var(--text3)">All generated signals</div>
     </div>
   </div>
 </div>

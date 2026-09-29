@@ -183,8 +183,10 @@ class SecurityAnswerForm(forms.Form):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = User
-        fields = ['email', 'broker', 'phone', 'bio']
+        fields = ['first_name', 'last_name', 'email', 'broker', 'phone', 'bio']
         widgets = {
+            'first_name': forms.TextInput(attrs={'class': 'form-input', 'id': 'prof-first-name'}),
+            'last_name': forms.TextInput(attrs={'class': 'form-input', 'id': 'prof-last-name'}),
             'email': forms.EmailInput(attrs={
                 'class': 'form-input', 'id': 'prof-email',
             }),

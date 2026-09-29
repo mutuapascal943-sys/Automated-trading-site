@@ -223,6 +223,15 @@ def _record_prediction(user, symbol, granularity, candle_time, ml_signal, entry_
 
 
 def _run_single_user_bot(user):
+    from .services.subscription_access import subscription_status
+
+    if not subscription_status(user)['has_access']:
+        logger.info('Bot scan skipped for user %s: subscription/trial inactive', user.id)
+        return
+    bot_status = CacheService.get(f'bot_status_{user.id}', {'status': 'idle'})
+    if bot_status.get('status') != 'running':
+        return
+
     risk = RiskConfig.get_for_user(user)
     # The bot only trades the market the user has selected in the bot panel.
     selected = (user.selected_market or '').strip() or 'EUR/USD'
@@ -325,11 +334,6 @@ def _run_single_user_bot(user):
                     ml_signal,
                     entry_price=candle_dicts[-1].get('close'),
                 )
-                if new_pred is None:
-                    # A prediction is already pending for this symbol — hold
-                    # the current signal until it resolves instead of creating
-                    # a new one every bot cycle.
-                    continue
 
             if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
                 confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
@@ -342,11 +346,20 @@ def _run_single_user_bot(user):
                 confidence = int(analysis.confidence * 100)
                 signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
                 source_detail = ''
-            elif ml_signal is not None and ml_signal.bias != 'neutral' and ml_signal.confidence > 0.6:
-                confidence = int(ml_signal.confidence * 100)
-                signal_type = 'BUY' if ml_signal.bias == 'bullish' else 'SELL'
-                source_detail = f' [ML-only: {ml_signal.model_info}]'
             else:
+                continue
+
+            existing_signal = TradingSignal.objects.filter(
+                user=user,
+                symbol=symbol,
+                signal_type=signal_type,
+                outcome='PENDING',
+            ).order_by('-created_at').first()
+            if existing_signal:
+                logger.info(
+                    'Holding pending %s signal %s for user %s until TP/SL resolves',
+                    signal_type, existing_signal.id, user.id,
+                )
                 continue
 
             if confidence < risk.min_confidence:
@@ -360,6 +373,9 @@ def _run_single_user_bot(user):
                 symbol=symbol,
                 signal_type=signal_type,
                 confidence=confidence,
+                entry_price=Decimal(str(candle_dicts[-1]['close'])).quantize(Decimal('0.00001')),
+                stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')) if analysis.stop_loss is not None else None,
+                take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')) if analysis.take_profit is not None else None,
                 reasoning=analysis.rationale + source_detail,
                 source='SYSTEM',
                 risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
@@ -377,6 +393,9 @@ def _run_single_user_bot(user):
                 'symbol': symbol,
                 'action': signal_type,
                 'volume': float(risk.max_position_size),
+                'entry_price': str(Decimal(str(candle_dicts[-1]['close'])).quantize(Decimal('0.00001'))),
+                'stop_loss': str(Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001'))) if analysis.stop_loss is not None else None,
+                'take_profit': str(Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001'))) if analysis.take_profit is not None else None,
                 'order_type': 'MARKET',
             }
             inner_serializer = TradeCreateSerializer(data=signal_data)
@@ -705,6 +724,55 @@ def resolve_pending_predictions():
         except Exception as e:
             logger.error(f'Failed to resolve prediction {pred.id}: {e}')
     logger.info(f'Resolved {resolved_count}/{len(pending)} pending predictions')
+    return resolved_count
+
+
+@shared_task(soft_time_limit=120, time_limit=180)
+def resolve_pending_signal_outcomes():
+    """Resolve strategy signals only when later market candles hit TP or SL."""
+    pending = TradingSignal.objects.filter(
+        outcome='PENDING', signal_type__in=('BUY', 'SELL'),
+        entry_price__isnull=False, stop_loss__isnull=False, take_profit__isnull=False,
+    ).select_related('user').order_by('created_at')[:200]
+    resolved_count = 0
+
+    for signal in pending:
+        try:
+            candles = []
+            if signal.user.paper_mode:
+                from .trading_bot.simulated_market import SimulatedMarket
+                candles = SimulatedMarket.get_candles(
+                    signal.symbol, CANDLE_GRANULARITY, 200,
+                )
+            else:
+                adapter = get_adapter_for_broker(signal.user.broker or '')
+                adapter.connect(build_credentials(signal.user))
+                try:
+                    candles = adapter.get_candles(signal.symbol, CANDLE_GRANULARITY, 200)
+                finally:
+                    adapter.disconnect()
+            if not candles:
+                from .trading_bot.simulated_candles import generate_simulated_candles
+                candles = generate_simulated_candles(
+                    signal.symbol, count=200, granularity=CANDLE_GRANULARITY,
+                )
+            for candle in candles:
+                if candle.timestamp <= signal.created_at:
+                    continue
+                hit_stop = candle.low <= signal.stop_loss <= candle.high
+                hit_target = candle.low <= signal.take_profit <= candle.high
+                if not hit_stop and not hit_target:
+                    continue
+                signal.outcome = 'LOSS' if hit_stop else 'WIN'
+                signal.outcome_price = signal.stop_loss if hit_stop else signal.take_profit
+                signal.outcome_resolved_at = candle.timestamp
+                signal.save(update_fields=['outcome', 'outcome_price', 'outcome_resolved_at'])
+                resolved_count += 1
+                break
+        except Exception as exc:
+            logger.warning('Could not resolve signal %s outcome: %s', signal.id, exc)
+
+    logger.info('Resolved %d strategy signal outcomes', resolved_count)
     return resolved_count
 
 

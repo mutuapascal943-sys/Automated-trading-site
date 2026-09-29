@@ -21,13 +21,14 @@ class TradingAppConfig(AppConfig):
             from .scheduler import BackgroundScheduler
             from .tasks import (run_bot_cycle, monitor_live_positions, check_paper_positions,
                                 cleanup_expired_otps, resolve_pending_predictions,
-                                retrain_models_with_feedback)
+                                retrain_models_with_feedback, resolve_pending_signal_outcomes)
 
             BackgroundScheduler.register(60, run_bot_cycle, "run_bot_cycle")
             BackgroundScheduler.register(60, monitor_live_positions, "monitor_live_positions")
             BackgroundScheduler.register(120, check_paper_positions, "check_paper_positions")
             BackgroundScheduler.register(3600, cleanup_expired_otps, "cleanup_expired_otps")
             BackgroundScheduler.register(300, resolve_pending_predictions, "resolve_pending_predictions")
+            BackgroundScheduler.register(300, resolve_pending_signal_outcomes, "resolve_pending_signal_outcomes")
             BackgroundScheduler.register(900, retrain_models_with_feedback, "retrain_models_with_feedback")
             BackgroundScheduler.start()
             logger.info("Background scheduler started (no Redis/Celery broker available)")
