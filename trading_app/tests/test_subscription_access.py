@@ -38,6 +38,37 @@ class SubscriptionAccessTests(TestCase):
         self.user.save(update_fields=['trial_started_at'])
         self.assertFalse(subscription_status(self.user)['has_access'])
 
+    def test_trial_access_ends_after_fifty_actionable_signals(self):
+        self.user.trial_started_at = timezone.now()
+        self.user.save(update_fields=['trial_started_at'])
+        TradingSignal.objects.bulk_create([
+            TradingSignal(
+                user=self.user, symbol='EUR/USD', signal_type='BUY',
+                confidence=70, source='SYSTEM',
+            )
+            for _ in range(50)
+        ])
+        access = subscription_status(self.user)
+        self.assertFalse(access['has_access'])
+        self.assertEqual(access['status'], 'trial_limit_reached')
+        self.assertEqual(access['signals_used'], 50)
+        self.assertEqual(access['signals_remaining'], 0)
+
+    def test_fifty_first_signal_request_is_rejected(self):
+        self.user.trial_started_at = timezone.now()
+        self.user.save(update_fields=['trial_started_at'])
+        TradingSignal.objects.bulk_create([
+            TradingSignal(
+                user=self.user, symbol='EUR/USD', signal_type='BUY',
+                confidence=70, source='SYSTEM',
+            )
+            for _ in range(50)
+        ])
+        cache.set(f'bot_status_{self.user.id}', {'status': 'running', 'market': 'EUR/USD'})
+        response = self.client.post('/api/analyze-signal/', {'symbol': 'EUR/USD'}, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(TradingSignal.objects.filter(user=self.user).count(), 50)
+
     def test_expired_user_can_load_dashboard_and_subscription_status(self):
         from django.urls import reverse
 
@@ -119,6 +150,41 @@ class SubscriptionAccessTests(TestCase):
         self.user.save(update_fields=['trial_started_at'])
         response = self.client.post('/api/analyze-signal/', {'symbol': 'EUR/USD'}, format='json')
         self.assertEqual(response.status_code, 403)
+
+    @patch('trading_app.ml.inference.predict_signal', return_value=None)
+    @patch('trading_app.trading_bot.technical_analyzer.analyze_technical')
+    @patch('trading_app.api_views._candles_to_dicts')
+    @patch('trading_app.api_views._fetch_chart_candles')
+    def test_analysis_response_includes_server_timing(
+        self, fetch_candles, convert_candles, analyze, _predict,
+    ):
+        from django.urls import reverse
+
+        self.user.trial_started_at = timezone.now()
+        self.user.save(update_fields=['trial_started_at'])
+        cache.set(f'bot_status_{self.user.id}', {'status': 'running', 'market': 'EUR/USD'})
+        fetch_candles.return_value = [object()]
+        convert_candles.return_value = [{
+            'time': int(timezone.now().timestamp()),
+            'open': 1.1, 'high': 1.12, 'low': 1.09, 'close': 1.11, 'volume': 1,
+        }]
+        analyze.return_value = SimpleNamespace(
+            bias='bullish', confidence=0.8, rationale='test setup', rsi=50,
+            sma_short=1.1, sma_long=1.09, atr=0.01,
+            stop_loss=1.09, take_profit=1.15,
+        )
+
+        response = self.client.post(
+            reverse('api_analyze_signal'), {'symbol': 'EUR/USD'}, format='json',
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertGreaterEqual(response.json()['analysis_duration_ms'], 0)
+        self.assertEqual(
+            response['X-Analysis-Duration-Ms'],
+            str(response.json()['analysis_duration_ms']),
+        )
+        self.assertEqual(response.json()['signal']['signal_type'], 'BUY')
 
     @override_settings(MOCK_SUBSCRIPTIONS_ENABLED=True)
     def test_mock_checkout_grants_thirty_day_access(self):

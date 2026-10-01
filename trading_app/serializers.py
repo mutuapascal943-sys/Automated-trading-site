@@ -8,13 +8,8 @@ from .models import (
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['id', 'email', 'broker', 'two_factor_enabled', 'balance',
-                  'broker_api_key', 'broker_account_id', 'date_joined']
-        read_only_fields = ['id', 'date_joined', 'balance', 'two_factor_enabled',
-                            'broker_api_key', 'broker_account_id']
-        extra_kwargs = {
-            'broker_api_key': {'write_only': True},
-        }
+        fields = ['id', 'email', 'first_name', 'last_name', 'phone', 'date_joined']
+        read_only_fields = ['id', 'date_joined']
 
 
 class TradeSerializer(serializers.ModelSerializer):
@@ -64,11 +59,7 @@ class RiskConfigSerializer(serializers.ModelSerializer):
 
 
 class BrokerConfigSerializer(serializers.Serializer):
-    api_key = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    api_secret = serializers.CharField(max_length=500, required=False, allow_blank=True)
-    account_id = serializers.CharField(max_length=100, required=False)
-    paper_mode = serializers.BooleanField(required=False)
-    broker = serializers.CharField(max_length=100, required=False)
+    pass
 
 
 class OTPVerifySerializer(serializers.Serializer):

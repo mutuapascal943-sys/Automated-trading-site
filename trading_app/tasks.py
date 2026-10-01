@@ -67,104 +67,14 @@ def cleanup_expired_otps():
 
 @shared_task
 def sync_live_trades():
-    open_trades = Trade.objects.filter(is_live=True, status='OPEN')
-    for trade in open_trades:
-        try:
-            user = trade.user
-            adapter = get_adapter_for_broker(user.broker or '')
-            creds = build_credentials(user)
-            adapter.connect(creds)
-            candles = adapter.get_candles(trade.symbol, CANDLE_GRANULARITY, 1)
-            adapter.disconnect()
-            if candles:
-                CacheService.set_market_data(trade.symbol, {
-                    'symbol': trade.symbol,
-                    'price': str(candles[-1].close),
-                    'timestamp': candles[-1].timestamp.isoformat(),
-                })
-        except Exception as e:
-            logger.error(f'Failed to sync trade {trade.id}: {e}')
+    logger.info('Live trade synchronization is disabled in analysis-only mode')
+    return 0
 
 
 @shared_task
 def check_paper_positions():
-    open_paper_trades = Trade.objects.filter(is_live=False, status='OPEN').select_related('user')
-    for trade in open_paper_trades:
-        try:
-            user = trade.user
-            current_price = None
-
-            if not user.paper_mode:
-                try:
-                    adapter = get_adapter_for_broker(user.broker or '')
-                    creds = build_credentials(user)
-                    adapter.connect(creds)
-                    candles = adapter.get_candles(trade.symbol, CANDLE_GRANULARITY, 1)
-                    adapter.disconnect()
-                    if candles:
-                        current_price = Decimal(str(candles[-1].close))
-                except Exception:
-                    pass
-
-            if current_price is None:
-                cached = CacheService.get_market_data(trade.symbol)
-                if cached and cached.get('price'):
-                    current_price = Decimal(cached['price'])
-
-            if current_price is None:
-                continue
-
-            side = trade.action.lower()
-            if side == 'buy':
-                unrealized = (current_price - trade.entry_price) * Decimal(str(trade.volume))
-                sl_hit = trade.stop_loss and current_price <= trade.stop_loss
-                tp_hit = trade.take_profit and current_price >= trade.take_profit
-            else:
-                unrealized = (trade.entry_price - current_price) * Decimal(str(trade.volume))
-                sl_hit = trade.stop_loss and current_price >= trade.stop_loss
-                tp_hit = trade.take_profit and current_price <= trade.take_profit
-
-            trade.current_price = current_price
-            trade.unrealized_pnl = unrealized
-
-            if sl_hit:
-                exit_price = trade.stop_loss
-                if side == 'buy':
-                    pnl = (exit_price - trade.entry_price) * Decimal(str(trade.volume))
-                else:
-                    pnl = (trade.entry_price - exit_price) * Decimal(str(trade.volume))
-                trade.status = 'CLOSED'
-                trade.exit_price = exit_price
-                trade.pnl = pnl
-                trade.closed_at = timezone.now()
-                trade.save()
-                _update_user_balance(user, pnl)
-                Notification.create_notification(
-                    user=user, title=f'Stop Loss Hit — {trade.symbol}',
-                    message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
-                    notification_type='trade',
-                )
-            elif tp_hit:
-                exit_price = trade.take_profit
-                if side == 'buy':
-                    pnl = (exit_price - trade.entry_price) * Decimal(str(trade.volume))
-                else:
-                    pnl = (trade.entry_price - exit_price) * Decimal(str(trade.volume))
-                trade.status = 'CLOSED'
-                trade.exit_price = exit_price
-                trade.pnl = pnl
-                trade.closed_at = timezone.now()
-                trade.save()
-                _update_user_balance(user, pnl)
-                Notification.create_notification(
-                    user=user, title=f'Take Profit Hit — {trade.symbol}',
-                    message=f'{trade.action} closed at {exit_price}, PnL: {pnl}',
-                    notification_type='trade',
-                )
-            else:
-                trade.save()
-        except Exception as e:
-            logger.error(f'Failed to check paper position {trade.id}: {e}')
+    logger.info('Paper position management is disabled in analysis-only mode')
+    return 0
 
 
 def _update_user_balance(user, pnl):
@@ -251,26 +161,11 @@ def _run_single_user_bot(user):
     if user.daily_trades_count >= risk.max_daily_trades:
         return
 
-    adapter = None
-    try:
-        adapter = get_adapter_for_broker(user.broker or '')
-        creds = build_credentials(user)
-        adapter.connect(creds)
-    except Exception as e:
-        logger.warning(f'Could not connect broker adapter for user {user.id}: {e}')
-
     daily_pnl = _get_daily_pnl(user)
 
     from trading_app.trading_bot.technical_analyzer import analyze_technical
 
     for symbol in symbols:
-        # Paper mode: keep the simulated market walking so predictions made on
-        # live data still resolve against simulated outcomes without a browser
-        # open streaming ticks. 60 ticks/minute mirrors live tick speed.
-        if user.paper_mode:
-            from trading_app.trading_bot.simulated_market import SimulatedMarket
-            SimulatedMarket.advance(selected, ticks=60)
-
         existing_open = Trade.objects.filter(user=user, symbol=symbol, status='OPEN').count()
         if existing_open > 0:
             continue
@@ -281,21 +176,28 @@ def _run_single_user_bot(user):
         if open_count >= risk.max_open_positions:
             break
 
-        try:
-            candles = CacheService.get_candles(symbol, CANDLE_GRANULARITY)
-            if candles is not None:
-                logger.info(f'Cache hit for {symbol} ({len(candles)} candles)')
-            elif adapter is not None:
+        candles = CacheService.get_candles(symbol, CANDLE_GRANULARITY)
+        if candles is not None:
+            logger.info(f'Cache hit for {symbol} ({len(candles)} candles)')
+        else:
+            try:
+                from trading_app.ml.symbols import deriv_symbol_for
+                from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+
+                adapter = get_adapter_for_broker(user.broker or '')
+                adapter.connect(build_credentials(user))
                 try:
-                    candles = adapter.get_candles(symbol, CANDLE_GRANULARITY, 50)
-                    logger.info(f'Fetched {len(candles)} candles for {symbol} via {user.broker}')
-                    if candles:
-                        CacheService.set_candles(symbol, CANDLE_GRANULARITY, candles)
-                except Exception as e:
-                    logger.warning(f'Failed to fetch candles for {symbol}: {e}')
-                    cached = CacheService.get_market_data(symbol)
-                    if cached and cached.get('price'):
-                        candles = _make_fallback_candle(symbol, cached)
+                    candle_symbol = deriv_symbol_for(MARKET_SYMBOLS.get(symbol, symbol))
+                    candles = adapter.get_candles(candle_symbol, CANDLE_GRANULARITY, 50)
+                finally:
+                    adapter.disconnect()
+                if candles:
+                    CacheService.set_candles(symbol, CANDLE_GRANULARITY, candles)
+            except Exception as e:
+                logger.warning(f'Failed to fetch candles for {symbol}: {e}')
+                cached = CacheService.get_market_data(symbol)
+                if cached and cached.get('price'):
+                    candles = _make_fallback_candle(symbol, cached)
 
             if not candles and user.paper_mode:
                 # Unknown broker / no live adapter in paper mode: fall back to
@@ -363,280 +265,11 @@ def _run_single_user_bot(user):
                 continue
 
             if confidence < risk.min_confidence:
-                logger.info(
-                    f'Signal for {symbol} confidence {confidence}% below threshold {risk.min_confidence}%'
-                )
-                continue
-
-            signal = TradingSignal.objects.create(
-                user=user,
-                symbol=symbol,
-                signal_type=signal_type,
-                confidence=confidence,
-                entry_price=Decimal(str(candle_dicts[-1]['close'])).quantize(Decimal('0.00001')),
-                stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')) if analysis.stop_loss is not None else None,
-                take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')) if analysis.take_profit is not None else None,
-                reasoning=analysis.rationale + source_detail,
-                source='SYSTEM',
-                risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
-            )
-            Notification.create_notification(
-                user=user, title=f'Signal: {signal_type} {symbol}',
-                message=f'Confidence: {confidence}% — {(analysis.rationale + source_detail)[:120]}',
-                notification_type='signal',
-            )
-            audit.log_signal(symbol, signal_type, confidence, {
-                'signal_id': signal.id, 'user_id': user.id, 'source': 'bot_cycle',
-            })
-
-            signal_data = {
-                'symbol': symbol,
-                'action': signal_type,
-                'volume': float(risk.max_position_size),
-                'entry_price': str(Decimal(str(candle_dicts[-1]['close'])).quantize(Decimal('0.00001'))),
-                'stop_loss': str(Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001'))) if analysis.stop_loss is not None else None,
-                'take_profit': str(Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001'))) if analysis.take_profit is not None else None,
-                'order_type': 'MARKET',
-            }
-            inner_serializer = TradeCreateSerializer(data=signal_data)
-            if not inner_serializer.is_valid():
-                continue
-
-            # Execution is opt-in per risk config: generate signals for every
-            # enabled user but only open trades when auto_execute is on.
-            if not risk.auto_execute:
-                logger.info(
-                    f'Signal {signal_type} {symbol} for user {user.id} generated '
-                    f'(auto_execute off, no trade opened)'
-                )
-                continue
-
-            trade = inner_serializer.save(user=user, status='PENDING', is_live=not user.paper_mode)
-            trade = _execute_trade(user, trade, risk, daily_pnl=daily_pnl)
-
-            if trade.status == 'OPEN':
-                signal.entry_price = trade.entry_price
-                signal.stop_loss = trade.stop_loss
-                signal.take_profit = trade.take_profit
-                signal.is_executed = True
-                signal.save()
-                user.daily_trades_count += 1
-                user.save()
-                open_count += 1
-
-                if trade.pnl is not None:
-                    daily_pnl += trade.pnl
-
-        except Exception as e:
-            logger.error(f'Bot cycle symbol {symbol} failed for user {user.id}: {e}')
-
-    if adapter is not None:
-        try:
-            adapter.disconnect()
-        except Exception:
-            pass
-
-
-def _get_daily_pnl(user):
-    today = timezone.now().date()
-    from django.db.models import Sum
-    result = Trade.objects.filter(
-        user=user, status='CLOSED', closed_at__date=today
-    ).aggregate(total=Sum('pnl'))
-    return result['total'] or Decimal('0')
-
-
-def _make_fallback_candle(symbol, cached=None):
-    """Generate simulated candles when real market data is unavailable."""
-    from .trading_bot.simulated_candles import generate_simulated_candles
-    return generate_simulated_candles(symbol, count=50, granularity=CANDLE_GRANULARITY)
-
-
-def _execute_trade(user, trade, risk, daily_pnl=None):
-    open_trades = list(Trade.objects.filter(user=user, status='OPEN'))
-
-    sizing = PositionSizing(
-        method='fixed',
-        fixed_volume=Decimal(str(trade.volume)),
-        max_position_size=risk.max_position_size,
-    )
-
-    engine = RiskEngine(
-        sizing=sizing,
-        max_exposure_percent=risk.max_exposure_percent,
-        max_daily_loss_percent=risk.max_drawdown,
-        trailing_stop_percent=risk.trailing_stop_percent,
-        account_balance=user.balance,
-    )
-
-    if daily_pnl is not None:
-        engine.record_trade_pnl(daily_pnl)
-
-    fake_signal = OrderRequest(
-        symbol=trade.symbol,
-        side=trade.action.lower(),
-        order_type=trade.order_type.lower(),
-        volume=Decimal(str(trade.volume)),
-        price=trade.entry_price,
-        stop_loss=trade.stop_loss,
-        take_profit=trade.take_profit,
-    )
-
-    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance, open_trades)
-    if risk_signal is None:
-        trade.status = 'CANCELLED'
-        trade.save()
-        audit.log_risk('rules_engine', triggered=True, details={
-            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk_rules_rejected',
-        })
-        return trade
-
-    if user.paper_mode:
-        paper = PaperBrokerAdapter(initial_balance=user.balance)
-        paper.connect({})
-        try:
-            order = paper.place_order(OrderRequest(
-                symbol=trade.symbol,
-                side=trade.action.lower(),
-                order_type=trade.order_type.lower(),
-                volume=Decimal(str(trade.volume)),
-                price=trade.entry_price,
-                stop_loss=risk_signal.stop_loss,
-                take_profit=risk_signal.take_profit,
-            ))
-            trade.status = 'OPEN'
-            trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-            trade.current_price = trade.entry_price
-            trade.unrealized_pnl = Decimal('0')
-            trade.stop_loss = risk_signal.stop_loss
-            trade.take_profit = risk_signal.take_profit
-            trade.executed_at = timezone.now()
-            trade.is_live = False
-            trade.save()
-            Notification.create_notification(
-                user=user, title='Paper Trade Opened',
-                message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
-                notification_type='trade',
-            )
-            audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
-        except Exception as e:
-            logger.error(f'Paper execution failed for trade {trade.id}: {e}')
-            trade.status = 'FAILED'
-            trade.save()
-        return trade
-
-    adapter = get_adapter_for_broker(user.broker or '')
-    creds = build_credentials(user)
-    try:
-        adapter.connect(creds)
-        order = adapter.place_order(OrderRequest(
-            symbol=trade.symbol,
-            side=trade.action.lower(),
-            order_type=trade.order_type.lower(),
-            volume=Decimal(str(trade.volume)),
-            price=trade.entry_price,
-            stop_loss=risk_signal.stop_loss,
-            take_profit=risk_signal.take_profit,
-        ))
-        adapter.disconnect()
-        trade.status = 'OPEN'
-        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-        trade.broker_trade_id = order.broker_order_id or ''
-        trade.stop_loss = risk_signal.stop_loss
-        trade.take_profit = risk_signal.take_profit
-        trade.executed_at = timezone.now()
-        trade.is_live = True
-        trade.save()
-        Notification.create_notification(
-            user=user, title='Live Trade Opened',
-            message=f'{trade.action} {trade.symbol} at {trade.entry_price}',
-            notification_type='trade',
-        )
-        audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
-    except Exception as e:
-        logger.error(f'Live execution failed for trade {trade.id}: {e}')
-        trade.status = 'FAILED'
-        trade.save()
-        Notification.create_notification(
-            user=user, title=f'Trade Failed — {trade.symbol}',
-            message=f'{trade.action} {trade.symbol} failed: {str(e)[:200]}',
-            notification_type='trade',
-        )
-        audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
-
-    return trade
-
-
-# ---------------------------------------------------------------------------
-# Position Monitoring — SL/TP hit detection + trailing stops
-# ---------------------------------------------------------------------------
-
-@shared_task
-def monitor_live_positions():
-    """
-    Check all open trades (paper + live) against current price.
-    Closes trades when SL/TP is hit, applies trailing stops,
-    updates unrealized P&L, and notifies the user.
-    """
-    open_trades = Trade.objects.filter(status='OPEN').select_related('user')
-    for trade in open_trades:
-        try:
-            _monitor_single_trade(trade)
-        except Exception as e:
-            logger.error(f'Position monitor failed for trade {trade.id}: {e}')
-
-
-def _monitor_single_trade(trade):
-    user = trade.user
-    current_price = _fetch_current_price(trade.symbol, user)
-    if current_price is None:
-        return
-
-    side = trade.action.lower()
-    entry = trade.entry_price
-    sl = trade.stop_loss
-    tp = trade.take_profit
-
-    if side == 'buy':
-        unrealized = (current_price - entry) * Decimal(str(trade.volume))
-        sl_hit = sl is not None and current_price <= sl
-        tp_hit = tp is not None and current_price >= tp
-    else:
-        unrealized = (entry - current_price) * Decimal(str(trade.volume))
-        sl_hit = sl is not None and current_price >= sl
-        tp_hit = tp is not None and current_price <= tp
-
-    trade.current_price = current_price
-    trade.unrealized_pnl = unrealized
-
-    if sl_hit:
-        _close_trade(trade, sl, 'Stop Loss Hit', unrealized)
-        return
-
-    if tp_hit:
-        _close_trade(trade, tp, 'Take Profit Hit', unrealized)
-        return
-
-    # Trailing stop: move SL in profit direction if price has moved enough
-    risk = RiskConfig.get_for_user(user)
-    if risk.trailing_stop_percent and risk.trailing_stop_percent > 0:
-        _apply_trailing_stop(trade, current_price, risk.trailing_stop_percent)
-
-    trade.save()
-
-
-def _fetch_current_price(symbol, user):
-    """Fetch current price from broker adapter or cache."""
-    try:
-        adapter = get_adapter_for_broker(user.broker or '')
-        creds = build_credentials(user)
-        adapter.connect(creds)
-        candles = adapter.get_candles(symbol, CANDLE_GRANULARITY, 1)
-        adapter.disconnect()
-        if candles:
-            return Decimal(str(candles[-1].close))
-    except Exception as e:
-        logger.warning(f'Price fetch failed for {symbol}: {e}')
+                logger.warning('Trade execution is disabled in analysis-only mode for %s', trade.symbol)
+                trade.status = 'CANCELLED'
+                trade.is_live = False
+                trade.save(update_fields=['status', 'is_live'])
+                return trade
 
     cached = CacheService.get_market_data(symbol)
     if cached and cached.get('price'):
@@ -739,18 +372,12 @@ def resolve_pending_signal_outcomes():
     for signal in pending:
         try:
             candles = []
-            if signal.user.paper_mode:
-                from .trading_bot.simulated_market import SimulatedMarket
-                candles = SimulatedMarket.get_candles(
-                    signal.symbol, CANDLE_GRANULARITY, 200,
-                )
-            else:
-                adapter = get_adapter_for_broker(signal.user.broker or '')
-                adapter.connect(build_credentials(signal.user))
-                try:
-                    candles = adapter.get_candles(signal.symbol, CANDLE_GRANULARITY, 200)
-                finally:
-                    adapter.disconnect()
+            adapter = get_adapter_for_broker('')
+            adapter.connect(build_credentials(signal.user))
+            try:
+                candles = adapter.get_candles(signal.symbol, CANDLE_GRANULARITY, 200)
+            finally:
+                adapter.disconnect()
             if not candles:
                 from .trading_bot.simulated_candles import generate_simulated_candles
                 candles = generate_simulated_candles(

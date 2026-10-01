@@ -63,6 +63,7 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'forex_ai_pro.wsgi.application'
+
 ASGI_APPLICATION = 'forex_ai_pro.asgi.application'
 
 REDIS_URL = config('REDIS_URL', default='')
@@ -318,14 +319,6 @@ CELERY_BEAT_SCHEDULE = {
     'run-bot-cycle': {
         'task': 'trading_app.tasks.run_bot_cycle',
         'schedule': crontab(minute='*/1'),
-    },
-    'monitor-positions': {
-        'task': 'trading_app.tasks.monitor_live_positions',
-        'schedule': crontab(minute='*/1'),
-    },
-    'sync-live-trades': {
-        'task': 'trading_app.tasks.sync_live_trades',
-        'schedule': crontab(minute='*/5'),
     },
     'reset-daily-trade-counts': {
         'task': 'trading_app.tasks.reset_daily_trade_counts',

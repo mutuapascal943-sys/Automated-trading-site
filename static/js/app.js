@@ -1084,6 +1084,7 @@
         trialTitle.textContent = subscription.status === 'subscribed' ? 'Subscription Active' :
           subscription.status === 'admin_bypass' ? 'Access Granted' :
           subscription.status === 'admin_denied' ? 'Access Disabled' :
+          subscription.status === 'trial_limit_reached' ? 'Trial Signal Limit Reached' :
           subscription.status === 'trial' ? 'Free Trial Active' : 'Trial Expired';
       }
       if(trialTimer && subscription.seconds_remaining != null){
@@ -1093,6 +1094,12 @@
         var s = trialSeconds % 60;
         trialTimer.textContent = String(h).padStart(2,'0') + ':' +
           String(m).padStart(2,'0') + ':' + String(s).padStart(2,'0');
+      }
+      var signalAllowance = document.getElementById('trial-signal-count');
+      if(signalAllowance){
+        signalAllowance.textContent = subscription.status === 'trial' ?
+          '· ' + subscription.signals_remaining + ' of 50 signals remaining' :
+          subscription.status === 'trial_limit_reached' ? '· 50 trial signals used' : '';
       }
       var botButton = document.getElementById('bot-toggle-btn');
       if(botButton){

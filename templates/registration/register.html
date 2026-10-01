@@ -20,11 +20,6 @@
           <label class="form-label" for="reg-email">Email Address</label>
           {{ form.email }}
           {% if form.email.errors %}<div class="form-error">{{ form.email.errors.0 }}</div>{% endif %}
-        </div>
-        <div class="form-row">
-          <div>
-            <label class="form-label" for="reg-pass">Password</label>
-            {{ form.password1 }}
             {% if form.password1.errors %}<div class="form-error">{{ form.password1.errors.0 }}</div>{% endif %}
           </div>
           <div>
@@ -33,14 +28,10 @@
             {% if form.password2.errors %}<div class="form-error">{{ form.password2.errors.0 }}</div>{% endif %}
           </div>
         </div>
-        <div>
-          <label class="form-label" for="reg-broker">Select Broker</label>
-          {{ form.broker }}
-          {% if form.broker.errors %}<div class="form-error">{{ form.broker.errors.0 }}</div>{% endif %}
-        </div>
         <button type="submit" class="btn-primary">Create Account →</button>
         <div class="form-divider">or</div>
         <a href="{% url 'login' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Already have an account? Sign In</a>
+        <a href="{% url 'admin:login' %}" class="form-link" style="display:block;text-align:center;margin-top:14px">Administrator sign in</a>
       </form>
     </div>
   </div>

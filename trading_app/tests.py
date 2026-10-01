@@ -488,10 +488,15 @@ class APIViewTests(TestCase):
             'entry_price': 1.08000,
             'order_type': 'MARKET',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 201)
-        data = response.json()
-        self.assertEqual(data['symbol'], 'EUR/USD')
-        self.assertEqual(data['status'], 'OPEN')
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
+
+    def test_broker_setup_is_disabled_for_analysis_only_service(self):
+        response = self.client.post(reverse('api_configure_broker'), {
+            'broker': 'Binance', 'api_key': 'not-used',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
 
     def test_daily_trade_limit(self):
         self.user.daily_trades_count = 50
@@ -505,7 +510,7 @@ class APIViewTests(TestCase):
             'entry_price': 1.08000,
             'order_type': 'MARKET',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 429)
+        self.assertEqual(response.status_code, 410)
 
     def test_create_signal(self):
         response = self.client.post(reverse('api_signal-list'), {

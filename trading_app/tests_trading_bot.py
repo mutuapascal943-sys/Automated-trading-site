@@ -3,10 +3,12 @@ from __future__ import annotations
 import json
 import time
 import uuid
+from time import perf_counter
 from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any
+from unittest.mock import patch
 
 from django.test import TestCase
 
@@ -35,6 +37,7 @@ from trading_app.trading_bot.logging_utils import ConsoleAuditLogger, NullAuditL
 from trading_app.trading_bot.backtest import BacktestResult, run_backtest
 from trading_app.trading_bot.candlestick_strategies import detect_price_action_signals
 from trading_app.trading_bot.technical_analyzer import analyze_technical
+from trading_app.trading_bot.smc_strategy import detect_smc_signal
 
 
 def make_candle(
@@ -161,6 +164,76 @@ class CandlestickStrategyTests(TestCase):
         ]
         self.assertEqual(detect_price_action_signals(candles), [])
         self.assertEqual(analyze_technical("EUR/USD", candles).bias, "neutral")
+
+    def _smc_bullish_setup(self) -> list[dict[str, float]]:
+        closes = [100 + index * 0.2 + (0.15 if index % 2 else 0) for index in range(60)]
+        candles = []
+        for index, close in enumerate(closes):
+            open_price = close - 0.08
+            candles.append({
+                "open": open_price,
+                "high": close + 0.05,
+                "low": open_price - 0.05,
+                "close": close,
+                "time": index * 300,
+            })
+
+        candles[56] = {"open": 110.4, "high": 110.5, "low": 110.0, "close": 110.1, "time": 56 * 300}
+        candles[57] = {"open": 110.1, "high": 110.2, "low": 109.2, "close": 110.1, "time": 57 * 300}
+        candles[58] = {"open": 109.7, "high": 110.9, "low": 109.65, "close": 110.4, "time": 58 * 300}
+        candles[59] = {"open": 110.4, "high": 111.0, "low": 110.35, "close": 110.9, "time": 59 * 300}
+        return candles
+
+    @patch("trading_app.trading_bot.smc_strategy._recent_fvg", return_value=(110.7, 111.0))
+    @patch("trading_app.trading_bot.smc_strategy._ote_zone", return_value=(110.7, 111.0))
+    @patch("trading_app.trading_bot.smc_strategy._structure_bias", return_value="bullish")
+    @patch("trading_app.trading_bot.smc_strategy._aggregate_higher_timeframe")
+    def test_smc_requires_full_confirmation_and_returns_three_r_target(
+        self, aggregate, _structure, _ote, _fvg,
+    ) -> None:
+        candles = self._smc_bullish_setup()
+        candles[56] = {"open": 110.4, "high": 110.5, "low": 110.0, "close": 110.1, "time": 56 * 300}
+        candles[57] = {"open": 110.1, "high": 110.2, "low": 109.2, "close": 110.1, "time": 57 * 300}
+        candles[58] = {"open": 110.1, "high": 110.9, "low": 109.65, "close": 110.4, "time": 58 * 300}
+        candles[59] = {"open": 110.4, "high": 111.5, "low": 110.35, "close": 111.4, "time": 59 * 300}
+        aggregate.return_value = [(110.0, 112.0, 109.0, 111.0)] * 20
+        signal = detect_smc_signal(candles)
+        self.assertIsNotNone(signal)
+        self.assertEqual(signal.name, "SMC")
+        self.assertEqual(signal.bias, "bullish")
+        risk = 111.4 - signal.stop_loss
+        self.assertGreaterEqual(signal.take_profit - 111.4, 3 * risk)
+
+    @patch("trading_app.trading_bot.technical_analyzer.detect_smc_signal")
+    @patch("trading_app.trading_bot.technical_analyzer.detect_price_action_signals", return_value=[])
+    def test_analyzer_accepts_confirmed_smc_signal_without_candle_pattern(
+        self, _candlestick_detector, smc_detector,
+    ) -> None:
+        from trading_app.trading_bot.candlestick_strategies import StrategySignal
+
+        smc_detector.return_value = StrategySignal(
+            name="SMC", bias="bullish", confidence=0.82,
+            rationale="SMC market structure confirmed", stop_loss=99.0, take_profit=103.0,
+        )
+        result = analyze_technical("EUR/USD", self._candles(count=50))
+        self.assertEqual(result.bias, "bullish")
+        self.assertEqual(result.stop_loss, 99.0)
+        self.assertIn("SMC market structure", result.rationale)
+
+    def test_smc_rejects_incomplete_structure_and_sweep(self) -> None:
+        candles = self._smc_bullish_setup()
+        candles[-2] = {"open": 110.7, "high": 110.9, "low": 110.65,
+                       "close": 110.8, "time": 58 * 300}
+        candles[-1] = {"open": 110.8, "high": 111.0, "low": 110.7,
+                       "close": 110.9, "time": 59 * 300}
+        self.assertIsNone(detect_smc_signal(candles))
+
+    def test_smc_detector_runtime_is_bounded(self) -> None:
+        candles = self._smc_bullish_setup()
+        started = perf_counter()
+        detect_smc_signal(candles * 4)
+        elapsed = perf_counter() - started
+        self.assertLess(elapsed, 120)
 
 
 class PaperBrokerTests(TestCase):

@@ -5,6 +5,7 @@ import math
 from dataclasses import dataclass
 
 from .candlestick_strategies import detect_price_action_signals
+from .smc_strategy import detect_smc_signal
 
 logger = logging.getLogger(__name__)
 
@@ -119,6 +120,9 @@ def analyze_technical(
     momentum = (price - closes[-10]) / closes[-10] * 100 if len(closes) >= 10 and closes[-10] else 0.0
 
     strategy_signals = detect_price_action_signals(candles)
+    smc_signal = detect_smc_signal(candles)
+    if smc_signal is not None:
+        strategy_signals.append(smc_signal)
     bullish_signals = [signal for signal in strategy_signals if signal.bias == 'bullish']
     bearish_signals = [signal for signal in strategy_signals if signal.bias == 'bearish']
     reasons = [signal.rationale for signal in strategy_signals]

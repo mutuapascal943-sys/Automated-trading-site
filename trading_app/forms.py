@@ -46,14 +46,6 @@ def validate_email_not_disposable(email):
     except ImportError:
         pass
 
-BROKER_CHOICES = [
-    ('', 'Choose your broker'),
-    ('Deriv', 'Deriv'),
-    ('Binance', 'Binance'),
-    ('MetaTrader5', 'MetaTrader 5'),
-]
-
-
 class RegisterForm(UserCreationForm):
     email = forms.EmailField(
         widget=forms.EmailInput(attrs={
@@ -72,14 +64,9 @@ class RegisterForm(UserCreationForm):
             'class': 'form-input', 'placeholder': 'Repeat password', 'id': 'reg-pass2'
         })
     )
-    broker = forms.ChoiceField(
-        choices=BROKER_CHOICES, required=True,
-        widget=forms.Select(attrs={'class': 'form-input', 'id': 'reg-broker'})
-    )
-
     class Meta:
         model = User
-        fields = ('email', 'password1', 'password2', 'broker')
+        fields = ('email', 'password1', 'password2')
 
     def clean_email(self):
         email = self.cleaned_data.get('email')
@@ -183,16 +170,13 @@ class SecurityAnswerForm(forms.Form):
 class ProfileForm(forms.ModelForm):
     class Meta:
         model = User
-        fields = ['first_name', 'last_name', 'email', 'broker', 'phone', 'bio']
+        fields = ['first_name', 'last_name', 'email', 'phone', 'bio']
         widgets = {
             'first_name': forms.TextInput(attrs={'class': 'form-input', 'id': 'prof-first-name'}),
             'last_name': forms.TextInput(attrs={'class': 'form-input', 'id': 'prof-last-name'}),
             'email': forms.EmailInput(attrs={
                 'class': 'form-input', 'id': 'prof-email',
             }),
-            'broker': forms.Select(attrs={
-                'class': 'form-input', 'id': 'prof-broker',
-            }, choices=BROKER_CHOICES),
             'phone': forms.TextInput(attrs={
                 'class': 'form-input', 'id': 'prof-phone', 'placeholder': '+1 (555) 123-4567',
             }),

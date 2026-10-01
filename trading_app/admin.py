@@ -5,7 +5,7 @@ from .models import User, EmailOTP, Trade, TradingSignal, Subscription, Predicti
 
 class CustomUserAdmin(UserAdmin):
     list_display = ['id', 'first_name', 'last_name', 'phone', 'email', 'subscription_bypass', 'subscription_access_denied', 'is_active', 'date_joined']
-    list_filter = ['two_factor_enabled', 'subscription_bypass', 'subscription_access_denied', 'broker', 'is_active']
+    list_filter = ['two_factor_enabled', 'subscription_bypass', 'subscription_access_denied', 'is_active']
     search_fields = ['email', 'first_name', 'last_name', 'phone']
     ordering = ['-date_joined']
     readonly_fields = [
@@ -15,7 +15,7 @@ class CustomUserAdmin(UserAdmin):
         'is_superuser', 'groups', 'user_permissions',
     ]
     fieldsets = UserAdmin.fieldsets + (
-        ('Trading Profile', {'fields': ('broker', 'balance', 'broker_api_key', 'broker_api_secret', 'broker_account_id', 'two_factor_enabled', 'selected_market')}),
+        ('Signal Profile', {'fields': ('balance', 'two_factor_enabled', 'selected_market')}),
         ('Subscription Access', {'fields': ('subscription_bypass', 'subscription_access_denied')}),
     )
 

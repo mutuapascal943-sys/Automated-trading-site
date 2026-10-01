@@ -4,6 +4,7 @@ from django.utils import timezone
 
 
 TRIAL_DURATION = timedelta(hours=24)
+TRIAL_SIGNAL_LIMIT = 50
 
 
 def subscription_status(user) -> dict:
@@ -42,19 +43,34 @@ def subscription_status(user) -> dict:
         }
 
     trial_ends_at = user.trial_started_at + TRIAL_DURATION if user.trial_started_at else None
-    if trial_ends_at and trial_ends_at > now:
+    signals_used = 0
+    if user.trial_started_at:
+        from trading_app.models import TradingSignal
+
+        signals_used = TradingSignal.objects.filter(
+            user=user,
+            source='SYSTEM',
+            signal_type__in=('BUY', 'SELL'),
+            created_at__gte=user.trial_started_at,
+        ).count()
+    signals_remaining = max(0, TRIAL_SIGNAL_LIMIT - signals_used)
+    if trial_ends_at and trial_ends_at > now and signals_remaining > 0:
         return {
             'has_access': True,
             'status': 'trial',
             'tier': 'FREE',
             'expires_at': trial_ends_at,
             'seconds_remaining': int((trial_ends_at - now).total_seconds()),
+            'signals_used': signals_used,
+            'signals_remaining': signals_remaining,
         }
 
     return {
         'has_access': False,
-        'status': 'expired',
+        'status': 'trial_limit_reached' if trial_ends_at and trial_ends_at > now else 'expired',
         'tier': subscription.tier if subscription else 'FREE',
         'expires_at': trial_ends_at or (subscription.expires_at if subscription else None),
         'seconds_remaining': 0,
+        'signals_used': signals_used,
+        'signals_remaining': signals_remaining,
     }

@@ -13,6 +13,7 @@ import logging
 import time
 from datetime import datetime, timezone
 from decimal import Decimal
+from decouple import config
 
 logger = logging.getLogger(__name__)
 
@@ -44,6 +45,9 @@ def collect_candles(
     Returns list of dicts: {open, high, low, close, volume, time}
     sorted oldest-first.
     """
+    if token is None:
+        token = config('MARKET_DATA_API_TOKEN', default='') or None
+
     try:
         import websockets
     except ImportError:

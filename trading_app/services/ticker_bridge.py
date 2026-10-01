@@ -107,24 +107,13 @@ class TickerBridge:
 
     @staticmethod
     def _resolve_credentials(user) -> dict[str, str] | None:
-        """Try to extract broker credentials from the user or env."""
-        token = ""
-
-        if user is not None and hasattr(user, "broker_api_key") and user.broker_api_key:
-            from .credential_encrypt import decrypt
-
-            raw = decrypt(user.broker_api_key)
-            if raw:
-                token = raw
-
-        if not token:
-            token = config("TRADING_API_KEY", default="")
+        """Resolve only the dedicated read-only market-data API token."""
+        token = config("MARKET_DATA_API_TOKEN", default="")
 
         if not token or token.startswith("sk-your-") or token.startswith("your-"):
             return None
 
-        account_id = config("TRADING_ACCOUNT_ID", default="")
-        return {"token": token, "account_id": account_id}
+        return {"token": token}
 
     @staticmethod
     def _check_deriv_reachable() -> bool:

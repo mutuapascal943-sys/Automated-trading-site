@@ -1,7 +1,13 @@
+from datetime import datetime, timezone
+from decimal import Decimal
+from unittest.mock import MagicMock, patch
+
 from django.test import TestCase
 from django.urls import reverse
 from django.contrib.auth import get_user_model
 from rest_framework.test import APIClient
+
+from trading_app.trading_bot.interface import Candle
 
 
 class BotMarketAPITests(TestCase):
@@ -32,6 +38,44 @@ class BotMarketAPITests(TestCase):
         data = r.json()
         candles = data.get('candles') or data.get('data') or []
         self.assertGreaterEqual(len(candles), 100)
+
+    @patch('trading_app.api_views.CacheService.set_candles')
+    @patch('trading_app.api_views.CacheService.get_candles', return_value=None)
+    @patch('trading_app.api_views.build_credentials', return_value={'token': 'test-token'})
+    @patch('trading_app.api_views._resolve_adapter')
+    def test_chart_uses_deriv_symbols_for_paper_analysis(
+        self, resolve_adapter, _credentials, _get_candles, _set_candles
+    ):
+        adapter = MagicMock()
+        adapter.get_candles.return_value = [Candle(
+            symbol='frxEURUSD', open=Decimal('1.08'), high=Decimal('1.09'),
+            low=Decimal('1.07'), close=Decimal('1.085'), volume=Decimal('10'),
+            timestamp=datetime.now(timezone.utc), granularity=3600,
+        )]
+        resolve_adapter.return_value = adapter
+
+        response = self.client.get('/api/chart/candles/', {
+            'symbol': 'EUR/USD', 'granularity': 3600, 'count': 200,
+        })
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['source'], 'live')
+        adapter.get_candles.assert_called_once_with('frxEURUSD', 3600, 200)
+        adapter.disconnect.assert_called_once()
+
+    def test_chart_rejects_unsupported_timeframe(self):
+        response = self.client.get('/api/chart/candles/', {
+            'symbol': 'EUR/USD', 'granularity': 123,
+        })
+        self.assertEqual(response.status_code, 400)
+
+    def test_admin_login_is_available_from_auth_screens(self):
+        login_page = self.client.get(reverse('login'))
+        self.assertEqual(login_page.status_code, 200)
+        self.assertContains(login_page, reverse('admin:login'))
+
+        admin_page = self.client.get(reverse('admin:login'))
+        self.assertEqual(admin_page.status_code, 200)
 
     def test_bot_market_requires_auth(self):
         c = APIClient()

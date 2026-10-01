@@ -18,7 +18,7 @@
           {% endif %}
         </div>
         <h2 style="font-size:20px;font-weight:800;margin:12px 0 4px">{{ user.email }}</h2>
-        <p style="color:var(--text2);font-size:13px">{{ user.broker|default:"No broker" }}</p>
+        <p style="color:var(--text2);font-size:13px">Market data and signal analysis</p>
       </div>
 
       {% if messages %}
@@ -70,11 +70,6 @@
           <label class="form-label" for="prof-email">Email Address</label>
           {{ profile_form.email }}
           {% if profile_form.email.errors %}<div class="form-error">{{ profile_form.email.errors.0 }}</div>{% endif %}
-        </div>
-        <div>
-          <label class="form-label" for="prof-broker">Broker</label>
-          {{ profile_form.broker }}
-          {% if profile_form.broker.errors %}<div class="form-error">{{ profile_form.broker.errors.0 }}</div>{% endif %}
         </div>
         <div>
           <label class="form-label" for="prof-phone">Phone Number</label>

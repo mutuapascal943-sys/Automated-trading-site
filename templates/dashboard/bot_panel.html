@@ -9,9 +9,21 @@
       <option>Volatility 75 Index</option><option>Volatility 100 Index</option>
     </select>
   </div>
-  <div class="filter-group" style="display:flex;align-items:center;gap:8px">
-    <label style="font-size:11px;color:var(--text3);font-family:'DM Mono',monospace;text-transform:uppercase;letter-spacing:.08em">Paper</label>
-    <div class="toggle {% if user.paper_mode %}on{% endif %}" id="paper-mode-toggle" onclick="togglePaperMode()"></div>
+  <div class="filter-group">
+    <label class="filter-label" for="bot-timeframe">Timeframe</label>
+    <select class="filter-select" id="bot-timeframe" onchange="updateBotTimeframe()">
+      <option value="60">1 minute</option>
+      <option value="300" selected>5 minutes</option>
+      <option value="900">15 minutes</option>
+      <option value="1800">30 minutes</option>
+      <option value="3600">1 hour</option>
+      <option value="14400">4 hours</option>
+      <option value="86400">1 day</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <div class="filter-label">Mode</div>
+    <div class="filter-select" aria-label="System mode">Analysis only</div>
   </div>
 </div>
 
@@ -20,7 +32,7 @@
     <div class="chart-header">
       <div>
         <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
-        <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">{% if user.paper_mode %}PAPER{% else %}LIVE{% endif %}</div>
+        <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">SIGNALS ONLY</div>
       </div>
       <div class="chart-price" id="bot-price">1.08432</div>
     </div>
@@ -75,13 +87,14 @@ function toggleBot(){
 
 function runSignalScan(){
   var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+  var timeframe = Number(document.getElementById('bot-timeframe')?.value || 300);
   var ss = document.getElementById('scanStatus');
   if(ss) ss.textContent = '> Scanning ' + pair + '...\n';
 
   fetch('/api/analyze-signal/', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-    body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
+    body: JSON.stringify({query_type: 'market_analysis', prompt: pair, granularity: timeframe}),
   })
   .then(function(response){
     return response.json().then(function(data){
@@ -90,6 +103,12 @@ function runSignalScan(){
     });
   })
   .then(function(data){
+    if(ss && data.analysis_duration_ms != null){
+      ss.textContent += '> Analysis completed in ' + data.analysis_duration_ms + ' ms.\n';
+    }
+    if(ss && data.trial && data.trial.status === 'trial'){
+      ss.textContent += '> Trial signals remaining: ' + data.trial.signals_remaining + '/50.\n';
+    }
     if(!data.signal || data.signal.signal_type === 'HOLD'){
       if(ss) ss.textContent += '> No actionable signal. Continuing scan...\n';
       return;

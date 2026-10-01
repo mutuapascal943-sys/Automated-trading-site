@@ -21,7 +21,6 @@ from .models import User, EmailOTP, Trade, TradingSignal, SecurityQuestion, Reme
 from .decorators import two_factor_required
 from .services.email_service import generate_otp, send_otp_email
 from .services.cache_service import CacheService
-from .services.broker_service import BrokerService
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,6 @@ def register_view(request):
         if form.is_valid():
             user = form.save(commit=False)
             user.email = form.cleaned_data['email']
-            user.broker = form.cleaned_data['broker']
             base_username = user.email.split('@')[0]
             username = base_username
             counter = 1
@@ -287,7 +285,7 @@ def dashboard_view(request):
 
     context = {
         'user_email': user.email,
-        'user_broker': user.broker,
+        'user_broker': 'Market analysis',
         'balance': float(user.balance),
         'page_title': 'Dashboard',
         'open_trades': open_trades,

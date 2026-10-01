@@ -25,6 +25,7 @@ from .services.cache_service import CacheService
 from .services.email_service import generate_otp, send_otp_email
 from .services.credential_encrypt import encrypt, decrypt
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
+from .ml.symbols import deriv_symbol_for
 from .services.ticker_bridge import TickerBridge
 from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
@@ -63,15 +64,16 @@ class TradeViewSet(viewsets.ModelViewSet):
         serializer.save(user=self.request.user)
 
     def create(self, request, *args, **kwargs):
-        access = _subscription_access_response(request.user)
-        if access is not None:
-            return access
-        serializer = TradeCreateSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        trade = serializer.save(user=request.user, status='PENDING')
+        return _execution_disabled_response()
 
-        trade = _execute_via_adapter(request.user, trade)
-        return Response(TradeSerializer(trade).data, status=status.HTTP_201_CREATED)
+    def update(self, request, *args, **kwargs):
+        return _execution_disabled_response()
+
+    def partial_update(self, request, *args, **kwargs):
+        return _execution_disabled_response()
+
+    def destroy(self, request, *args, **kwargs):
+        return _execution_disabled_response()
 
 
 class SignalViewSet(viewsets.ModelViewSet):
@@ -108,7 +110,16 @@ def _serialize_subscription_status(access: dict) -> dict:
         'tier': access['tier'],
         'expires_at': expires_at.isoformat() if expires_at else None,
         'seconds_remaining': access['seconds_remaining'],
+        'signals_used': access.get('signals_used'),
+        'signals_remaining': access.get('signals_remaining'),
     }
+
+
+def _execution_disabled_response():
+    return Response({
+        'error': 'Trade execution is disabled. This system provides market data and analysis signals only.',
+        'execution_enabled': False,
+    }, status=status.HTTP_410_GONE)
 
 
 # ---------------------------------------------------------------------------
@@ -119,34 +130,32 @@ def _serialize_subscription_status(access: dict) -> dict:
 @permission_classes([permissions.IsAuthenticated])
 def market_data_view(request):
     symbol = request.query_params.get('symbol', 'EUR/USD')
-    cached = CacheService.get_market_data(symbol)
-    if cached:
-        return Response(cached)
-
-    adapter = _resolve_adapter(request.user)
-    creds = build_credentials(request.user)
     try:
-        adapter.connect(creds)
-        candles = adapter.get_candles(symbol, 3600, 1)
-        adapter.disconnect()
-        if candles:
-            data = {
-                'symbol': symbol,
-                'price': str(candles[-1].close),
-                'high': str(candles[-1].high),
-                'low': str(candles[-1].low),
-                'open': str(candles[-1].open),
-                'timestamp': candles[-1].timestamp.isoformat(),
-            }
-            CacheService.set_market_data(symbol, data)
-            return Response(data)
-    except Exception as e:
-        logger.warning('Market data fetch failed: %s', e)
+        granularity = int(request.query_params.get('granularity', 900))
+    except ValueError:
+        return Response({'error': 'granularity must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+    from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
+    if symbol not in MARKET_SYMBOLS:
+        return Response({'error': 'Unsupported market'}, status=status.HTTP_400_BAD_REQUEST)
+    if granularity not in GRANULARITY_MAP:
+        return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
 
-    cached = CacheService.get_market_data(symbol)
-    if cached:
-        return Response(cached)
-    return Response({'symbol': symbol, 'price': '0', 'message': 'Using simulated data'})
+    candles, source = _fetch_chart_candles_with_source(request.user, symbol, 2, granularity)
+    if not candles:
+        return Response({'symbol': symbol, 'error': 'Market data is temporarily unavailable'},
+                        status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    latest = candles[-1]
+    return Response({
+        'symbol': symbol,
+        'granularity': granularity,
+        'price': str(latest.close),
+        'high': str(latest.high),
+        'low': str(latest.low),
+        'open': str(latest.open),
+        'timestamp': latest.timestamp.isoformat(),
+        'source': source,
+    })
 
 
 # ---------------------------------------------------------------------------
@@ -157,13 +166,7 @@ def market_data_view(request):
 @permission_classes([permissions.IsAuthenticated])
 @two_factor_required_api
 def execute_trade_view(request):
-    access = _subscription_access_response(request.user)
-    if access is not None:
-        return access
-    from django.db import transaction
-
-    with transaction.atomic():
-        return _execute_trade_impl(request)
+    return _execution_disabled_response()
 
 
 def _execute_trade_impl(request):
@@ -247,113 +250,7 @@ def _execute_trade_impl(request):
 
 
 def _execute_via_adapter(user, trade, risk=None):
-    if risk is None:
-        risk = RiskConfig.get_for_user(user)
-
-    open_trades = list(Trade.objects.filter(user=user, status='OPEN'))
-
-    sizing = PositionSizing(
-        method='fixed',
-        fixed_volume=Decimal(str(trade.volume)),
-        max_position_size=risk.max_position_size,
-    )
-
-    engine = RiskEngine(
-        sizing=sizing,
-        max_exposure_percent=risk.max_exposure_percent,
-        max_daily_loss_percent=risk.max_drawdown,
-        trailing_stop_percent=risk.trailing_stop_percent,
-        account_balance=user.balance,
-    )
-
-    today = timezone.now().date()
-    from django.db.models import Sum
-    daily_pnl = Trade.objects.filter(
-        user=user, status='CLOSED', closed_at__date=today
-    ).aggregate(total=Sum('pnl'))['total'] or Decimal('0')
-    engine.record_trade_pnl(daily_pnl)
-
-    fake_signal = RiskOrderRequest(
-        symbol=trade.symbol,
-        side=trade.action.lower(),
-        order_type=trade.order_type.lower(),
-        volume=Decimal(str(trade.volume)),
-        price=trade.entry_price,
-        stop_loss=trade.stop_loss,
-        take_profit=trade.take_profit,
-    )
-
-    risk_signal = engine.apply_rules(trade.symbol, fake_signal, user.balance, open_trades)
-    if risk_signal is None:
-        trade.status = 'CANCELLED'
-        trade.save()
-        audit.log_risk('rules_engine', triggered=True, details={
-            'trade_id': trade.id, 'symbol': trade.symbol, 'reason': 'risk_rules_rejected',
-        })
-        return trade
-
-    if user.paper_mode:
-        paper = PaperBrokerAdapter(initial_balance=user.balance)
-        paper.connect({})
-        try:
-            order = paper.place_order(RiskOrderRequest(
-                symbol=trade.symbol,
-                side=trade.action.lower(),
-                order_type=trade.order_type.lower(),
-                volume=Decimal(str(trade.volume)),
-                price=trade.entry_price,
-                stop_loss=risk_signal.stop_loss,
-                take_profit=risk_signal.take_profit,
-            ))
-            trade.status = 'OPEN'
-            trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-            trade.current_price = trade.entry_price
-            trade.unrealized_pnl = Decimal('0')
-            trade.stop_loss = risk_signal.stop_loss
-            trade.take_profit = risk_signal.take_profit
-            trade.executed_at = timezone.now()
-            trade.is_live = False
-            trade.save()
-            create_notification(user, 'Paper Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
-            audit.log_order('paper_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
-        except Exception as e:
-            logger.error(f'Paper execution failed for trade {trade.id}: {e}')
-            trade.status = 'FAILED'
-            trade.save()
-        return trade
-
-    adapter = _resolve_adapter(user)
-    creds = build_credentials(user)
-    try:
-        adapter.connect(creds)
-        order = adapter.place_order(RiskOrderRequest(
-            symbol=trade.symbol,
-            side=trade.action.lower(),
-            order_type=trade.order_type.lower(),
-            volume=Decimal(str(trade.volume)),
-            price=trade.entry_price,
-            stop_loss=risk_signal.stop_loss,
-            take_profit=risk_signal.take_profit,
-        ))
-        adapter.disconnect()
-        trade.status = 'OPEN'
-        trade.entry_price = Decimal(str(order.filled_price)) if order.filled_price else trade.entry_price
-        trade.broker_trade_id = order.broker_order_id or ''
-        trade.stop_loss = risk_signal.stop_loss
-        trade.take_profit = risk_signal.take_profit
-        trade.executed_at = timezone.now()
-        trade.is_live = True
-        trade.save()
-        create_notification(user, 'Live Trade Opened', f'{trade.action} {trade.symbol} at {trade.entry_price}', 'trade')
-        audit.log_order('live_filled', order.id, {'trade_id': trade.id, 'symbol': trade.symbol})
-    except Exception as e:
-        logger.error('Live execution failed: %s', e)
-        trade.status = 'FAILED'
-        trade.save()
-        create_notification(user, f'Trade Failed — {trade.symbol}', f'{trade.action} {trade.symbol} failed: {str(e)[:200]}', 'trade')
-        audit.log_error('live_execution', str(e), {'trade_id': trade.id, 'symbol': trade.symbol})
-
-    return trade
+    return _execution_disabled_response()
 
 
 # ---------------------------------------------------------------------------
@@ -363,26 +260,7 @@ def _execute_via_adapter(user, trade, risk=None):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def modify_trade_view(request, trade_id):
-    trade = get_object_or_404(Trade, id=trade_id, user=request.user, status='OPEN')
-
-    stop_loss = request.data.get('stop_loss')
-    take_profit = request.data.get('take_profit')
-
-    try:
-        if stop_loss is not None:
-            trade.stop_loss = Decimal(str(stop_loss))
-        if take_profit is not None:
-            trade.take_profit = Decimal(str(take_profit))
-    except (ValueError, TypeError, decimal.InvalidOperation):
-        return Response({'error': 'Invalid stop loss or take profit value'},
-                        status=status.HTTP_400_BAD_REQUEST)
-
-    trade.save()
-    audit.log_order('trade_modified', str(trade.id), {
-        'stop_loss': str(trade.stop_loss),
-        'take_profit': str(trade.take_profit),
-    })
-    return Response(TradeSerializer(trade).data)
+    return _execution_disabled_response()
 
 
 # ---------------------------------------------------------------------------
@@ -393,72 +271,18 @@ def modify_trade_view(request, trade_id):
 @permission_classes([permissions.IsAuthenticated])
 @two_factor_required_api
 def configure_broker_view(request):
-    serializer = BrokerConfigSerializer(data=request.data)
-    serializer.is_valid(raise_exception=True)
-
-    user = request.user
-    if 'api_key' in serializer.validated_data and serializer.validated_data['api_key']:
-        user.broker_api_key = encrypt(serializer.validated_data['api_key'])
-    if 'api_secret' in serializer.validated_data and serializer.validated_data['api_secret']:
-        user.broker_api_secret = encrypt(serializer.validated_data['api_secret'])
-    if 'account_id' in serializer.validated_data:
-        user.broker_account_id = serializer.validated_data['account_id']
-    if 'paper_mode' in serializer.validated_data:
-        user.paper_mode = serializer.validated_data['paper_mode']
-    if 'broker' in serializer.validated_data:
-        user.broker = serializer.validated_data['broker']
-    user.save()
-
-    adapter = _resolve_adapter(user)
-    creds = build_credentials(user)
-    connected = False
-    error_msg = ''
-    try:
-        adapter.connect(creds)
-        adapter.disconnect()
-        connected = True
-    except Exception as e:
-        error_msg = 'Connection test failed'
-        logger.warning(f'Broker connection test failed for user {user.id}: {e}')
-
-    audit.log_connection(user.broker or 'unknown', 'configured', {
-        'user_id': user.id, 'connected': connected,
-    })
-    return Response({
-        'status': 'Broker configured successfully',
-        'paper_mode': user.paper_mode,
-        'connection_test': {
-            'success': connected,
-            'error': error_msg if not connected else '',
-        },
-    })
+    return _execution_disabled_response()
 
 
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 @two_factor_required_api
 def broker_status_view(request):
-    user = request.user
-    configured = bool(user.broker_api_key) and bool(user.broker)
-
-    health = {'reachable': False, 'error': ''}
-    if configured and not user.paper_mode:
-        adapter = _resolve_adapter(user)
-        creds = build_credentials(user)
-        try:
-            adapter.connect(creds)
-            adapter.disconnect()
-            health['reachable'] = True
-        except Exception as e:
-            health['error'] = 'Connection failed'
-            logger.warning(f'Broker health check failed for user {user.id}: {e}')
-
     return Response({
-        'broker': user.broker,
-        'paper_mode': user.paper_mode,
-        'configured': configured,
-        'health': health,
-        'broker_list': ['Deriv', 'Binance', 'MetaTrader5'],
+        'configured': False,
+        'execution_enabled': False,
+        'purpose': 'Market data and analysis only',
+        'market_data_provider': 'Deriv WebSocket',
     })
 
 
@@ -466,28 +290,7 @@ def broker_status_view(request):
 @permission_classes([permissions.IsAuthenticated])
 @two_factor_required_api
 def broker_health_check_view(request):
-    user = request.user
-    adapter = _resolve_adapter(user)
-    creds = build_credentials(user)
-    start = time.time()
-    try:
-        adapter.connect(creds)
-        latency_ms = int((time.time() - start) * 1000)
-        adapter.disconnect()
-        return Response({
-            'status': 'healthy',
-            'broker': user.broker,
-            'latency_ms': latency_ms,
-        })
-    except Exception as e:
-        latency_ms = int((time.time() - start) * 1000)
-        logger.error('Broker health check failed for user %s: %s', user.id, e)
-        return Response({
-            'status': 'unhealthy',
-            'broker': user.broker,
-            'error': 'Broker connection failed — check your credentials or try again later.',
-            'latency_ms': latency_ms,
-        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return _execution_disabled_response()
 
 
 # ---------------------------------------------------------------------------
@@ -527,7 +330,16 @@ def analyze_and_signal_view(request):
     if symbol != request.user.selected_market:
         return Response({'error': 'Analysis is limited to your selected market.'}, status=status.HTTP_400_BAD_REQUEST)
     try:
-        candles = _candles_to_dicts(_fetch_chart_candles(request.user, symbol, count=200))
+        granularity = int(request.data.get('granularity', 300))
+    except (TypeError, ValueError):
+        return Response({'error': 'granularity must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+    from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
+    if granularity not in GRANULARITY_MAP:
+        return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
+    try:
+        candles = _candles_to_dicts(_fetch_chart_candles(
+            request.user, symbol, count=200, granularity=granularity,
+        ))
 
         recent_trades = list(Trade.objects.filter(
             user=request.user, symbol=symbol, status='CLOSED'
@@ -574,6 +386,7 @@ def analyze_and_signal_view(request):
                     'sma_short': analysis.sma_short,
                     'sma_long': analysis.sma_long,
                     'atr': analysis.atr,
+                    'granularity': granularity,
                 },
                 'pending': True,
             })
@@ -607,6 +420,7 @@ def analyze_and_signal_view(request):
                         'sma_short': analysis.sma_short,
                         'sma_long': analysis.sma_long,
                         'atr': analysis.atr,
+                        'granularity': granularity,
                     },
                     'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
                 })
@@ -651,6 +465,7 @@ def analyze_and_signal_view(request):
                 'sma_short': analysis.sma_short,
                 'sma_long': analysis.sma_long,
                 'atr': analysis.atr,
+                'granularity': granularity,
             },
         })
 
@@ -1251,6 +1066,8 @@ def mark_all_notifications_read(request):
 @permission_classes([permissions.IsAuthenticated])
 @throttle_classes([UserRateThrottle])
 def run_backtest_view(request):
+    return _execution_disabled_response()
+
     from .trading_bot.backtest import run_backtest, BacktestResult
     from .trading_bot.interface import Candle, OrderRequest
 
@@ -1490,24 +1307,44 @@ CHART_GRANULARITY = 60  # matches the frontend 1-minute candle aggregation
 
 
 def _fetch_chart_candles(user, symbol: str, count: int = 200, granularity: int = CHART_GRANULARITY):
-    """Fetch candles at chart granularity from the user's broker, falling back
-    to the shared simulated market series (paper mode / broker unreachable).
-    The returned series is the same one the chart displays, so predicted
-    entry/SL/TP levels always line up with the visible candles."""
-    if not user.paper_mode:
-        try:
-            adapter = _resolve_adapter(user)
-            creds = build_credentials(user)
-            adapter.connect(creds)
-            candles = adapter.get_candles(symbol, granularity, count)
-            adapter.disconnect()
-            if candles:
-                return candles
-        except Exception as e:
-            logger.warning(f'Chart candle fetch failed for {symbol}: {e}')
+    candles, _source = _fetch_chart_candles_with_source(user, symbol, count, granularity)
+    return candles
+
+
+def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity: int):
+    """Fetch shared read-only Deriv candles, falling back only when unavailable."""
+    cached = CacheService.get_candles(symbol, granularity)
+    if cached and len(cached) >= count:
+        return cached[-count:], 'live'
+
+    adapter = None
+    connected = False
+    try:
+        adapter = _resolve_adapter(user)
+        adapter.connect(build_credentials(user))
+        connected = True
+        candles = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, count)
+        if candles:
+            CacheService.set_candles(symbol, granularity, candles)
+            return candles, 'live'
+    except Exception as e:
+        logger.warning('Chart candle fetch failed for %s: %s', symbol, e)
+    finally:
+        if connected:
+            try:
+                adapter.disconnect()
+            except Exception as e:
+                logger.warning('Chart adapter disconnect failed for %s: %s', symbol, e)
 
     from trading_app.trading_bot.simulated_market import SimulatedMarket
-    return SimulatedMarket.get_candles(symbol, granularity, count)
+    return SimulatedMarket.get_candles(symbol, granularity, count), 'simulated'
+
+
+def deriv_symbol_for_market(symbol: str) -> str:
+    """Translate a dashboard market label to the symbol expected by Deriv."""
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+
+    return deriv_symbol_for(MARKET_SYMBOLS.get(symbol, symbol))
 
 
 def _candles_to_dicts(candles):
@@ -1585,17 +1422,25 @@ def bot_control_view(request):
 @throttle_classes([UserRateThrottle])
 def chart_candles_view(request):
     symbol = request.query_params.get('symbol', 'EUR/USD')
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+    if symbol not in MARKET_SYMBOLS:
+        return Response({'error': 'Unsupported market'}, status=status.HTTP_400_BAD_REQUEST)
     try:
         granularity = int(request.query_params.get('granularity', 900))
     except ValueError:
-        granularity = 900
+        return Response({'error': 'granularity must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+    from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
+    if granularity not in GRANULARITY_MAP:
+        return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
     try:
         count = int(request.query_params.get('count', 200))
     except ValueError:
         count = 200
     count = max(10, min(count, 2000))
 
-    candles = _fetch_chart_candles(request.user, symbol, count=count, granularity=granularity)
+    candles, source = _fetch_chart_candles_with_source(
+        request.user, symbol, count=count, granularity=granularity
+    )
 
     data = [{
         'time': int(c.timestamp.timestamp()),
@@ -1610,6 +1455,6 @@ def chart_candles_view(request):
     return Response({
         'symbol': symbol,
         'granularity': granularity,
-        'source': 'live' if not request.user.paper_mode and data else 'simulated',
+        'source': source,
         'candles': data,
     })
