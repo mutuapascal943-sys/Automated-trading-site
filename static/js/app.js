@@ -358,6 +358,15 @@
   }
   window.updateBotMarket = updateBotMarket;
 
+  function updateBotTimeframe(){
+    clearChartOverlay();
+    if(typeof lastSignalKey !== 'undefined') lastSignalKey = null;
+    if(typeof lastPendingSignalId !== 'undefined') lastPendingSignalId = null;
+    initBotChart();
+    if(typeof botScanInterval !== 'undefined' && botScanInterval) runSignalScan();
+  }
+  window.updateBotTimeframe = updateBotTimeframe;
+
   function restoreBotMarket(){
     fetch('/api/bot/market/', {headers: {'X-Requested-With': 'XMLHttpRequest'}})
     .then(function(r){ return r.json() })
@@ -512,6 +521,8 @@
 
     var sel = document.getElementById('bot-market');
     var pair = sel ? sel.value : 'EUR/USD';
+    var timeframeSelect = document.getElementById('bot-timeframe');
+    var timeframe = Number(timeframeSelect ? timeframeSelect.value : 300);
 
     fetch('/api/analyze-signal/', {
       method: 'POST',
@@ -913,7 +924,7 @@
       if (botChartInstance) botChartInstance.timeScale().fitContent();
     }
 
-    fetch('/api/chart/candles/?symbol=' + encodeURIComponent(pair) + '&granularity=60&count=200', {
+    fetch('/api/chart/candles/?symbol=' + encodeURIComponent(pair) + '&granularity=' + timeframe + '&count=200', {
       method: 'GET',
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
@@ -936,7 +947,7 @@
       seedRandomCandles();
     });
 
-    candleBuffer[pair] = { ticks: [], lastCandleTime: now - (now % 60) };
+    candleBuffer[pair] = { ticks: [], lastCandleTime: now - (now % timeframe) };
 
     addWSListener(pair, botTickHandler);
 
