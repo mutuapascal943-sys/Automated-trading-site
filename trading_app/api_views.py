@@ -2,6 +2,7 @@ import secrets
 import time
 import logging
 import decimal
+from functools import wraps
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
 from django.utils import timezone
@@ -122,6 +123,19 @@ def _execution_disabled_response():
     }, status=status.HTTP_410_GONE)
 
 
+def _measure_analysis_duration(view):
+    @wraps(view)
+    def wrapped(request, *args, **kwargs):
+        started = time.perf_counter()
+        response = view(request, *args, **kwargs)
+        duration_ms = round((time.perf_counter() - started) * 1000, 2)
+        if isinstance(response.data, dict):
+            response.data['analysis_duration_ms'] = duration_ms
+        response['X-Analysis-Duration-Ms'] = str(duration_ms)
+        return response
+    return wrapped
+
+
 # ---------------------------------------------------------------------------
 # Market Data
 # ---------------------------------------------------------------------------
@@ -143,7 +157,7 @@ def market_data_view(request):
 
     candles, source = _fetch_chart_candles_with_source(request.user, symbol, 2, granularity)
     if not candles:
-        return Response({'symbol': symbol, 'error': 'Market data is temporarily unavailable'},
+        return Response({'symbol': symbol, 'error': 'Live market data unavailable'},
                         status=status.HTTP_503_SERVICE_UNAVAILABLE)
     latest = candles[-1]
     return Response({
@@ -202,8 +216,7 @@ def _execute_trade_impl(request):
             pass
 
         if not candles and current_price > 0:
-            from trading_app.trading_bot.simulated_candles import generate_simulated_candle_dicts
-            candles = generate_simulated_candle_dicts(data.get('symbol', 'EUR/USD'), count=50)
+            candles = []
 
         from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
         proposal = compute_sl_tp(
@@ -318,6 +331,7 @@ def risk_config_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @throttle_classes([UserRateThrottle])
+@_measure_analysis_duration
 def analyze_and_signal_view(request):
     access = _subscription_access_response(request.user)
     if access is not None:
@@ -337,9 +351,12 @@ def analyze_and_signal_view(request):
     if granularity not in GRANULARITY_MAP:
         return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
     try:
-        candles = _candles_to_dicts(_fetch_chart_candles(
+        raw_candles = _fetch_chart_candles(
             request.user, symbol, count=200, granularity=granularity,
-        ))
+        )
+        if not raw_candles:
+            return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        candles = _candles_to_dicts(raw_candles)
 
         recent_trades = list(Trade.objects.filter(
             user=request.user, symbol=symbol, status='CLOSED'
@@ -361,7 +378,7 @@ def analyze_and_signal_view(request):
             ml_candles = _candles_to_dicts(
                 _fetch_chart_candles(request.user, symbol, count=200, granularity=CANDLE_GRANULARITY)
             )
-            ml_signal = predict_signal(ml_candles, symbol=symbol)
+            ml_signal = predict_signal(ml_candles, symbol=symbol, granularity=CANDLE_GRANULARITY)
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
                 _record_prediction(
                     request.user, symbol, CANDLE_GRANULARITY,
@@ -425,7 +442,6 @@ def analyze_and_signal_view(request):
                     'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
                 })
 
-            from decimal import Decimal
             trade_data = {
                 'symbol': symbol,
                 'action': signal.signal_type,
@@ -452,6 +468,7 @@ def analyze_and_signal_view(request):
                         'sma_short': analysis.sma_short,
                         'sma_long': analysis.sma_long,
                         'atr': analysis.atr,
+                        'granularity': granularity,
                     },
                 })
 
@@ -553,7 +570,10 @@ def signal_propose_view(request):
     user = request.user
     risk = RiskConfig.get_for_user(user)
 
-    candles = _candles_to_dicts(_fetch_chart_candles(user, symbol, count=200))
+    raw_candles = _fetch_chart_candles(user, symbol, count=200)
+    if not raw_candles:
+        return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    candles = _candles_to_dicts(raw_candles)
 
     from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
 
@@ -1093,10 +1113,7 @@ def run_backtest_view(request):
         raw_candles = []
 
     if not raw_candles:
-        from trading_app.trading_bot.simulated_candles import generate_simulated_candles
-        raw_candles = generate_simulated_candles(
-            symbol, count=min(days * 24, 720), granularity=3600
-        )
+        return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     paper.seed_candles(raw_candles)
 
@@ -1312,8 +1329,9 @@ def _fetch_chart_candles(user, symbol: str, count: int = 200, granularity: int =
 
 
 def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity: int):
-    """Fetch shared read-only Deriv candles, falling back only when unavailable."""
-    cached = CacheService.get_candles(symbol, granularity)
+    """Fetch real read-only Deriv candles; never substitute generated prices."""
+    live_cache_key = f'live_{symbol}'
+    cached = CacheService.get_candles(live_cache_key, granularity)
     if cached and len(cached) >= count:
         return cached[-count:], 'live'
 
@@ -1325,7 +1343,7 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
         connected = True
         candles = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, count)
         if candles:
-            CacheService.set_candles(symbol, granularity, candles)
+            CacheService.set_candles(live_cache_key, granularity, candles)
             return candles, 'live'
     except Exception as e:
         logger.warning('Chart candle fetch failed for %s: %s', symbol, e)
@@ -1336,8 +1354,7 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
             except Exception as e:
                 logger.warning('Chart adapter disconnect failed for %s: %s', symbol, e)
 
-    from trading_app.trading_bot.simulated_market import SimulatedMarket
-    return SimulatedMarket.get_candles(symbol, granularity, count), 'simulated'
+    return [], 'unavailable'
 
 
 def deriv_symbol_for_market(symbol: str) -> str:
@@ -1348,8 +1365,14 @@ def deriv_symbol_for_market(symbol: str) -> str:
 
 
 def _candles_to_dicts(candles):
-    from trading_app.trading_bot.simulated_candles import candles_to_dicts
-    return candles_to_dicts(candles)
+    return [{
+        'open': float(c.open),
+        'high': float(c.high),
+        'low': float(c.low),
+        'close': float(c.close),
+        'volume': float(c.volume),
+        'time': int(c.timestamp.timestamp()),
+    } for c in candles]
 
 
 # ---------------------------------------------------------------------------
@@ -1414,7 +1437,7 @@ def bot_control_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Chart Candles — real broker history for the bot chart (simulated fallback)
+# Chart Candles — live Deriv history for the bot chart
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
@@ -1441,6 +1464,14 @@ def chart_candles_view(request):
     candles, source = _fetch_chart_candles_with_source(
         request.user, symbol, count=count, granularity=granularity
     )
+    if not candles:
+        return Response({
+            'symbol': symbol,
+            'granularity': granularity,
+            'source': 'unavailable',
+            'error': 'Live market data unavailable',
+            'candles': [],
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     data = [{
         'time': int(c.timestamp.timestamp()),

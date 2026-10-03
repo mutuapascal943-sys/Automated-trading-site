@@ -59,6 +59,7 @@ def _model_prefix(filename: str) -> str:
 def load_latest_model(
     output_dir: str | None = None,
     symbol: str | None = None,
+    granularity: int | None = None,
 ) -> tuple[Any, list[str], dict] | None:
     out = Path(output_dir) if output_dir else OUTPUT_DIR
     if not out.exists():
@@ -66,38 +67,31 @@ def load_latest_model(
         return None
 
     model_files = sorted(out.glob("*_model.pkl"))
-    if symbol:
-        norm_symbol = _normalize_symbol(symbol)
-        matching = [
-            f for f in model_files
-            if _normalize_symbol(_model_prefix(f.name)) == norm_symbol
-        ]
-        if not matching:
-            matching = [
-                f for f in model_files
-                if (norm_symbol in _normalize_symbol(_model_prefix(f.name))
-                    or _normalize_symbol(_model_prefix(f.name)) in norm_symbol)
-            ]
-        if not matching:
-            logger.warning("No trained model found for symbol %s in %s", symbol, out)
-            return None
-        model_files = matching
+    matching_files = []
+    norm_symbol = _normalize_symbol(symbol) if symbol else None
+    for model_file in model_files:
+        metadata_path = out / model_file.name.replace("_model.pkl", "_metadata.json")
+        try:
+            with open(metadata_path) as f:
+                file_metadata = json.load(f)
+        except (OSError, ValueError):
+            file_metadata = {}
+        metadata_symbol = file_metadata.get("symbol")
+        metadata_granularity = file_metadata.get("granularity")
+        if norm_symbol and _normalize_symbol(metadata_symbol or "") != norm_symbol:
+            continue
+        if granularity is not None and metadata_granularity != granularity:
+            continue
+        matching_files.append((model_file, file_metadata))
 
-    if not model_files:
-        logger.warning("No trained model found in %s", out)
+    if not matching_files:
+        logger.warning(
+            "No trained model found for symbol %s at granularity %s in %s",
+            symbol, granularity, out,
+        )
         return None
 
-    latest_model = model_files[-1]
-    prefix = _model_prefix(latest_model.name)
-    meta_files = sorted(out.glob(f"{prefix}_*metadata.json"))
-    metadata = {}
-    if meta_files:
-        meta_path = meta_files[-1]
-        try:
-            with open(meta_path) as f:
-                metadata = json.load(f)
-        except Exception as e:
-            logger.warning("Failed to load metadata %s: %s", meta_path, e)
+    latest_model, metadata = matching_files[-1]
 
     try:
         with open(latest_model, "rb") as f:
@@ -114,13 +108,17 @@ _model_cache: tuple[Any, list[str], dict] | None = None
 _model_cache_key: str | None = None
 
 
-def _get_model(output_dir: str | None = None, symbol: str | None = None):
+def _get_model(
+    output_dir: str | None = None,
+    symbol: str | None = None,
+    granularity: int | None = None,
+):
     global _model_cache, _model_cache_key
     out = str(Path(output_dir) if output_dir else OUTPUT_DIR)
-    key = f"{out}|{symbol or ''}"
+    key = f"{out}|{symbol or ''}|{granularity or ''}"
     if _model_cache is not None and _model_cache_key == key:
         return _model_cache
-    result = load_latest_model(output_dir, symbol)
+    result = load_latest_model(output_dir, symbol, granularity)
     _model_cache = result
     _model_cache_key = key
     return result
@@ -132,7 +130,7 @@ def predict_signal(
     granularity: int = 900,
     symbol: str | None = None,
 ) -> MLSignal | None:
-    model_data = _get_model(output_dir, symbol)
+    model_data = _get_model(output_dir, symbol, granularity)
     if model_data is None:
         return None
 

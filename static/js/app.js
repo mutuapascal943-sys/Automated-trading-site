@@ -61,17 +61,14 @@
 
   function initData(){
     pairs = {
-      'EUR/USD':1.08432,'GBP/USD':1.27380,'USD/JPY':149.820,
-      'AUD/USD':0.65120,'USD/CAD':1.35840,'NZD/USD':0.60330,
-      'XAU/USD':2318.50,'BTC/USD':62450.0,
-      'Boom 1000 Index':1423.80,'Crash 1000 Index':987.40,
-      'Volatility 75 Index':8742.10,'Volatility 100 Index':5320.60
+      'EUR/USD':null,'GBP/USD':null,'USD/JPY':null,
+      'AUD/USD':null,'USD/CAD':null,'NZD/USD':null,
+      'XAU/USD':null,'BTC/USD':null,
+      'Boom 1000 Index':null,'Crash 1000 Index':null,
+      'Volatility 75 Index':null,'Volatility 100 Index':null
     };
     window.pairs = pairs;
-    changes = {'EUR/USD':0.12,'GBP/USD':-0.08,'USD/JPY':0.31,'AUD/USD':-0.15,
-      'USD/CAD':0.07,'NZD/USD':-0.22,'XAU/USD':0.54,'BTC/USD':1.83,
-      'Boom 1000 Index':0.92,'Crash 1000 Index':-0.43,
-      'Volatility 75 Index':1.12,'Volatility 100 Index':0.67};
+    changes = {};
     marketCategories = {
       'EUR/USD':'forex','GBP/USD':'forex','USD/JPY':'forex',
       'AUD/USD':'forex','USD/CAD':'forex','NZD/USD':'forex',
@@ -101,7 +98,14 @@
       if (data.type === 'tick') {
         pairs[data.symbol] = data.price;
         ws._listeners.forEach(function(cb) { cb(data); });
+      } else if (data.type === 'status') {
+        ws._listeners.forEach(function(cb) { cb(data); });
       }
+    };
+    ws.onerror = function() {
+      ws._listeners.forEach(function(cb) {
+        cb({type: 'status', status: 'unavailable', symbol: symbol, message: 'Live market data unavailable'});
+      });
     };
     ws.onclose = function() {
       var ns = this._normalised;
@@ -209,28 +213,24 @@
 
     grid.innerHTML = keys.map(function(k){
       var p = pairs[k];
-      var pStr = p > 100 ? p.toFixed(2) : p.toFixed(5);
+      var available = Number.isFinite(p);
+      var pStr = available ? (p > 100 ? p.toFixed(2) : p.toFixed(5)) : 'Live market data unavailable';
       var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
       var sign = (changes[k] || 0) >= 0 ? '+' : '';
       var changeVal = (changes[k] || 0).toFixed(2);
       var cat = marketCategories[k] || '';
-      var spread = (p * 0.0002).toFixed(p > 100 ? 2 : 5);
-      var bid = (p * 0.9998).toFixed(p > 100 ? 2 : 5);
-      var ask = (p * 1.0002).toFixed(p > 100 ? 2 : 5);
-      var dailyHigh = (p * 1.003).toFixed(p > 100 ? 2 : 5);
-      var dailyLow = (p * 0.997).toFixed(p > 100 ? 2 : 5);
       var safeK = escapeHtml(k);
       var safeCat = escapeHtml(cat);
       return '<div class="market-card ' + cls + '" onclick="navigateToBot(\'' + safeK + '\')">' +
         '<div class="market-pair">' + safeK + '<span class="market-category-badge">' + safeCat + '</span></div>' +
         '<div class="market-price-row">' +
         '<span class="market-price">' + pStr + '</span>' +
-        '<span class="market-change ' + cls + '">' + sign + changeVal + '%</span></div>' +
+        '<span class="market-change ' + cls + '">' + (available ? sign + changeVal + '%' : '') + '</span></div>' +
         '<div class="market-details">' +
-        '<div class="mkt-detail"><span class="mkt-detail-label">Bid</span><span class="mkt-detail-value">' + bid + '</span></div>' +
-        '<div class="mkt-detail"><span class="mkt-detail-label">Ask</span><span class="mkt-detail-value">' + ask + '</span></div>' +
-        '<div class="mkt-detail"><span class="mkt-detail-label">Spread</span><span class="mkt-detail-value">' + spread + '</span></div>' +
-        '<div class="mkt-detail"><span class="mkt-detail-label">Day Range</span><span class="mkt-detail-value">' + dailyLow + ' – ' + dailyHigh + '</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Bid</span><span class="mkt-detail-value">--</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Ask</span><span class="mkt-detail-value">--</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Spread</span><span class="mkt-detail-value">--</span></div>' +
+        '<div class="mkt-detail"><span class="mkt-detail-label">Day Range</span><span class="mkt-detail-value">--</span></div>' +
         '</div></div>';
     }).join('');
   }
@@ -253,7 +253,11 @@
         changes[symbol] = previous ? (latest - previous) / previous * 100 : 0;
         updateMarketCards();
       })
-      .catch(function(){});
+      .catch(function(){
+        pairs[symbol] = null;
+        changes[symbol] = 0;
+        updateMarketCards();
+      });
     });
   }
 
@@ -272,6 +276,14 @@
   window.filterMarketCategory = filterMarketCategory;
 
   function updateMarketSummary(){
+    var liveSymbols = Object.keys(changes).filter(function(k){ return Number.isFinite(pairs[k]); });
+    if (!liveSymbols.length) {
+      ['top-gainer', 'top-gainer-change', 'top-loser', 'top-loser-change', 'advancers', 'decliners'].forEach(function(id){
+        var el = document.getElementById(id);
+        if (el) el.textContent = id.indexOf('change') !== -1 ? '' : 'Live market data unavailable';
+      });
+      return;
+    }
     var upCount = 0, downCount = 0;
     var bestKey = null, bestChange = -999;
     var worstKey = null, worstChange = 999;
@@ -308,13 +320,24 @@
   function updateMarketCards(){
     Object.keys(pairs).forEach(function(k){
       var p = pairs[k];
+      if (!Number.isFinite(p)) {
+        var unavailableCards = document.querySelectorAll('.market-card');
+        for (var unavailableIndex = 0; unavailableIndex < unavailableCards.length; unavailableIndex++) {
+          var unavailablePair = unavailableCards[unavailableIndex].querySelector('.market-pair');
+          if (unavailablePair && unavailablePair.textContent.trim().startsWith(k)) {
+            var unavailablePrice = unavailableCards[unavailableIndex].querySelector('.market-price');
+            var unavailableChange = unavailableCards[unavailableIndex].querySelector('.market-change');
+            if (unavailablePrice) unavailablePrice.textContent = 'Live market data unavailable';
+            if (unavailableChange) unavailableChange.textContent = '';
+            unavailableCards[unavailableIndex].className = 'market-card unavailable';
+          }
+        }
+        return;
+      }
       var pStr = p > 100 ? p.toFixed(2) : p.toFixed(5);
       var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
       var sign = (changes[k] || 0) >= 0 ? '+' : '';
       var changeVal = (changes[k] || 0).toFixed(2);
-      var spread = (p * 0.0002).toFixed(p > 100 ? 2 : 5);
-      var bid = (p * 0.9998).toFixed(p > 100 ? 2 : 5);
-      var ask = (p * 1.0002).toFixed(p > 100 ? 2 : 5);
       var cards = document.querySelectorAll('.market-card');
       for(var i=0;i<cards.length;i++){
         var pairEl = cards[i].querySelector('.market-pair');
@@ -325,11 +348,6 @@
           if(changeEl) changeEl.textContent = sign + changeVal + '%';
           cards[i].className = 'market-card ' + cls;
           var details = cards[i].querySelectorAll('.mkt-detail-value');
-          if(details.length >= 4){
-            details[0].textContent = bid;
-            details[1].textContent = ask;
-            details[2].textContent = spread;
-          }
         }
       }
     });
@@ -341,9 +359,9 @@
     var pair = sel ? sel.value : 'EUR/USD';
     var labelEl = document.getElementById('bot-pair-label');
     if(labelEl){labelEl.textContent = pair}
-    var p = pairs[pair] || 1.0;
+    var p = pairs[pair];
     var priceEl = document.getElementById('bot-price');
-    if(priceEl){priceEl.textContent = p > 100 ? p.toFixed(2) : p.toFixed(5)}
+    if(priceEl){priceEl.textContent = Number.isFinite(p) ? (p > 100 ? p.toFixed(2) : p.toFixed(5)) : 'Live market data unavailable'}
     clearChartOverlay();
     lastProposedSignal = null;
     if(typeof lastSignalKey !== 'undefined') lastSignalKey = null;
@@ -395,7 +413,14 @@
     Object.keys(pairs).forEach(function(k){
       getMarketWS(k);
       addWSListener(k, function(tick){
+        if (tick.type === 'status') {
+          pairs[k] = null;
+          changes[k] = 0;
+          updateMarketCards();
+          return;
+        }
         var p = tick.price;
+        if (!Number.isFinite(p)) return;
         pairs[k] = p;
         var sel = document.getElementById('bot-market');
         if(sel && sel.value === k){
@@ -527,7 +552,7 @@
     fetch('/api/analyze-signal/', {
       method: 'POST',
       headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-      body: JSON.stringify({query_type: 'market_analysis', prompt: pair}),
+      body: JSON.stringify({query_type: 'market_analysis', prompt: pair, granularity: timeframe}),
     })
     .then(function(r){ return r.json() })
     .then(function(data){
@@ -855,6 +880,8 @@
 
     var sel = document.getElementById('bot-market');
     var pair = sel ? sel.value : 'EUR/USD';
+    var timeframeSelect = document.getElementById('bot-timeframe');
+    var timeframe = Number(timeframeSelect ? timeframeSelect.value : 300);
 
     if (currentChartPair && currentChartPair !== pair) {
       removeWSListener(currentChartPair, botTickHandler);
@@ -902,37 +929,26 @@
       },
     });
 
-    var basePrice = pairs[pair] || 1.08;
     var now = Math.floor(Date.now() / 1000);
-
-    function seedRandomCandles(){
-      var seedCandles = [];
-      var t = now - 240;
-      var price = basePrice;
-      for (var i = 0; i < 120; i++) {
-        var change = (Math.random() - 0.5) * basePrice * 0.004;
-        var o = price;
-        var c = price + change;
-        var range = Math.abs(c - o) * 1.5 + basePrice * 0.0005;
-        var high = Math.max(o, c) + range * Math.random();
-        var low = Math.min(o, c) - range * Math.random();
-        seedCandles.push({ time: t + i * 2, open: o, high: high, low: low, close: c });
-        price = c;
-      }
-      if (botCandleSeries) botCandleSeries.setData(seedCandles);
-      botChartTimeRange = seedCandles.length ? { min: seedCandles[0].time, max: seedCandles[seedCandles.length - 1].time } : null;
-      if (botChartInstance) botChartInstance.timeScale().fitContent();
-    }
+    var unavailableEl = document.getElementById('chart-data-status');
+    if (unavailableEl) unavailableEl.textContent = 'Loading live market data...';
+    var headerPrice = document.getElementById('bot-price');
+    if (headerPrice) headerPrice.textContent = 'Live market data unavailable';
 
     fetch('/api/chart/candles/?symbol=' + encodeURIComponent(pair) + '&granularity=' + timeframe + '&count=200', {
       method: 'GET',
       credentials: 'same-origin',
       headers: { 'X-Requested-With': 'XMLHttpRequest' }
     })
-    .then(function(r){ return r.json(); })
+    .then(function(r){
+      return r.json().then(function(data){
+        if (!r.ok) throw new Error(data.error || 'Live market data unavailable');
+        return data;
+      });
+    })
     .then(function(res){
-      if (!botCandleSeries || !res || !res.candles || res.candles.length < 10) {
-        seedRandomCandles();
+      if (!botCandleSeries || !res || !res.candles || !res.candles.length) {
+        if (unavailableEl) unavailableEl.textContent = 'Live market data unavailable';
         return;
       }
       var seriesData = res.candles.map(function(c){
@@ -940,11 +956,17 @@
       });
       seriesData.sort(function(a, b){ return a.time - b.time; });
       botCandleSeries.setData(seriesData);
+      if (unavailableEl) unavailableEl.textContent = '';
+      if (headerPrice) {
+        var latestClose = seriesData[seriesData.length - 1].close;
+        headerPrice.textContent = latestClose > 100 ? latestClose.toFixed(2) : latestClose.toFixed(5);
+      }
       botChartTimeRange = seriesData.length ? { min: seriesData[0].time, max: seriesData[seriesData.length - 1].time } : null;
       if (botChartInstance) botChartInstance.timeScale().fitContent();
     })
     .catch(function(){
-      seedRandomCandles();
+      if (botCandleSeries) botCandleSeries.setData([]);
+      if (unavailableEl) unavailableEl.textContent = 'Live market data unavailable';
     });
 
     candleBuffer[pair] = { ticks: [], lastCandleTime: now - (now % timeframe) };
@@ -958,6 +980,15 @@
     var sel = document.getElementById('bot-market');
     var pair = sel ? sel.value : 'EUR/USD';
     if (tick.symbol !== pair) return;
+    if (tick.type === 'status') {
+      var statusEl = document.getElementById('chart-data-status');
+      if (statusEl) statusEl.textContent = tick.message || 'Live market data unavailable';
+      var priceEl = document.getElementById('bot-price');
+      if (priceEl) priceEl.textContent = 'Live market data unavailable';
+      return;
+    }
+    var statusEl = document.getElementById('chart-data-status');
+    if (statusEl) statusEl.textContent = '';
     if (!candleBuffer[pair]) return;
     var buf = candleBuffer[pair];
     buf.ticks.push(tick);
@@ -965,7 +996,9 @@
     var tickTime = new Date(tick.timestamp).getTime();
     if (isNaN(tickTime)) tickTime = Date.now();
     var candleSec = Math.floor(tickTime / 1000);
-    var candleStart = candleSec - (candleSec % 60);
+    var timeframeSelect = document.getElementById('bot-timeframe');
+    var timeframe = Number(timeframeSelect ? timeframeSelect.value : 300);
+    var candleStart = candleSec - (candleSec % timeframe);
 
     if (candleStart > buf.lastCandleTime) {
       if (buf.ticks.length > 1) {

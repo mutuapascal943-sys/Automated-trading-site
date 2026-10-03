@@ -13,11 +13,16 @@
     <label class="filter-label" for="bot-timeframe">Timeframe</label>
     <select class="filter-select" id="bot-timeframe" onchange="updateBotTimeframe()">
       <option value="60">1 minute</option>
+      <option value="120">2 minutes</option>
+      <option value="180">3 minutes</option>
       <option value="300" selected>5 minutes</option>
+      <option value="600">10 minutes</option>
       <option value="900">15 minutes</option>
       <option value="1800">30 minutes</option>
       <option value="3600">1 hour</option>
+      <option value="7200">2 hours</option>
       <option value="14400">4 hours</option>
+      <option value="28800">8 hours</option>
       <option value="86400">1 day</option>
     </select>
   </div>
@@ -34,10 +39,11 @@
         <div class="chart-pair" id="bot-pair-label">EUR/USD</div>
         <div style="font-size:12px;color:var(--text3)" class="mono" id="bot-mode-label">SIGNALS ONLY</div>
       </div>
-      <div class="chart-price" id="bot-price">1.08432</div>
+      <div class="chart-price" id="bot-price">Live market data unavailable</div>
     </div>
     <div class="chart-canvas-wrap">
       <div id="botChart" style="width:100%;height:360px"></div>
+      <div id="chart-data-status" role="status" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--text3);font-size:13px;pointer-events:none">Live market data unavailable</div>
     </div>
     <div class="chart-levels-legend" id="chart-levels-legend" style="display:none">
       <span class="legend-item"><span class="legend-dot" style="background:#00d4aa"></span> Entry</span>

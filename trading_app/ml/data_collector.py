@@ -36,8 +36,7 @@ def collect_candles(
     symbol: str,
     granularity: int = 900,
     years: float = 2.0,
-    app_id: str = "1089",
-    token: str | None = None,
+    app_id: str | None = None,
 ) -> list[dict]:
     """
     Collect OHLCV candles from Deriv going back `years` years.
@@ -45,8 +44,8 @@ def collect_candles(
     Returns list of dicts: {open, high, low, close, volume, time}
     sorted oldest-first.
     """
-    if token is None:
-        token = config('MARKET_DATA_API_TOKEN', default='') or None
+    if app_id is None:
+        app_id = config('DERIV_APP_ID', default='1089')
 
     try:
         import websockets
@@ -71,7 +70,7 @@ def collect_candles(
     loop = asyncio.new_event_loop()
     try:
         all_candles = loop.run_until_complete(
-            _fetch_all(symbol, granularity, total_candles, end_epoch, app_id, token)
+            _fetch_all(symbol, granularity, total_candles, end_epoch, app_id)
         )
     finally:
         loop.close()
@@ -87,22 +86,18 @@ async def _fetch_all(
     total_needed: int,
     end_epoch: int,
     app_id: str,
-    token: str | None,
 ) -> list[dict]:
     """Paginate backward through Deriv ticks_history."""
     import websockets
 
     url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
-    headers = {}
-    if token:
-        headers["Authorization"] = token
 
     all_candles = []
     current_end = end_epoch
     collected = 0
     req_id = 0
 
-    async with websockets.connect(url, additional_headers=headers) as ws:
+    async with websockets.connect(url) as ws:
         while collected < total_needed:
             count = min(MAX_CANDLES_PER_REQUEST, total_needed - collected)
             req_id += 1

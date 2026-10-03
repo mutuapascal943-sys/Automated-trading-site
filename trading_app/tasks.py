@@ -176,10 +176,8 @@ def _run_single_user_bot(user):
         if open_count >= risk.max_open_positions:
             break
 
-        candles = CacheService.get_candles(symbol, CANDLE_GRANULARITY)
-        if candles is not None:
-            logger.info(f'Cache hit for {symbol} ({len(candles)} candles)')
-        else:
+        candles = None
+        if candles is None:
             try:
                 from trading_app.ml.symbols import deriv_symbol_for
                 from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
@@ -191,22 +189,11 @@ def _run_single_user_bot(user):
                     candles = adapter.get_candles(candle_symbol, CANDLE_GRANULARITY, 50)
                 finally:
                     adapter.disconnect()
-                if candles:
-                    CacheService.set_candles(symbol, CANDLE_GRANULARITY, candles)
             except Exception as e:
                 logger.warning(f'Failed to fetch candles for {symbol}: {e}')
-                cached = CacheService.get_market_data(symbol)
-                if cached and cached.get('price'):
-                    candles = _make_fallback_candle(symbol, cached)
-
-            if not candles and user.paper_mode:
-                # Unknown broker / no live adapter in paper mode: fall back to
-                # the shared simulated series so the bot still generates
-                # predictions and signals for every paper user.
-                from trading_app.trading_bot.simulated_market import SimulatedMarket
-                candles = SimulatedMarket.get_candles(symbol, CANDLE_GRANULARITY, 50)
 
             if not candles:
+                logger.warning('Live market data unavailable for %s; skipping bot analysis', symbol)
                 continue
 
             recent_trades = list(
@@ -227,7 +214,7 @@ def _run_single_user_bot(user):
             analysis = analyze_technical(symbol, candle_dicts, trade_history=recent_trades)
 
             from trading_app.ml.inference import predict_signal
-            ml_signal = predict_signal(candle_dicts, symbol=symbol)
+            ml_signal = predict_signal(candle_dicts, symbol=symbol, granularity=CANDLE_GRANULARITY)
 
             if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
                 pred_candle_time = candle_dicts[-1].get('time', int(time.time()))
@@ -375,14 +362,14 @@ def resolve_pending_signal_outcomes():
             adapter = get_adapter_for_broker('')
             adapter.connect(build_credentials(signal.user))
             try:
-                candles = adapter.get_candles(signal.symbol, CANDLE_GRANULARITY, 200)
+                candles = adapter.get_candles(
+                    _deriv_symbol_for_label(signal.symbol), CANDLE_GRANULARITY, 200,
+                )
             finally:
                 adapter.disconnect()
             if not candles:
-                from .trading_bot.simulated_candles import generate_simulated_candles
-                candles = generate_simulated_candles(
-                    signal.symbol, count=200, granularity=CANDLE_GRANULARITY,
-                )
+                logger.warning('Live market data unavailable for signal %s; leaving outcome pending', signal.id)
+                continue
             for candle in candles:
                 if candle.timestamp <= signal.created_at:
                     continue
@@ -425,12 +412,8 @@ def _resolve_prediction(pred) -> bool:
 
     user = pred.user
     if user is None or user.paper_mode:
-        # Prefer REAL market candles so paper predictions resolve against
-        # actual price moves (Deriv candle history is public and needs no
-        # token). Fall back to the shared simulated market when offline.
+         # Resolve only from real Deriv candles, including for paper-mode users.
         candles = _fetch_real_outcome_candles(pred)
-        if not candles:
-            candles = _fetch_paper_prediction_candles(pred)
         if candles and _apply_prediction_outcome(pred, sorted(candles, key=lambda c: c.timestamp)):
             return True
         # The market may still be filling in bars after the entry candle.
@@ -501,17 +484,6 @@ def _apply_prediction_outcome(pred, ordered) -> bool:
     return True
 
 
-def _fetch_paper_prediction_candles(pred):
-    """Fetch outcome candles from the shared simulated market (paper mode)."""
-    from trading_app.trading_bot.simulated_market import SimulatedMarket
-    try:
-        candles = SimulatedMarket.get_candles(pred.symbol, pred.granularity, count=2000)
-        return candles or []
-    except Exception as e:
-        logger.warning(f'Failed to fetch paper prediction history for {pred.id}: {e}')
-        return []
-
-
 def _deriv_symbol_for_label(label: str) -> str:
     """Map a frontend market label ('EUR/USD') to its Deriv API symbol
     ('frxEURUSD'). Falls back to the label unchanged for unknown symbols."""
@@ -553,7 +525,7 @@ def _fetch_real_outcome_candles(pred):
         loop = asyncio.new_event_loop()
         try:
             rows = loop.run_until_complete(
-                _fetch_all(symbol, gran, count, int(time.time()), config("DERIV_APP_ID", default="1089"), None)
+                _fetch_all(symbol, gran, count, int(time.time()), config("DERIV_APP_ID", default="1089"))
             )
         finally:
             loop.close()

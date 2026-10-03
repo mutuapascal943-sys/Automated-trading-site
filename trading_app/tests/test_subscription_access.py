@@ -175,10 +175,15 @@ class SubscriptionAccessTests(TestCase):
         )
 
         response = self.client.post(
-            reverse('api_analyze_signal'), {'symbol': 'EUR/USD'}, format='json',
+            reverse('api_analyze_signal'), {
+                'symbol': 'EUR/USD', 'granularity': 900,
+            }, format='json',
         )
 
         self.assertEqual(response.status_code, 200)
+        self.assertEqual(fetch_candles.call_args_list[0].kwargs['granularity'], 900)
+        self.assertEqual(fetch_candles.call_args_list[1].kwargs['granularity'], 300)
+        self.assertEqual(response.json()['analysis']['granularity'], 900)
         self.assertGreaterEqual(response.json()['analysis_duration_ms'], 0)
         self.assertEqual(
             response['X-Analysis-Duration-Ms'],

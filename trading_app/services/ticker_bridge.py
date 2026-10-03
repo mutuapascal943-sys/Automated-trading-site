@@ -4,18 +4,14 @@ import asyncio
 import json
 import logging
 import re
-import socket
 import threading
 import time
 from datetime import datetime, timezone
-from decimal import Decimal
 from typing import Any
 
 from channels.layers import get_channel_layer
 from asgiref.sync import async_to_sync
 from decouple import config
-
-from trading_app.trading_bot.simulated_market import SimulatedMarket
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +26,6 @@ class TickerBridge:
 
     _lock = threading.Lock()
     _active_subscriptions: dict[str, dict[str, Any]] = {}
-    _paper_prices: dict[str, Decimal] = {}
-    _paper_thread: threading.Thread | None = None
-    _paper_running = False
-    _live_unreachable: set[str] = set()
-
     GROUP_PREFIX = "market_"
 
     @staticmethod
@@ -49,42 +40,27 @@ class TickerBridge:
     def ensure_subscription(cls, symbol: str, user=None) -> None:
         """Start forwarding ticks for *symbol* if not already active.
 
-        Tries to connect to Deriv for live ticks when broker credentials
-        are available; falls back to a simulated paper ticker otherwise.
+        Connects to Deriv for live ticks and reports unavailable status rather
+        than substituting simulated prices.
         """
         with cls._lock:
             if symbol in cls._active_subscriptions:
                 cls._active_subscriptions[symbol]["refcount"] += 1
                 return
 
-        credentials = cls._resolve_credentials(user)
-
-        if credentials and credentials.get("token") and symbol not in cls._live_unreachable:
-            if not cls._check_deriv_reachable():
-                logger.warning("TickerBridge: Deriv unreachable for %s — using paper", symbol)
-            else:
-                try:
-                    cls._start_live_ticker(symbol, credentials)
-                    with cls._lock:
-                        cls._active_subscriptions[symbol] = {
-                            "refcount": 1,
-                            "mode": "live",
-                        }
-                    logger.info("TickerBridge: subscribed to %s (live)", symbol)
-                    return
-                except Exception as e:
-                    logger.warning("TickerBridge: live ticker failed for %s: %s", symbol, e)
-
-        cls._start_paper_ticker(symbol)
+        credentials = {}
 
         with cls._lock:
             cls._active_subscriptions[symbol] = {
                 "refcount": 1,
-                "mode": "paper",
+                "mode": "live",
             }
-            cls._paper_prices.setdefault(symbol, Decimal("1.08000"))
-
-        logger.info("TickerBridge: subscribed to %s (paper)", symbol)
+        try:
+            cls._start_live_ticker(symbol, credentials)
+            logger.info("TickerBridge: connecting to Deriv for %s", symbol)
+        except Exception as e:
+            logger.warning("TickerBridge: live ticker failed for %s: %s", symbol, e)
+            cls._mark_unavailable(symbol)
 
     @classmethod
     def remove_subscription(cls, symbol: str, channel_name: str | None = None) -> None:
@@ -97,7 +73,6 @@ class TickerBridge:
             if entry["refcount"] > 0:
                 return
             cls._active_subscriptions.pop(symbol, None)
-            cls._paper_prices.pop(symbol, None)
 
         logger.info("TickerBridge: unsubscribed from %s", symbol)
 
@@ -106,23 +81,31 @@ class TickerBridge:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _resolve_credentials(user) -> dict[str, str] | None:
-        """Resolve only the dedicated read-only market-data API token."""
-        token = config("MARKET_DATA_API_TOKEN", default="")
+    def _resolve_credentials(user) -> dict[str, str]:
+        """Public Deriv market data does not require account credentials."""
+        return {}
 
-        if not token or token.startswith("sk-your-") or token.startswith("your-"):
-            return None
+    @classmethod
+    def _send_unavailable(cls, symbol: str) -> None:
+        channel_layer = get_channel_layer()
+        async_to_sync(channel_layer.group_send)(
+            f"{cls.GROUP_PREFIX}{cls._sanitize_group_name(symbol)}",
+            {"type": "market_status", "data": {
+                "type": "status", "status": "unavailable", "symbol": symbol,
+                "message": "Live market data unavailable",
+            }},
+        )
 
-        return {"token": token}
-
-    @staticmethod
-    def _check_deriv_reachable() -> bool:
-        """Quick DNS check before attempting a live WebSocket connection."""
+    @classmethod
+    def _mark_unavailable(cls, symbol: str) -> None:
+        with cls._lock:
+            entry = cls._active_subscriptions.get(symbol)
+            if entry:
+                entry["mode"] = "unavailable"
         try:
-            socket.getaddrinfo("ws.derivws.com", 443)
-            return True
-        except socket.gaierror:
-            return False
+            cls._send_unavailable(symbol)
+        except Exception:
+            logger.exception("Failed to report unavailable live data for %s", symbol)
 
     # ------------------------------------------------------------------
     # Live ticker via Deriv WebSocket
@@ -139,16 +122,9 @@ class TickerBridge:
             try:
                 loop.run_until_complete(cls._live_tick_loop(symbol, credentials, app_id))
             except Exception:
-                logger.warning("Live ticker failed for %s (falling back to paper)", symbol)
+                logger.warning("Live ticker failed for %s", symbol)
             finally:
-                with cls._lock:
-                    cls._live_unreachable.add(symbol)
-                    entry = cls._active_subscriptions.get(symbol)
-                    if entry and entry.get("mode") == "live":
-                        entry["mode"] = "paper"
-                        cls._paper_prices.setdefault(symbol, Decimal("1.08000"))
-                        cls._start_paper_ticker(symbol)
-                        logger.info("TickerBridge: fell back to paper for %s", symbol)
+                cls._mark_unavailable(symbol)
 
         thread = threading.Thread(target=_run, daemon=True)
         thread.start()
@@ -159,25 +135,19 @@ class TickerBridge:
         cls, symbol: str, credentials: dict[str, str], app_id: str
     ) -> None:
         import websockets
+        from trading_app.api_views import deriv_symbol_for_market
 
         url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
         async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
-            token = credentials.get("token", "")
-            if token:
-                await ws.send(json.dumps({"authorize": token, "req_id": 1}))
-                auth_resp = await asyncio.wait_for(ws.recv(), timeout=10)
-                auth_data = json.loads(auth_resp)
-                if auth_data.get("error"):
-                    logger.error("Deriv auth failed: %s", auth_data["error"]["message"])
-                    return
-                logger.info("TickerBridge: authorized with Deriv")
-
             await ws.send(json.dumps({
-                "ticks": symbol,
+                "ticks": deriv_symbol_for_market(symbol),
                 "subscribe": 1,
                 "req_id": 2,
             }))
             sub_resp = await asyncio.wait_for(ws.recv(), timeout=10)
+            sub_data = json.loads(sub_resp)
+            if sub_data.get("error"):
+                raise RuntimeError(sub_data["error"].get("message", "Deriv tick subscription failed"))
             logger.info("TickerBridge: subscribed to %s ticks", symbol)
 
             async for raw in ws:
@@ -190,7 +160,7 @@ class TickerBridge:
                 error = data.get("error")
                 if error:
                     logger.warning("Deriv tick error: %s", error)
-                    continue
+                    raise RuntimeError(error.get("message", "Deriv tick stream failed"))
 
                 if msg_type != "tick":
                     continue
@@ -225,59 +195,3 @@ class TickerBridge:
                 except Exception:
                     logger.exception("Failed to send live tick for %s", symbol)
 
-    # ------------------------------------------------------------------
-    # Paper-tick simulation
-    # ------------------------------------------------------------------
-
-    @classmethod
-    def _start_paper_ticker(cls, symbol: str) -> None:
-        """Ensure the paper-tick background thread is alive."""
-        if cls._paper_thread and cls._paper_thread.is_alive():
-            return
-
-        cls._paper_running = True
-
-        def _loop():
-            while cls._paper_running:
-                with cls._lock:
-                    active = list(cls._active_subscriptions.keys())
-
-                for sym in active:
-                    with cls._lock:
-                        entry = cls._active_subscriptions.get(sym)
-                    if entry is None or entry.get("mode") != "paper":
-                        continue
-
-                    tick = SimulatedMarket.next_tick(sym)
-                    if tick is None:
-                        continue
-                    price = tick.close
-
-                    group_name = f"{cls.GROUP_PREFIX}{cls._sanitize_group_name(sym)}"
-
-                    try:
-                        channel_layer = get_channel_layer()
-                        async_to_sync(channel_layer.group_send)(
-                            group_name,
-                            {
-                                "type": "tick",
-                                "data": {
-                                    "type": "tick",
-                                    "symbol": sym,
-                                    "bid": round(float(price) * 0.9998, 5),
-                                    "ask": round(float(price) * 1.0002, 5),
-                                    "price": round(float(price), 5),
-                                    "timestamp": time.strftime(
-                                        "%Y-%m-%dT%H:%M:%SZ", time.gmtime()
-                                    ),
-                                },
-                            },
-                        )
-                    except Exception:
-                        logger.exception("Failed to send paper tick for %s", sym)
-
-                time.sleep(1.0)
-
-        cls._paper_thread = threading.Thread(target=_loop, daemon=True)
-        cls._paper_thread.start()
-        logger.info("TickerBridge: paper ticker thread started")

@@ -11,5 +11,5 @@ def get_adapter_for_broker(broker_name: str = "") -> DerivAdapter:
 
 
 def build_credentials(user) -> dict[str, str]:
-    token = config("MARKET_DATA_API_TOKEN", default="")
-    return {'token': token} if token else {}
+    """Return no account credentials for public read-only Deriv data."""
+    return {}

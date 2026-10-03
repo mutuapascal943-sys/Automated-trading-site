@@ -21,16 +21,13 @@ class MarketConsumer(AsyncWebsocketConsumer):
         await self.accept()
 
         user = self.scope.get('user')
-        if user and user.is_authenticated:
-            mode = 'live'
-        else:
+        if not user or not user.is_authenticated:
             user = None
-            mode = 'paper'
 
         await self.send(text_data=json.dumps({
             'type': 'connected',
             'symbol': normalised,
-            'message': f'Connected to {normalised} market stream ({mode})',
+            'message': f'Connecting to live market data for {normalised}',
         }))
 
         TickerBridge.ensure_subscription(normalised, user=user)
@@ -87,4 +84,7 @@ class MarketConsumer(AsyncWebsocketConsumer):
         await self.send(text_data=json.dumps(event['data']))
 
     async def candle(self, event):
+        await self.send(text_data=json.dumps(event['data']))
+
+    async def market_status(self, event):
         await self.send(text_data=json.dumps(event['data']))

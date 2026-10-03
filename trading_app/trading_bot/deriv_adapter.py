@@ -69,7 +69,6 @@ class DerivAdapter(BrokerAdapter):
             raise ImportError("websockets package is required for DerivAdapter")
 
         self._app_id = app_id
-        self._token: str | None = None
         self._ws_url = f"{self.WS_URL}?app_id={app_id}"
 
         self._ws: Any = None
@@ -85,7 +84,6 @@ class DerivAdapter(BrokerAdapter):
         self._lock = threading.Lock()
 
     def connect(self, credentials: dict[str, str]) -> None:
-        self._token = credentials.get("token")
         self._running = True
         self._thread = threading.Thread(target=self._run_event_loop, daemon=True)
         self._thread.start()
@@ -258,7 +256,6 @@ class DerivAdapter(BrokerAdapter):
             try:
                 async with websockets.connect(self._ws_url, ping_interval=30, ping_timeout=10) as ws:
                     self._ws = ws
-                    await self._authorize()
                     self._connected = True
                     async for raw in ws:
                         try:
@@ -270,17 +267,6 @@ class DerivAdapter(BrokerAdapter):
                 logger.warning("WebSocket disconnected: %s", e)
                 if self._running:
                     await asyncio.sleep(self._backoff())
-
-    async def _authorize(self) -> None:
-        if self._token:
-            future = self._make_future()
-            await self._ws.send(json.dumps({
-                "authorize": self._token,
-                "req_id": self._req_id,
-            }))
-            self._pending[self._req_id] = future
-            self._req_id += 1
-            await future
 
     async def _disconnect_ws(self) -> None:
         if self._ws:
