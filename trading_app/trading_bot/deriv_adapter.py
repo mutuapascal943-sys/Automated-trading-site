@@ -62,14 +62,13 @@ ERROR_MAP: dict[str, type] = {
 
 
 class DerivAdapter(BrokerAdapter):
-    WS_URL = "wss://ws.derivws.com/websockets/v3"
+    WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
 
     def __init__(self, app_id: str = "1089") -> None:
         if websockets is None:
             raise ImportError("websockets package is required for DerivAdapter")
 
-        self._app_id = app_id
-        self._ws_url = f"{self.WS_URL}?app_id={app_id}"
+        self._ws_url = self.WS_URL
 
         self._ws: Any = None
         self._loop: asyncio.AbstractEventLoop | None = None
@@ -288,6 +287,7 @@ class DerivAdapter(BrokerAdapter):
         req_id = self._req_id
         self._req_id += 1
         payload: dict[str, Any] = {**params, "req_id": req_id}
+        logger.debug("Deriv request req_id=%s method=%s params=%s", req_id, method, params)
 
         future = self._make_future()
         self._pending[req_id] = future
@@ -296,7 +296,7 @@ class DerivAdapter(BrokerAdapter):
         return await future
 
     def _make_future(self) -> asyncio.Future:
-        return asyncio.get_event_loop().create_future()
+        return self._loop.create_future()
 
     def _await_future(self, future: asyncio.Future, timeout: float = 30) -> dict[str, Any]:
         try:
@@ -306,14 +306,15 @@ class DerivAdapter(BrokerAdapter):
 
     async def _handle_message(self, raw: str) -> None:
         data = json.loads(raw)
-        req_id = data.get("req_id")
+        logger.debug("Deriv WebSocket message: %s", data)
+        req_id = data.get("req_id") or data.get("echo_req", {}).get("req_id")
         msg_type = data.get("msg_type")
 
         error = data.get("error")
         if error:
             exc_type = ERROR_MAP.get(error.get("code", ""), OrderRejected)
             exc = exc_type(error.get("message", "Unknown error"))
-            if req_id and req_id in self._pending:
+            if req_id is not None and req_id in self._pending:
                 self._pending.pop(req_id).set_exception(exc)
             return
 
@@ -337,7 +338,7 @@ class DerivAdapter(BrokerAdapter):
         if msg_type == "pong":
             self._last_pong = time.time()
 
-        if req_id and req_id in self._pending:
+        if req_id is not None and req_id in self._pending:
             self._pending.pop(req_id).set_result(data)
 
     @staticmethod

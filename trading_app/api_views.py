@@ -1341,6 +1341,11 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
         adapter = _resolve_adapter(user)
         adapter.connect(build_credentials(user))
         connected = True
+        connection_deadline = time.monotonic() + 5
+        while not adapter._connected:
+            if time.monotonic() >= connection_deadline:
+                raise TimeoutError('Deriv WebSocket connection timed out')
+            time.sleep(0.05)
         candles = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, count)
         if candles:
             CacheService.set_candles(live_cache_key, granularity, candles)

@@ -231,6 +231,61 @@ class SubscriptionAccessTests(TestCase):
         self.assertEqual(signal.outcome, 'WIN')
         self.assertEqual(str(signal.outcome_price), '1.11000')
 
+    @patch('trading_app.tasks.time.sleep')
+    @patch('trading_app.tasks.build_credentials', return_value={})
+    @patch('trading_app.tasks.get_adapter_for_broker')
+    def test_signal_outcome_waits_for_adapter_connection(
+        self, adapter_factory, _credentials, sleep,
+    ):
+        from trading_app.tasks import resolve_pending_signal_outcomes
+
+        signal = TradingSignal.objects.create(
+            user=self.user, symbol='EUR/USD', signal_type='BUY', confidence=75,
+            entry_price='1.10000', stop_loss='1.09500', take_profit='1.11000',
+        )
+        self.user.paper_mode = False
+        self.user.save(update_fields=['paper_mode'])
+        adapter = adapter_factory.return_value
+        adapter._connected = False
+
+        def become_connected(_interval):
+            adapter._connected = True
+
+        sleep.side_effect = become_connected
+        adapter.get_candles.return_value = [SimpleNamespace(
+            timestamp=signal.created_at + timedelta(minutes=5),
+            low=1.108, high=1.112,
+        )]
+
+        self.assertEqual(resolve_pending_signal_outcomes(), 1)
+        adapter.get_candles.assert_called_once_with('frxEURUSD', 300, 200)
+        sleep.assert_called_once_with(0.05)
+        signal.refresh_from_db()
+        self.assertEqual(signal.outcome, 'WIN')
+
+    @patch('trading_app.tasks.time.sleep')
+    @patch('trading_app.tasks.time.monotonic', side_effect=[10.0, 16.0])
+    @patch('trading_app.tasks.build_credentials', return_value={})
+    @patch('trading_app.tasks.get_adapter_for_broker')
+    def test_signal_stays_pending_if_adapter_does_not_connect(
+        self, adapter_factory, _credentials, _monotonic, _sleep,
+    ):
+        from trading_app.tasks import resolve_pending_signal_outcomes
+
+        signal = TradingSignal.objects.create(
+            user=self.user, symbol='EUR/USD', signal_type='BUY', confidence=75,
+            entry_price='1.10000', stop_loss='1.09500', take_profit='1.11000',
+        )
+        self.user.paper_mode = False
+        self.user.save(update_fields=['paper_mode'])
+        adapter_factory.return_value._connected = False
+
+        self.assertEqual(resolve_pending_signal_outcomes(), 0)
+        adapter_factory.return_value.get_candles.assert_not_called()
+        signal.refresh_from_db()
+        self.assertEqual(signal.outcome, 'PENDING')
+        self.assertIsNone(signal.outcome_price)
+
     @patch('trading_app.tasks.build_credentials', return_value={})
     @patch('trading_app.tasks.get_adapter_for_broker')
     def test_stop_loss_wins_if_one_candle_touches_both_levels(self, adapter_factory, _credentials):

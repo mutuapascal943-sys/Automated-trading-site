@@ -362,6 +362,11 @@ def resolve_pending_signal_outcomes():
             adapter = get_adapter_for_broker('')
             adapter.connect(build_credentials(signal.user))
             try:
+                connection_deadline = time.monotonic() + 5
+                while not adapter._connected:
+                    if time.monotonic() >= connection_deadline:
+                        raise TimeoutError('Deriv WebSocket connection timed out')
+                    time.sleep(0.05)
                 candles = adapter.get_candles(
                     _deriv_symbol_for_label(signal.symbol), CANDLE_GRANULARITY, 200,
                 )

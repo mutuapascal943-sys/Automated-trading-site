@@ -111,7 +111,7 @@ class TickerBridge:
             try:
                 loop.run_until_complete(cls._live_tick_loop(symbol, credentials, app_id))
             except Exception:
-                logger.warning("Live ticker failed for %s", symbol)
+                logger.exception("Live ticker failed for %s", symbol)
             finally:
                 cls._mark_unavailable(symbol)
 
@@ -126,7 +126,7 @@ class TickerBridge:
         import websockets
         from trading_app.api_views import deriv_symbol_for_market
 
-        url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
+        url = "wss://api.derivws.com/trading/v1/options/ws/public"
         async with websockets.connect(url, ping_interval=30, ping_timeout=10) as ws:
             await ws.send(json.dumps({
                 "ticks": deriv_symbol_for_market(symbol),

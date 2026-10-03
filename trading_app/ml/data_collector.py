@@ -90,7 +90,7 @@ async def _fetch_all(
     """Paginate backward through Deriv ticks_history."""
     import websockets
 
-    url = f"wss://ws.derivws.com/websockets/v3?app_id={app_id}"
+    url = "wss://api.derivws.com/trading/v1/options/ws/public"
 
     all_candles = []
     current_end = end_epoch
