@@ -10,6 +10,8 @@ from trading_app.strategies.base import CandleContext, StrategyResult, prepare_c
 from trading_app.strategies.consensus import combine
 from trading_app.strategies.momentum import evaluate as evaluate_momentum
 from trading_app.strategies.support_resistance import evaluate as evaluate_support_resistance
+from trading_app.strategies.fibonacci import evaluate as evaluate_fibonacci
+from trading_app.strategies.ict import evaluate as evaluate_ict
 from trading_app.strategies.runner import run_parallel
 
 
@@ -80,6 +82,45 @@ class SourceStrategyTests(TestCase):
         result = evaluate_support_resistance(context)
         self.assertEqual(result.bias, 'bullish')
         self.assertIn('volume_confirmed', result.conditions)
+
+    def test_fibonacci_retracement_uses_recent_swing_and_confirmation(self):
+        candles = _bars([100 + index for index in range(30)] + [128, 126, 124, 122, 120, 118, 116, 115])
+        context = prepare_context(candles)
+        result = evaluate_fibonacci(context)
+        self.assertIn(result.bias, ('bullish', 'neutral'))
+        self.assertIn('retracement_0.618', result.levels)
+        self.assertIn('retracement_0.786', result.levels)
+
+    def test_ict_requires_sweep_displacement_and_structure_confirmation(self):
+        candles = _bars([100 + ((i % 8) * 0.2) for i in range(55)])
+        for index in range(40, 49):
+            price = 100.0
+            candles[index] = {
+                'time': candles[index]['time'], 'open': price - 0.1, 'high': price + 0.2,
+                'low': price - 0.2, 'close': price, 'volume': 100,
+            }
+        candles[-6] = {
+            'time': candles[-6]['time'], 'open': 100.0, 'high': 100.1,
+            'low': 97.0, 'close': 100.0, 'volume': 150,
+        }
+        candles[-5] = {
+            'time': candles[-5]['time'], 'open': 100.0, 'high': 100.2,
+            'low': 99.8, 'close': 100.1, 'volume': 100,
+        }
+        for index in range(50, 54):
+            price = 100.0
+            candles[index] = {
+                'time': candles[index]['time'], 'open': price - 0.1, 'high': price + 0.2,
+                'low': price - 0.2, 'close': price, 'volume': 100,
+            }
+        candles[-1] = {
+            'time': candles[-1]['time'], 'open': 100.1, 'high': 104.0,
+            'low': 100.0, 'close': 103.9, 'volume': 200,
+        }
+        result = evaluate_ict(prepare_context(candles))
+        self.assertEqual(result.bias, 'bullish')
+        self.assertIn('single_candle_htf_sweep', result.conditions)
+        self.assertIn('ltf_choch_confirmed', result.conditions)
 
 
 class ConsensusTests(TestCase):

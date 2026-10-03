@@ -29,6 +29,8 @@ def evaluate(context: CandleContext) -> StrategyResult:
     levels: dict[str, float] = {'sell_side_liquidity': sell_side, 'buy_side_liquidity': buy_side}
     bullish = False
     bearish = False
+    bias = 'neutral'
+    confidence = 0.0
 
     if bullish_sweep:
         swept = next(c for c in reversed(sweep_window) if float(c['low']) < sell_side and float(c['close']) > sell_side)

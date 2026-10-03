@@ -257,11 +257,15 @@ class SubscriptionAccessTests(TestCase):
         )
         bullish_vote = StrategyResult('Momentum', 'bullish', 0.8, (), (), {}, 0.1)
         sr_vote = StrategyResult('Support/Resistance', 'bullish', 0.76, (), (), {}, 0.1)
+        fib_vote = StrategyResult('Fibonacci', 'bullish', 0.74, (), (), {}, 0.1)
+        ict_vote = StrategyResult('ICT', 'bullish', 0.78, (), (), {}, 0.1)
 
         with patch('trading_app.api_views._candles_to_dicts', return_value=candle_dicts), \
                 patch('trading_app.trading_bot.technical_analyzer.analyze_technical', return_value=technical), \
                 patch('trading_app.strategies.momentum.evaluate', return_value=bullish_vote), \
-            patch('trading_app.strategies.support_resistance.evaluate', return_value=sr_vote):
+            patch('trading_app.strategies.support_resistance.evaluate', return_value=sr_vote), \
+            patch('trading_app.strategies.fibonacci.evaluate', return_value=fib_vote), \
+            patch('trading_app.strategies.ict.evaluate', return_value=ict_vote):
             response = self.client.post(reverse('api_analyze_signal'), {
                 'symbol': 'EUR/USD', 'granularity': 300,
             }, format='json')
