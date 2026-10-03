@@ -1,0 +1,1 @@
+"""Independent candle-based signal evaluators."""

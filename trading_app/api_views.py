@@ -2,6 +2,7 @@ import secrets
 import time
 import logging
 import decimal
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import wraps
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
@@ -350,40 +351,148 @@ def analyze_and_signal_view(request):
     from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
     if granularity not in GRANULARITY_MAP:
         return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
+    analysis_started = time.perf_counter()
+    stage_timings: dict[str, float] = {}
     try:
+        candle_started = time.perf_counter()
         raw_candles = _fetch_chart_candles(
             request.user, symbol, count=200, granularity=granularity,
         )
+        stage_timings['live_candle_retrieval_ms'] = round((time.perf_counter() - candle_started) * 1000, 3)
         if not raw_candles:
             return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        preprocess_started = time.perf_counter()
         candles = _candles_to_dicts(raw_candles)
+        from trading_app.strategies.base import prepare_context
+        shared_context = prepare_context(candles)
+        stage_timings['preprocessing_ms'] = round((time.perf_counter() - preprocess_started) * 1000, 3)
 
         recent_trades = list(Trade.objects.filter(
             user=request.user, symbol=symbol, status='CLOSED'
         ).values('pnl', 'action')[:10])
 
         from trading_app.trading_bot.technical_analyzer import analyze_technical
-        analysis = analyze_technical(symbol, candles, trade_history=recent_trades)
+        from trading_app.strategies import fibonacci, ict, momentum, support_resistance
+        from trading_app.strategies.consensus import combine
+        from trading_app.strategies.runner import run_parallel
+        analysis_box = {}
 
-        bias = analysis.bias
-        confidence = int(analysis.confidence * 100)
+        def run_technical():
+            started = time.perf_counter()
+            analysis_box['analysis'] = analyze_technical(symbol, candles, trade_history=recent_trades)
+            return round((time.perf_counter() - started) * 1000, 3)
+
+        core_futures = {}
+        executor = ThreadPoolExecutor(max_workers=4)
+        try:
+            core_futures[executor.submit(run_technical)] = 'technical_smc'
+            strategy_future = executor.submit(run_parallel, shared_context, {
+                'fibonacci': fibonacci.evaluate,
+                'ict': ict.evaluate,
+                'momentum': momentum.evaluate,
+                'support_resistance': support_resistance.evaluate,
+            })
+            core_futures[strategy_future] = 'strategy_evaluators'
+            ml_started = time.perf_counter()
+            ml_future = executor.submit(
+                _predict_from_existing_candles,
+                candles, shared_context.featured, symbol, granularity,
+            )
+
+            strategy_results = []
+            for future in as_completed(core_futures):
+                stage = core_futures[future]
+                started = time.perf_counter()
+                if stage == 'technical_smc':
+                    stage_timings[stage + '_ms'] = future.result()
+                elif stage == 'strategy_evaluators':
+                    strategy_results, strategy_timings = future.result()
+                    stage_timings.update({f'{name}_ms': value for name, value in strategy_timings.items()})
+        except Exception:
+            executor.shutdown(wait=True, cancel_futures=True)
+            raise
+        analysis = analysis_box['analysis']
+        strategy_results.append(_technical_strategy_result(analysis, stage_timings.get('technical_smc_ms', 0)))
+        consensus_started = time.perf_counter()
+        consensus = combine(
+            strategy_results,
+            threshold=settings.STRATEGY_CONSENSUS_THRESHOLD,
+            minimum_votes=settings.MIN_STRATEGY_VOTES,
+        )
+        stage_timings['consensus_ms'] = round((time.perf_counter() - consensus_started) * 1000, 3)
+
+        actionable_levels_ready = bool(
+            analysis.stop_loss is not None
+            and analysis.take_profit is not None
+            and candles[-1].get('close') is not None
+            and float(candles[-1]['close']) > 0
+            and (
+                (consensus.bias == 'bullish' and float(analysis.stop_loss) < float(candles[-1]['close']) and float(analysis.take_profit) > float(candles[-1]['close']))
+                or (consensus.bias == 'bearish' and float(analysis.stop_loss) > float(candles[-1]['close']) and float(analysis.take_profit) < float(candles[-1]['close']))
+            )
+        )
+        fast_consensus_ready = (
+            consensus.bias != 'neutral'
+            and consensus.total_directional_votes >= settings.MIN_STRATEGY_VOTES
+            and consensus.agreement >= settings.STRATEGY_CONSENSUS_THRESHOLD
+            and actionable_levels_ready
+        )
+        ml_signal = None
+        if not fast_consensus_ready:
+            ml_signal = ml_future.result()
+            stage_timings['ml_prediction_ms'] = round((time.perf_counter() - ml_started) * 1000, 3)
+            if ml_signal is not None:
+                strategy_results.append(_ml_strategy_result(ml_signal, stage_timings['ml_prediction_ms']))
+            consensus_started = time.perf_counter()
+            consensus = combine(
+                strategy_results,
+                threshold=settings.STRATEGY_CONSENSUS_THRESHOLD,
+                minimum_votes=settings.MIN_STRATEGY_VOTES,
+            )
+            stage_timings['consensus_ms'] += round((time.perf_counter() - consensus_started) * 1000, 3)
+        else:
+            ml_future.cancel()
+        executor.shutdown(wait=not fast_consensus_ready, cancel_futures=fast_consensus_ready)
+
+        bias = consensus.bias
+        confidence = int(consensus.confidence * 100)
+        total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
+        stage_timings['total_analysis_ms'] = total_analysis_ms
+        analysis_metrics = {
+            'bias': bias,
+            'confidence': confidence,
+            'rationale': analysis.rationale if bias != 'neutral' else 'No consensus',
+            'rsi': analysis.rsi,
+            'sma_short': analysis.sma_short,
+            'sma_long': analysis.sma_long,
+            'atr': analysis.atr,
+            'granularity': granularity,
+            'consensus': {
+                'buy_votes': consensus.buy_votes,
+                'sell_votes': consensus.sell_votes,
+                'directional_votes': consensus.total_directional_votes,
+                'agreement': consensus.agreement,
+                'threshold': settings.STRATEGY_CONSENSUS_THRESHOLD,
+                'minimum_votes': settings.MIN_STRATEGY_VOTES,
+                'reason': consensus.reason,
+                'contributors': list(consensus.contributing_strategies),
+            },
+            'strategies': [result.as_dict() for result in strategy_results],
+            'timings': stage_timings,
+            'fast_path': fast_consensus_ready,
+        }
 
         # Record the ML prediction so the Analytics/History panels and the
         # feedback loop capture every manual scan. The prediction is held
         # until it resolves as correct/missed — a new one is only recorded
         # once the current prediction for this symbol has been decided.
         try:
-            from trading_app.ml.inference import predict_signal
             from trading_app.tasks import _record_prediction, CANDLE_GRANULARITY
-            ml_candles = _candles_to_dicts(
-                _fetch_chart_candles(request.user, symbol, count=200, granularity=CANDLE_GRANULARITY)
-            )
-            ml_signal = predict_signal(ml_candles, symbol=symbol, granularity=CANDLE_GRANULARITY)
-            if ml_signal is not None and ml_signal.bias in ('bullish', 'bearish'):
+            if ml_signal is not None and granularity == CANDLE_GRANULARITY and ml_signal.bias in ('bullish', 'bearish'):
                 _record_prediction(
                     request.user, symbol, CANDLE_GRANULARITY,
-                    int(ml_candles[-1].get('time', 0)), ml_signal,
-                    entry_price=ml_candles[-1].get('close'),
+                    int(candles[-1].get('time', 0)), ml_signal,
+                    entry_price=candles[-1].get('close'),
                 )
         except Exception as e:
             logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
@@ -391,31 +500,38 @@ def analyze_and_signal_view(request):
         existing = TradingSignal.objects.filter(
             user=request.user, symbol=symbol, signal_type__in=('BUY', 'SELL'),
             outcome='PENDING',
+            entry_price__isnull=False,
+            stop_loss__isnull=False,
+            take_profit__isnull=False,
         ).order_by('-created_at').first()
         if existing:
             return Response({
                 'signal': TradingSignalSerializer(existing).data,
-                'analysis': {
-                    'bias': bias,
-                    'confidence': confidence,
-                    'rationale': analysis.rationale,
-                    'rsi': analysis.rsi,
-                    'sma_short': analysis.sma_short,
-                    'sma_long': analysis.sma_long,
-                    'atr': analysis.atr,
-                    'granularity': granularity,
-                },
+                'analysis': analysis_metrics,
                 'pending': True,
             })
+
+        if bias == 'neutral':
+            return Response({
+                'signal': None,
+                'analysis': analysis_metrics,
+                'message': 'No consensus',
+            })
+
+        if not analysis.stop_loss or not analysis.take_profit or not candles[-1].get('close'):
+            analysis_metrics['bias'] = 'neutral'
+            analysis_metrics['confidence'] = 0
+            analysis_metrics['rationale'] = 'No consensus: required Entry, Stop Loss, or Take Profit is unavailable'
+            return Response({'signal': None, 'analysis': analysis_metrics, 'message': 'No consensus'})
 
         signal = TradingSignal.objects.create(
             user=request.user,
             symbol=symbol,
             signal_type='BUY' if bias == 'bullish' else 'SELL' if bias == 'bearish' else 'HOLD',
             confidence=confidence,
-            entry_price=Decimal(str(candles[-1]['close'])).quantize(Decimal('0.00001')) if bias != 'neutral' else None,
-            stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')) if analysis.stop_loss is not None else None,
-            take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')) if analysis.take_profit is not None else None,
+            entry_price=Decimal(str(candles[-1]['close'])).quantize(Decimal('0.00001')),
+            stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')),
+            take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')),
             reasoning=analysis.rationale,
             source='SYSTEM',
             risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
@@ -429,16 +545,7 @@ def analyze_and_signal_view(request):
             if confidence < risk.min_confidence:
                 return Response({
                     'signal': TradingSignalSerializer(signal).data,
-                    'analysis': {
-                        'bias': bias,
-                        'confidence': confidence,
-                        'rationale': analysis.rationale,
-                        'rsi': analysis.rsi,
-                        'sma_short': analysis.sma_short,
-                        'sma_long': analysis.sma_long,
-                        'atr': analysis.atr,
-                        'granularity': granularity,
-                    },
+                    'analysis': analysis_metrics,
                     'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
                 })
 
@@ -460,35 +567,64 @@ def analyze_and_signal_view(request):
                 return Response({
                     'signal': TradingSignalSerializer(signal).data,
                     'trade': TradeSerializer(trade).data,
-                    'analysis': {
-                        'bias': bias,
-                        'confidence': confidence,
-                        'rationale': analysis.rationale,
-                        'rsi': analysis.rsi,
-                        'sma_short': analysis.sma_short,
-                        'sma_long': analysis.sma_long,
-                        'atr': analysis.atr,
-                        'granularity': granularity,
-                    },
+                    'analysis': analysis_metrics,
                 })
 
+        total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
+        stage_timings['total_analysis_ms'] = total_analysis_ms
+        analysis_metrics['timings'] = stage_timings
         return Response({
             'signal': TradingSignalSerializer(signal).data,
-            'analysis': {
-                'bias': bias,
-                'confidence': confidence,
-                'rationale': analysis.rationale,
-                'rsi': analysis.rsi,
-                'sma_short': analysis.sma_short,
-                'sma_long': analysis.sma_long,
-                'atr': analysis.atr,
-                'granularity': granularity,
-            },
+            'analysis': analysis_metrics,
+            'analysis_duration_ms': total_analysis_ms,
         })
 
     except Exception as e:
         logger.error('Analysis failed: %s', e, exc_info=True)
         return Response({'error': 'Analysis failed. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _predict_from_existing_candles(candles, featured_candles, symbol: str, granularity: int):
+    from trading_app.ml.inference import predict_signal, load_latest_model
+
+    model_data = load_latest_model(symbol=symbol, granularity=granularity)
+    if not model_data:
+        return None
+    return predict_signal(
+        candles, symbol=symbol, granularity=granularity,
+        featured_candles=featured_candles,
+        model_data=model_data,
+    )
+
+
+def _technical_strategy_result(analysis, processing_time_ms: float):
+    from trading_app.strategies.base import StrategyResult
+
+    bias = analysis.bias if analysis.bias in ('bullish', 'bearish') else 'neutral'
+    levels = {}
+    if analysis.stop_loss is not None:
+        levels['stop_loss'] = float(analysis.stop_loss)
+    if analysis.take_profit is not None:
+        levels['take_profit'] = float(analysis.take_profit)
+    return StrategyResult(
+        'Technical/SMC', bias, float(analysis.confidence),
+        (str(analysis.rationale),) if bias != 'neutral' else (),
+        ('existing_candlestick_smc_rules',), levels, processing_time_ms,
+    )
+
+
+def _ml_strategy_result(ml_signal, processing_time_ms: float):
+    from trading_app.strategies.base import StrategyResult
+
+    bias = {
+        'bullish': 'bullish',
+        'bearish': 'bearish',
+    }.get(ml_signal.bias, 'neutral')
+    reasons = (f'Local ML {ml_signal.model_info}',) if bias != 'neutral' else ()
+    return StrategyResult(
+        'Local ML', bias, float(ml_signal.confidence), reasons,
+        ('trained_model_prediction',), {}, processing_time_ms,
+    )
 
 
 # ---------------------------------------------------------------------------

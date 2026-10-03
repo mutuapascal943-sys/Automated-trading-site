@@ -129,8 +129,11 @@ def predict_signal(
     output_dir: str | None = None,
     granularity: int = 900,
     symbol: str | None = None,
+    featured_candles: list[dict] | None = None,
+    model_data: tuple[Any, list[str], dict] | None = None,
 ) -> MLSignal | None:
-    model_data = _get_model(output_dir, symbol, granularity)
+    if model_data is None:
+        model_data = _get_model(output_dir, symbol, granularity)
     if model_data is None:
         return None
 
@@ -143,7 +146,7 @@ def predict_signal(
 
     from .features import compute_features
 
-    featured = compute_features(candles)
+    featured = featured_candles if featured_candles is not None else compute_features(candles)
     if not featured:
         return None
 

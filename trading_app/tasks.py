@@ -1,5 +1,6 @@
 import threading
 import time
+from math import ceil
 from celery import shared_task
 from django.utils import timezone
 from django.conf import settings
@@ -359,6 +360,11 @@ def resolve_pending_signal_outcomes():
     for signal in pending:
         try:
             candles = []
+            elapsed_seconds = max(0, (timezone.now() - signal.created_at).total_seconds())
+            candle_count = min(
+                5000,
+                max(200, ceil(elapsed_seconds / CANDLE_GRANULARITY) + 2),
+            )
             adapter = get_adapter_for_broker('')
             adapter.connect(build_credentials(signal.user))
             try:
@@ -368,12 +374,18 @@ def resolve_pending_signal_outcomes():
                         raise TimeoutError('Deriv WebSocket connection timed out')
                     time.sleep(0.05)
                 candles = adapter.get_candles(
-                    _deriv_symbol_for_label(signal.symbol), CANDLE_GRANULARITY, 200,
+                    _deriv_symbol_for_label(signal.symbol), CANDLE_GRANULARITY, candle_count,
                 )
             finally:
                 adapter.disconnect()
             if not candles:
                 logger.warning('Live market data unavailable for signal %s; leaving outcome pending', signal.id)
+                continue
+            if min(candle.timestamp for candle in candles) > signal.created_at:
+                logger.warning(
+                    'Deriv history does not reach signal %s creation time; leaving outcome pending',
+                    signal.id,
+                )
                 continue
             for candle in candles:
                 if candle.timestamp <= signal.created_at:
