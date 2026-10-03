@@ -48,15 +48,13 @@ class TickerBridge:
                 cls._active_subscriptions[symbol]["refcount"] += 1
                 return
 
-        credentials = {}
-
         with cls._lock:
             cls._active_subscriptions[symbol] = {
                 "refcount": 1,
                 "mode": "live",
             }
         try:
-            cls._start_live_ticker(symbol, credentials)
+            cls._start_live_ticker(symbol, {})
             logger.info("TickerBridge: connecting to Deriv for %s", symbol)
         except Exception as e:
             logger.warning("TickerBridge: live ticker failed for %s: %s", symbol, e)
@@ -75,15 +73,6 @@ class TickerBridge:
             cls._active_subscriptions.pop(symbol, None)
 
         logger.info("TickerBridge: unsubscribed from %s", symbol)
-
-    # ------------------------------------------------------------------
-    # Credential resolution
-    # ------------------------------------------------------------------
-
-    @staticmethod
-    def _resolve_credentials(user) -> dict[str, str]:
-        """Public Deriv market data does not require account credentials."""
-        return {}
 
     @classmethod
     def _send_unavailable(cls, symbol: str) -> None:

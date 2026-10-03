@@ -143,7 +143,10 @@ async def _fetch_all(
 
             response = chunks[0]
             if "error" in response:
-                logger.error("Deriv API error: %s", response["error"])
+                error_message = response["error"].get("message", "Live market data unavailable")
+                logger.error("Deriv API error: %s", error_message)
+                if not all_candles:
+                    raise ConnectionError("Live market data unavailable")
                 break
 
             candles = []
