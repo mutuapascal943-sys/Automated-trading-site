@@ -12,6 +12,11 @@ from trading_app.strategies.momentum import evaluate as evaluate_momentum
 from trading_app.strategies.support_resistance import evaluate as evaluate_support_resistance
 from trading_app.strategies.fibonacci import evaluate as evaluate_fibonacci
 from trading_app.strategies.ict import evaluate as evaluate_ict
+from trading_app.strategies.choch import (
+    check_news_window,
+    evaluate as evaluate_choch,
+    fetch_multi_timeframe_candles,
+)
 from trading_app.strategies.runner import run_parallel
 
 
@@ -91,6 +96,11 @@ class SourceStrategyTests(TestCase):
         self.assertIn('retracement_0.618', result.levels)
         self.assertIn('retracement_0.786', result.levels)
 
+    def test_fibonacci_symmetric_downtrend_produces_bearish_or_neutral_not_buy(self):
+        candles = _bars([130 - index for index in range(30)] + [102, 104, 106, 108, 110, 112, 114, 115])
+        result = evaluate_fibonacci(prepare_context(candles))
+        self.assertIn(result.bias, ('bearish', 'neutral'))
+
     def test_ict_requires_sweep_displacement_and_structure_confirmation(self):
         candles = _bars([100 + ((i % 8) * 0.2) for i in range(55)])
         for index in range(40, 49):
@@ -104,10 +114,10 @@ class SourceStrategyTests(TestCase):
             'low': 97.0, 'close': 100.0, 'volume': 150,
         }
         candles[-5] = {
-            'time': candles[-5]['time'], 'open': 100.0, 'high': 100.2,
-            'low': 99.8, 'close': 100.1, 'volume': 100,
+            'time': candles[-5]['time'], 'open': 100.0, 'high': 100.05,
+            'low': 99.8, 'close': 100.0, 'volume': 100,
         }
-        for index in range(50, 54):
+        for index in range(51, 54):
             price = 100.0
             candles[index] = {
                 'time': candles[index]['time'], 'open': price - 0.1, 'high': price + 0.2,
@@ -121,6 +131,85 @@ class SourceStrategyTests(TestCase):
         self.assertEqual(result.bias, 'bullish')
         self.assertIn('single_candle_htf_sweep', result.conditions)
         self.assertIn('ltf_choch_confirmed', result.conditions)
+
+    def test_ict_without_following_structure_confirmation_is_neutral(self):
+        candles = _bars([100.0] * 55)
+        candles[-6] = {
+            'time': candles[-6]['time'], 'open': 100.0, 'high': 100.1,
+            'low': 97.0, 'close': 100.0, 'volume': 150,
+        }
+        candles[-1] = {
+            'time': candles[-1]['time'], 'open': 100.0, 'high': 100.1,
+            'low': 99.8, 'close': 100.0, 'volume': 100,
+        }
+        result = evaluate_ict(prepare_context(candles))
+        self.assertEqual(result.bias, 'neutral')
+
+    def test_ict_buy_side_sweep_can_confirm_bearish(self):
+        candles = _bars([100.0] * 55)
+        candles[-4] = {
+            'time': candles[-4]['time'], 'open': 100.0, 'high': 104.0,
+            'low': 99.9, 'close': 100.0, 'volume': 150,
+        }
+        candles[-3] = {
+            'time': candles[-3]['time'], 'open': 100.0, 'high': 100.05,
+            'low': 99.95, 'close': 100.0, 'volume': 100,
+        }
+        for index in range(45, 49):
+            price = 100.0
+            candles[index] = {
+                'time': candles[index]['time'], 'open': price + 0.1,
+                'high': price + 0.2, 'low': price - 0.2,
+                'close': price, 'volume': 100,
+            }
+        candles[-1] = {
+            'time': candles[-1]['time'], 'open': 99.9, 'high': 100.0,
+            'low': 96.0, 'close': 96.1, 'volume': 200,
+        }
+        result = evaluate_ict(prepare_context(candles))
+        self.assertEqual(result.bias, 'bearish')
+        self.assertIn('bearish_displacement', result.conditions)
+        self.assertIn('ltf_choch_confirmed', result.conditions)
+
+    def test_choch_bullish_context_and_m1_confirmation(self):
+        m1 = _bars([101.0, 101.1, 101.2, 101.3, 101.5, 101.7, 101.9, 102.2, 102.4, 102.8], interval=60)
+        candles = _bars([100.0, 100.6, 101.3, 101.9, 102.1, 102.8, 103.2, 103.7, 104.0, 104.4], interval=300)
+        context = prepare_context(candles)
+        context.multi_timeframe = {'H4': candles, 'M15': candles, 'M5': candles, 'M1': m1}
+        result = evaluate_choch(context)
+        self.assertEqual(result.bias, 'bullish')
+        self.assertIn('h4_context_bullish', result.conditions)
+        self.assertIn('m1_confirmation', result.conditions)
+
+    def test_choch_bearish_context_and_zone_flip(self):
+        m1 = _bars([100.8, 100.7, 100.5, 100.3, 100.1, 99.9, 99.6, 99.4, 99.2, 99.0], interval=60)
+        candles = _bars([108.0, 107.2, 106.5, 105.8, 104.9, 104.1, 103.2, 102.8, 101.8, 101.0], interval=300)
+        context = prepare_context(candles)
+        context.multi_timeframe = {'H4': candles, 'M15': candles, 'M5': candles, 'M1': m1}
+        result = evaluate_choch(context)
+        self.assertEqual(result.bias, 'bearish')
+        self.assertIn('supply_demand_flip', result.conditions)
+
+    def test_choch_rejects_limit_entry_from_unmitigated_zone(self):
+        candles = _bars([100.0, 100.2, 100.4, 100.8, 101.0, 100.9, 100.6, 100.1, 99.8, 99.6], interval=300)
+        context = prepare_context(candles)
+        context.multi_timeframe = {'H4': candles, 'M15': candles, 'M5': candles, 'M1': candles}
+        result = evaluate_choch(context)
+        self.assertEqual(result.bias, 'neutral')
+        self.assertIn('unmitigated_zone_limit_entry', result.conditions)
+
+    def test_choch_news_filter_reports_unavailable_without_provider(self):
+        status = check_news_window('EUR/USD', 'M1')
+        self.assertEqual(status['status'], 'unavailable')
+        self.assertIn('unavailable', status['message'].lower())
+
+    def test_choch_fetch_multi_timeframe_candles_uses_requested_timeframes(self):
+        with patch('trading_app.strategies.choch._request_timeframe_candles', side_effect=[
+            [{'close': 1.0}], [{'close': 2.0}], [{'close': 3.0}], [{'close': 4.0}],
+        ]):
+            data = fetch_multi_timeframe_candles('EUR/USD', (14400, 900, 300, 60), user=None)
+        self.assertEqual(set(data), {'H4', 'M15', 'M5', 'M1'})
+        self.assertEqual(data['M1'][0]['close'], 4.0)
 
 
 class ConsensusTests(TestCase):

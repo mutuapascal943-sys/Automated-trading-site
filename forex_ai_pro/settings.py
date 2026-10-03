@@ -18,7 +18,7 @@ MOCK_SUBSCRIPTIONS_ENABLED = config(
 STRATEGY_CONSENSUS_THRESHOLD = config(
     'STRATEGY_CONSENSUS_THRESHOLD', default=0.70, cast=float,
 )
-MIN_STRATEGY_VOTES = config('MIN_STRATEGY_VOTES', default=5, cast=int)
+MIN_STRATEGY_VOTES = config('MIN_STRATEGY_VOTES', default=3, cast=int)
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 

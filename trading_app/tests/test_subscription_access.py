@@ -151,11 +151,15 @@ class SubscriptionAccessTests(TestCase):
         response = self.client.post('/api/analyze-signal/', {'symbol': 'EUR/USD'}, format='json')
         self.assertEqual(response.status_code, 403)
 
+    @patch('trading_app.strategies.fibonacci.evaluate')
+    @patch('trading_app.strategies.ict.evaluate')
+    @patch('trading_app.strategies.momentum.evaluate')
+    @patch('trading_app.strategies.support_resistance.evaluate')
     @patch('trading_app.trading_bot.technical_analyzer.analyze_technical')
     @patch('trading_app.api_views._candles_to_dicts')
     @patch('trading_app.api_views._fetch_chart_candles')
     def test_analysis_response_includes_server_timing(
-        self, fetch_candles, convert_candles, analyze,
+        self, fetch_candles, convert_candles, analyze, sr_vote, momentum_vote, ict_vote, fib_vote,
     ):
         from django.urls import reverse
 
@@ -172,6 +176,12 @@ class SubscriptionAccessTests(TestCase):
             sma_short=1.1, sma_long=1.09, atr=0.01,
             stop_loss=1.09, take_profit=1.15,
         )
+        from trading_app.strategies.base import StrategyResult
+        for mocked_vote, name in (
+            (sr_vote, 'Support/Resistance'), (momentum_vote, 'Momentum'),
+            (ict_vote, 'ICT'), (fib_vote, 'Fibonacci'),
+        ):
+            mocked_vote.return_value = StrategyResult(name, 'bullish', 0.8, (), (), {}, 0.1)
         convert_candles.return_value = [{
             'time': int(timezone.now().timestamp()) - (199 - i) * 900,
             'open': 1.1 + i * 0.001, 'high': 1.101 + i * 0.001,
@@ -276,9 +286,16 @@ class SubscriptionAccessTests(TestCase):
         model_loader.assert_not_called()
 
     @patch('trading_app.ml.inference.load_latest_model', return_value=None)
+    @patch('trading_app.strategies.fibonacci.evaluate')
+    @patch('trading_app.strategies.ict.evaluate')
+    @patch('trading_app.strategies.momentum.evaluate')
+    @patch('trading_app.strategies.support_resistance.evaluate')
     @patch('trading_app.api_views._fetch_chart_candles')
-    def test_null_level_pending_signal_does_not_block_new_valid_signal(self, fetch_candles, _model):
+    def test_null_level_pending_signal_does_not_block_new_valid_signal(
+        self, fetch_candles, sr_eval, momentum_eval, ict_eval, fib_eval, _model,
+    ):
         from django.urls import reverse
+        from trading_app.strategies.base import StrategyResult
 
         self.user.trial_started_at = timezone.now()
         self.user.selected_market = 'EUR/USD'
@@ -297,6 +314,9 @@ class SubscriptionAccessTests(TestCase):
             'open': 1.10, 'high': 1.12, 'low': 1.09, 'close': 1.11,
             'volume': 100,
         } for i in range(200)]
+        vote = StrategyResult('test_vote', 'bullish', 0.8, (), (), {}, 0.1)
+        for evaluator in (sr_eval, momentum_eval, ict_eval, fib_eval):
+            evaluator.return_value = vote
 
         with patch('trading_app.api_views._candles_to_dicts', return_value=candle_dicts), \
                 patch('trading_app.trading_bot.technical_analyzer.analyze_technical') as analyze:

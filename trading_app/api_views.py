@@ -393,11 +393,6 @@ def analyze_and_signal_view(request):
                 'support_resistance': support_resistance.evaluate,
             })
             core_futures[strategy_future] = 'strategy_evaluators'
-            ml_started = time.perf_counter()
-            ml_future = executor.submit(
-                _predict_from_existing_candles,
-                candles, shared_context.featured, symbol, granularity,
-            )
 
             strategy_results = []
             for future in as_completed(core_futures):
@@ -439,6 +434,11 @@ def analyze_and_signal_view(request):
         )
         ml_signal = None
         if not fast_consensus_ready:
+            ml_started = time.perf_counter()
+            ml_future = executor.submit(
+                _predict_from_existing_candles,
+                candles, shared_context.featured, symbol, granularity,
+            )
             ml_signal = ml_future.result()
             stage_timings['ml_prediction_ms'] = round((time.perf_counter() - ml_started) * 1000, 3)
             if ml_signal is not None:
@@ -450,9 +450,7 @@ def analyze_and_signal_view(request):
                 minimum_votes=settings.MIN_STRATEGY_VOTES,
             )
             stage_timings['consensus_ms'] += round((time.perf_counter() - consensus_started) * 1000, 3)
-        else:
-            ml_future.cancel()
-        executor.shutdown(wait=not fast_consensus_ready, cancel_futures=fast_consensus_ready)
+        executor.shutdown(wait=True)
 
         bias = consensus.bias
         confidence = int(consensus.confidence * 100)

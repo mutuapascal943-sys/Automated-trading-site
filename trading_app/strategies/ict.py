@@ -14,8 +14,8 @@ def evaluate(context: CandleContext) -> StrategyResult:
 
     current = candles[-1]
     sweep_window = candles[-7:-2]
-    prior_lows = [float(candle['low']) for candle in candles[-14:-1]]
-    prior_highs = [float(candle['high']) for candle in candles[-14:-1]]
+    prior_lows = [float(candle['low']) for candle in candles[-14:-7]]
+    prior_highs = [float(candle['high']) for candle in candles[-14:-7]]
     if not prior_lows or not prior_highs:
         return StrategyResult('ICT', 'neutral', 0.0, (), ('missing_liquidity_reference',), {},
                               round((time.perf_counter() - started) * 1000, 3))
