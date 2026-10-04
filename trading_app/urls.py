@@ -2,6 +2,10 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from . import api_views
+from .services.dev_verification_auth import (
+    cleanup_dev_verification_session,
+    create_dev_verification_session,
+)
 
 router = DefaultRouter()
 router.register(r'users', api_views.UserViewSet, basename='api_user')
@@ -51,6 +55,17 @@ urlpatterns = [
     path('api/stake-config/', api_views.stake_config_view, name='api_stake_config'),
     path('api/signal/propose/', api_views.signal_propose_view, name='api_signal_propose'),
     path('api/analyze-signal/', api_views.analyze_and_signal_view, name='api_analyze_signal'),
+    path('api/internal/analysis-verification/', api_views.analysis_verification_view, name='api_analysis_verification'),
+    path(
+        'api/internal/dev/verification-session/',
+        create_dev_verification_session,
+        name='api_dev_verification_session',
+    ),
+    path(
+        'api/internal/dev/verification-session/cleanup/',
+        cleanup_dev_verification_session,
+        name='api_dev_verification_session_cleanup',
+    ),
     path('api/notifications/', api_views.list_notifications, name='api_notifications'),
     path('api/notifications/<int:notification_id>/read/', api_views.mark_notification_read, name='api_notification_read'),
     path('api/notifications/read-all/', api_views.mark_all_notifications_read, name='api_notifications_read_all'),

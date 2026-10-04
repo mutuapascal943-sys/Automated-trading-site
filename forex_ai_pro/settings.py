@@ -19,6 +19,9 @@ STRATEGY_CONSENSUS_THRESHOLD = config(
     'STRATEGY_CONSENSUS_THRESHOLD', default=0.70, cast=float,
 )
 MIN_STRATEGY_VOTES = config('MIN_STRATEGY_VOTES', default=3, cast=int)
+TRADING_ANALYSIS_VERIFICATION_ENABLED = config(
+    'TRADING_ANALYSIS_VERIFICATION_ENABLED', default=False, cast=bool,
+)
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
@@ -43,6 +46,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'trading_app.middleware.dev_verification_session.DevVerificationSessionScopeMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

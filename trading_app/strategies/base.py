@@ -1,12 +1,12 @@
 from __future__ import annotations
 
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from trading_app.ml.features import compute_features
 
 
-@dataclass(frozen=True)
+@dataclass
 class StrategyResult:
     name: str
     bias: str
@@ -30,7 +30,7 @@ class StrategyResult:
         }
 
 
-@dataclass(frozen=True)
+@dataclass
 class CandleContext:
     candles: list[dict]
     featured: list[dict]
@@ -42,6 +42,8 @@ class CandleContext:
     resistance_touches: int
     zone_tolerance: float
     preprocessing_ms: float
+    multi_timeframe: dict[str, list[dict]] = field(default_factory=dict)
+    news_status: dict | None = None
 
 
 def prepare_context(candles: list[dict], lookback: int = 50) -> CandleContext:
@@ -87,6 +89,8 @@ def prepare_context(candles: list[dict], lookback: int = 50) -> CandleContext:
         resistance_touches=resistance[1] if resistance else 0,
         zone_tolerance=tolerance,
         preprocessing_ms=round((time.perf_counter() - started) * 1000, 3),
+        multi_timeframe={},
+        news_status=None,
     )
 
 

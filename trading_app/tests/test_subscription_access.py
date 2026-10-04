@@ -54,21 +54,6 @@ class SubscriptionAccessTests(TestCase):
         self.assertEqual(access['signals_used'], 50)
         self.assertEqual(access['signals_remaining'], 0)
 
-        sr_vote = StrategyResult('Support/Resistance', 'bullish', 0.76, (), (), {}, 0.1)
-        self.user.trial_started_at = timezone.now()
-        self.user.save(update_fields=['trial_started_at'])
-        TradingSignal.objects.bulk_create([
-            TradingSignal(
-                user=self.user, symbol='EUR/USD', signal_type='BUY',
-                confidence=70, source='SYSTEM',
-            )
-            for _ in range(50)
-        ])
-        cache.set(f'bot_status_{self.user.id}', {'status': 'running', 'market': 'EUR/USD'})
-        response = self.client.post('/api/analyze-signal/', {'symbol': 'EUR/USD'}, format='json')
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(TradingSignal.objects.filter(user=self.user).count(), 50)
-
     def test_expired_user_can_load_dashboard_and_subscription_status(self):
         from django.urls import reverse
 

@@ -22,6 +22,29 @@ DERIV_APP_ID=1089
 
 Trade creation, trade modification, broker configuration/health checks, order backtesting, paper orders, and live orders are disabled. Legacy execution endpoints return an explicit `410 Gone` response. The application does not need Binance, MetaTrader, or broker-account/order credentials for the specified analysis-only features.
 
+## Local Verification Session
+
+For a local live-analysis verification only, the development session issuer is available when both `DJANGO_DEBUG=True` and `TRADING_ANALYSIS_VERIFICATION_ENABLED=True`. It additionally requires a loopback host and client address (`127.0.0.1`, `localhost`, or `::1`). The normal analysis-verification endpoint remains authenticated and staff-only; no production authorization is bypassed.
+
+The development session is temporary, expires after 10 minutes, and can call only `/api/internal/analysis-verification/` and its cleanup endpoint. It creates an unusable-password, non-superuser staff identity with an isolated `dev-analysis-verification-*` username; it does not reuse or alter another user. Always clean it up after use. If interrupted, remove any leftover `dev-analysis-verification-*` identity from the local development database through Django admin or the Django shell.
+
+With the local Django server running on `127.0.0.1:8000`, use one PowerShell web session for the CSRF cookie and the temporary login:
+
+```powershell
+$base = 'http://127.0.0.1:8000'
+$path = '/api/internal/dev/verification-session/'
+$bootstrapResponse = Invoke-WebRequest -Uri ($base + $path) -SessionVariable session
+$bootstrap = $bootstrapResponse.Content | ConvertFrom-Json
+$csrfHeaders = @{ 'X-CSRFToken' = $bootstrap.csrf_token }
+$issuedResponse = Invoke-WebRequest -Method Post -Uri ($base + $path) -WebSession $session -Headers $csrfHeaders -ContentType 'application/json' -Body '{}'
+$issued = $issuedResponse.Content | ConvertFrom-Json
+$csrfHeaders = @{ 'X-CSRFToken' = $issued.csrf_token }
+$analysis = Invoke-RestMethod -Method Post -Uri ($base + '/api/internal/analysis-verification/') -WebSession $session -Headers $csrfHeaders -ContentType 'application/json' -Body '{"symbol":"R_75","granularity":300,"persist":false}'
+$cleanup = Invoke-RestMethod -Method Post -Uri ($base + '/api/internal/dev/verification-session/cleanup/') -WebSession $session -Headers $csrfHeaders -ContentType 'application/json' -Body '{}'
+```
+
+The bootstrap GET creates no user. The issuer's POST returns a refreshed CSRF token because Django rotates it on login. The temporary identity uses the normal trial-access check, has no password, is not a superuser, and expires with the session; cleanup deletes that identity explicitly. The session issuer itself does not perform analysis. Do not expose these routes through a public tunnel or reverse proxy.
+
 ## Other External Services
 
 - Email service: optional for real OTP delivery; configure `EMAIL_HOST`, `EMAIL_PORT`, `EMAIL_HOST_USER`, `EMAIL_HOST_PASSWORD`, and sender settings. Local development can use Django's file or in-memory email backend.

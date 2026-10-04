@@ -334,11 +334,25 @@ def risk_config_view(request):
 @throttle_classes([UserRateThrottle])
 @_measure_analysis_duration
 def analyze_and_signal_view(request):
+    return _run_analysis_pipeline(request, verification_mode=False)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAdminUser])
+@throttle_classes([UserRateThrottle])
+@_measure_analysis_duration
+def analysis_verification_view(request):
+    if not settings.TRADING_ANALYSIS_VERIFICATION_ENABLED:
+        return Response({'error': 'Analysis verification is disabled.'}, status=status.HTTP_404_NOT_FOUND)
+    return _run_analysis_pipeline(request, verification_mode=True)
+
+
+def _run_analysis_pipeline(request, verification_mode: bool):
     access = _subscription_access_response(request.user)
     if access is not None:
         return access
     bot_status = CacheService.get(f'bot_status_{request.user.id}', {'status': 'idle'})
-    if bot_status.get('status') != 'running':
+    if not verification_mode and bot_status.get('status') != 'running':
         return Response({'error': 'Start the bot before requesting an analysis.'}, status=status.HTTP_409_CONFLICT)
 
     symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
@@ -355,9 +369,17 @@ def analyze_and_signal_view(request):
     stage_timings: dict[str, float] = {}
     try:
         candle_started = time.perf_counter()
-        raw_candles = _fetch_chart_candles(
-            request.user, symbol, count=200, granularity=granularity,
-        )
+        if verification_mode:
+            raw_candles, mtf, live_error = _fetch_verification_candles(
+                request.user, symbol, granularity,
+            )
+            if live_error:
+                return Response({'error': live_error, 'data_source': 'live_deriv'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+        else:
+            raw_candles = _fetch_chart_candles(
+                request.user, symbol, count=200, granularity=granularity,
+            )
+            mtf = None
         stage_timings['live_candle_retrieval_ms'] = round((time.perf_counter() - candle_started) * 1000, 3)
         if not raw_candles:
             return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
@@ -372,10 +394,17 @@ def analyze_and_signal_view(request):
         ).values('pnl', 'action')[:10])
 
         from trading_app.trading_bot.technical_analyzer import analyze_technical
-        from trading_app.strategies import fibonacci, ict, momentum, support_resistance
+        from trading_app.strategies import choch, fibonacci, ict, momentum, support_resistance
         from trading_app.strategies.consensus import combine
         from trading_app.strategies.runner import run_parallel
         analysis_box = {}
+        if not verification_mode:
+            mtf = choch.fetch_multi_timeframe_candles(
+                symbol, (14400, 900, 300, 60), request.user,
+                chart_candles=candles, chart_granularity=granularity,
+            )
+        shared_context.multi_timeframe = mtf
+        shared_context.news_status = choch.check_news_window(symbol, 'M1')
 
         def run_technical():
             started = time.perf_counter()
@@ -391,6 +420,7 @@ def analyze_and_signal_view(request):
                 'ict': ict.evaluate,
                 'momentum': momentum.evaluate,
                 'support_resistance': support_resistance.evaluate,
+                'choch': choch.evaluate,
             })
             core_futures[strategy_future] = 'strategy_evaluators'
 
@@ -479,35 +509,40 @@ def analyze_and_signal_view(request):
             'timings': stage_timings,
             'fast_path': fast_consensus_ready,
         }
+        if verification_mode:
+            analysis_metrics['data_source'] = 'live_deriv'
+            analysis_metrics['verification_mode'] = 'read_only'
 
         # Record the ML prediction so the Analytics/History panels and the
         # feedback loop capture every manual scan. The prediction is held
         # until it resolves as correct/missed — a new one is only recorded
         # once the current prediction for this symbol has been decided.
-        try:
-            from trading_app.tasks import _record_prediction, CANDLE_GRANULARITY
-            if ml_signal is not None and granularity == CANDLE_GRANULARITY and ml_signal.bias in ('bullish', 'bearish'):
-                _record_prediction(
-                    request.user, symbol, CANDLE_GRANULARITY,
-                    int(candles[-1].get('time', 0)), ml_signal,
-                    entry_price=candles[-1].get('close'),
-                )
-        except Exception as e:
-            logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
+        if not verification_mode:
+            try:
+                from trading_app.tasks import _record_prediction, CANDLE_GRANULARITY
+                if ml_signal is not None and granularity == CANDLE_GRANULARITY and ml_signal.bias in ('bullish', 'bearish'):
+                    _record_prediction(
+                        request.user, symbol, CANDLE_GRANULARITY,
+                        int(candles[-1].get('time', 0)), ml_signal,
+                        entry_price=candles[-1].get('close'),
+                    )
+            except Exception as e:
+                logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
 
-        existing = TradingSignal.objects.filter(
-            user=request.user, symbol=symbol, signal_type__in=('BUY', 'SELL'),
-            outcome='PENDING',
-            entry_price__isnull=False,
-            stop_loss__isnull=False,
-            take_profit__isnull=False,
-        ).order_by('-created_at').first()
-        if existing:
-            return Response({
-                'signal': TradingSignalSerializer(existing).data,
-                'analysis': analysis_metrics,
-                'pending': True,
-            })
+        if not verification_mode:
+            existing = TradingSignal.objects.filter(
+                user=request.user, symbol=symbol, signal_type__in=('BUY', 'SELL'),
+                outcome='PENDING',
+                entry_price__isnull=False,
+                stop_loss__isnull=False,
+                take_profit__isnull=False,
+            ).order_by('-created_at').first()
+            if existing:
+                return Response({
+                    'signal': TradingSignalSerializer(existing).data,
+                    'analysis': analysis_metrics,
+                    'pending': True,
+                })
 
         if bias == 'neutral':
             return Response({
@@ -522,24 +557,41 @@ def analyze_and_signal_view(request):
             analysis_metrics['rationale'] = 'No consensus: required Entry, Stop Loss, or Take Profit is unavailable'
             return Response({'signal': None, 'analysis': analysis_metrics, 'message': 'No consensus'})
 
-        signal = TradingSignal.objects.create(
-            user=request.user,
-            symbol=symbol,
-            signal_type='BUY' if bias == 'bullish' else 'SELL' if bias == 'bearish' else 'HOLD',
-            confidence=confidence,
-            entry_price=Decimal(str(candles[-1]['close'])).quantize(Decimal('0.00001')),
-            stop_loss=Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')),
-            take_profit=Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')),
-            reasoning=analysis.rationale,
-            source='SYSTEM',
-            risk_level='LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
-        )
+        signal_values = {
+            'user': request.user,
+            'symbol': symbol,
+            'signal_type': 'BUY' if bias == 'bullish' else 'SELL',
+            'confidence': confidence,
+            'entry_price': Decimal(str(candles[-1]['close'])).quantize(Decimal('0.00001')),
+            'stop_loss': Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')),
+            'take_profit': Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')),
+            'reasoning': analysis.rationale,
+            'source': 'SYSTEM',
+            'risk_level': 'LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
+        }
+        persist_signal = not verification_mode or request.data.get('persist') is True
+        if not persist_signal:
+            signal = TradingSignal(**signal_values)
+            return Response({
+                'signal': TradingSignalSerializer(signal).data,
+                'analysis': analysis_metrics,
+                'persisted': False,
+            })
+
+        signal = TradingSignal.objects.create(**signal_values)
         audit.log_signal(symbol, signal.signal_type, confidence, {
             'signal_id': signal.id, 'rationale': signal.reasoning,
         })
 
+        if verification_mode:
+            return Response({
+                'signal': TradingSignalSerializer(signal).data,
+                'analysis': analysis_metrics,
+                'persisted': True,
+            })
+
         risk = RiskConfig.get_for_user(request.user)
-        if risk.auto_execute and signal.signal_type != 'HOLD' and risk.trading_enabled:
+        if not verification_mode and risk.auto_execute and signal.signal_type != 'HOLD' and risk.trading_enabled:
             if confidence < risk.min_confidence:
                 return Response({
                     'signal': TradingSignalSerializer(signal).data,
@@ -1494,6 +1546,76 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
                 logger.warning('Chart adapter disconnect failed for %s: %s', symbol, e)
 
     return [], 'unavailable'
+
+
+def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
+    """Fetch fresh, uncached Deriv candles for verification over one connection."""
+    import threading
+    from trading_app.strategies.choch import TIMEFRAME_LABELS
+
+    required = tuple(TIMEFRAME_LABELS)
+    granularities = tuple(dict.fromkeys((*required, selected_granularity)))
+    adapter = _resolve_adapter(user)
+    raw_by_granularity = {}
+    now_epoch = time.time()
+    tick_received = threading.Event()
+    tick_subscription_started = False
+    try:
+        adapter.connect(build_credentials(user))
+        connection_deadline = time.monotonic() + 5
+        while not adapter._connected:
+            if time.monotonic() >= connection_deadline:
+                raise TimeoutError('Deriv WebSocket connection timed out')
+            time.sleep(0.05)
+        adapter.subscribe_ticks(
+            deriv_symbol_for_market(symbol), lambda _tick: tick_received.set(),
+        )
+        tick_subscription_started = True
+        if not tick_received.wait(timeout=8):
+            return [], {}, 'Live market data unavailable: no current Deriv tick received.'
+        try:
+            adapter.unsubscribe_ticks(deriv_symbol_for_market(symbol))
+            tick_subscription_started = False
+        except Exception:
+            pass
+        for granularity in granularities:
+            try:
+                raw = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, 200)
+            except Exception as exc:
+                message = str(exc).lower()
+                if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
+                    return [], {}, f'Market closed: {symbol} is not currently trading.'
+                return [], {}, f'Live market data unavailable for {TIMEFRAME_LABELS.get(granularity, granularity)}.'
+            if not raw:
+                return [], {}, f'Live market data unavailable for {TIMEFRAME_LABELS.get(granularity, granularity)}.'
+            newest_epoch = max(int(candle.timestamp.timestamp()) for candle in raw)
+            max_age = granularity + 90
+            if now_epoch - newest_epoch > max_age:
+                return [], {}, f'Live market data unavailable: {TIMEFRAME_LABELS.get(granularity, granularity)} candles are stale.'
+            raw_by_granularity[granularity] = raw
+    except Exception as exc:
+        message = str(exc).lower()
+        if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
+            return [], {}, f'Market closed: {symbol} is not currently trading.'
+        logger.warning('Verification candle fetch failed for %s: %s', symbol, exc)
+        return [], {}, 'Live market data unavailable.'
+    finally:
+        if tick_subscription_started:
+            try:
+                adapter.unsubscribe_ticks(deriv_symbol_for_market(symbol))
+            except Exception:
+                pass
+        try:
+            adapter.disconnect()
+        except Exception:
+            pass
+
+    raw_candles = raw_by_granularity[selected_granularity]
+    mtf = {
+        TIMEFRAME_LABELS[granularity]: _candles_to_dicts(raw_by_granularity[granularity])
+        for granularity in required
+    }
+    return raw_candles, mtf, None
 
 
 def deriv_symbol_for_market(symbol: str) -> str:
