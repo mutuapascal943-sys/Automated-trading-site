@@ -81,7 +81,7 @@
   }
 
   /* ── WebSocket Market Stream ── */
-  function getMarketWS(symbol) {
+  function getMarketWS(symbol, retainedListeners) {
     var normalised = symbol.replace(/\//g, '-');
     if (wsConnections[normalised] && wsConnections[normalised].readyState === WebSocket.OPEN) {
       return wsConnections[normalised];
@@ -91,7 +91,7 @@
     var ws = new WebSocket(url);
     ws._symbol = symbol;
     ws._normalised = normalised;
-    ws._listeners = [];
+    ws._listeners = retainedListeners || [];
     ws.onmessage = function(e) {
       var data;
       try { data = JSON.parse(e.data); } catch(_) { return; }
@@ -109,8 +109,11 @@
     };
     ws.onclose = function() {
       var ns = this._normalised;
+      this._listeners.forEach(function(cb) {
+        cb({type: 'status', status: 'unavailable', symbol: symbol, message: 'Live market data unavailable'});
+      });
       if (wsConnections[ns] === this) delete wsConnections[ns];
-      setTimeout(function() { getMarketWS(symbol); }, 3000);
+      setTimeout(function() { getMarketWS(symbol, ws._listeners); }, 3000);
     };
     wsConnections[normalised] = ws;
     return ws;
@@ -118,6 +121,9 @@
 
   function addWSListener(symbol, cb) {
     var ws = getMarketWS(symbol);
+    if (ws.readyState === WebSocket.CLOSED || ws.readyState === WebSocket.CLOSING) {
+      ws = getMarketWS(symbol, ws._listeners);
+    }
     ws._listeners.push(cb);
   }
 
@@ -576,25 +582,34 @@
         ss.textContent += '> ' + (data.analysis.rationale || '') + '\n';
       }
 
-      var signalType = bias === 'bullish' ? 'BUY' : bias === 'bearish' ? 'SELL' : 'BUY';
-      var currentPrice = pairs[pair] || 0;
-
-      return fetch('/api/signal/propose/', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-        body: JSON.stringify({
-          symbol: pair,
-          signal_type: signalType,
-          confidence: conf / 100,
-          current_price: currentPrice,
-        }),
-      });
-    })
-    .then(function(r){ return r.json() })
-    .then(function(proposal){
-      ss.textContent += '> Bot calculated SL/TP (ATR-based)\n';
-      ss.textContent += '> ' + proposal.reasoning + '\n';
-
+      if(data.decision === 'WAIT' || !data.signal || !['BUY', 'SELL'].includes(data.decision || data.signal.signal_type)){
+        ss.textContent += '> WAIT: ' + (data.reason || data.message || 'Confluence is incomplete.') + '\n';
+        if(data.wait_expires_at){
+          var waitExpiry = new Date(data.wait_expires_at).getTime();
+          var waitTimer = setInterval(function(){
+            var remaining = Math.max(0, Math.ceil((waitExpiry - Date.now()) / 1000));
+            ss.textContent = '> WAIT: ' + (data.reason || 'Confluence is incomplete.') + '\n> Re-evaluating market in ' + remaining + ' seconds.';
+            if(remaining === 0){ clearInterval(waitTimer); startAnalysis(); }
+          }, 1000);
+        }
+        botRunning = false;
+        return;
+      }
+      var signal = data.signal;
+      var proposal = {
+        symbol: signal.symbol,
+        signal_type: signal.signal_type,
+        confidence: signal.confidence / 100,
+        current_price: signal.entry_price,
+        stop_loss: signal.stop_loss,
+        take_profit: signal.take_profit,
+        reasoning: signal.reasoning,
+      };
+      if(!proposal.current_price || !proposal.stop_loss || !proposal.take_profit){
+        ss.textContent += '> WAIT: Approved decision is missing complete price levels.\n';
+        botRunning = false;
+        return;
+      }
       lastProposedSignal = proposal;
 
       var sigEntry = document.getElementById('sig-entry');
@@ -612,17 +627,17 @@
       if(sigEntry) sigEntry.textContent = proposal.current_price;
       if(sigSl) sigSl.textContent = proposal.stop_loss;
       if(sigTp) sigTp.textContent = proposal.take_profit;
-      if(sigSlDist) sigSlDist.textContent = proposal.sl_distance;
-      if(sigTpDist) sigTpDist.textContent = proposal.tp_distance;
-      if(sigAtr) sigAtr.textContent = proposal.atr;
+      if(sigSlDist) sigSlDist.textContent = Math.abs(Number(proposal.current_price) - Number(proposal.stop_loss)).toFixed(5);
+      if(sigTpDist) sigTpDist.textContent = Math.abs(Number(proposal.take_profit) - Number(proposal.current_price)).toFixed(5);
+      if(sigAtr) sigAtr.textContent = data.analysis ? data.analysis.atr : 'Unavailable';
       if(sigRr){
-        var slD = parseFloat(proposal.sl_distance) || 1;
-        var tpD = parseFloat(proposal.tp_distance) || 1;
+        var slD = Math.abs(Number(proposal.current_price) - Number(proposal.stop_loss)) || 1;
+        var tpD = Math.abs(Number(proposal.take_profit) - Number(proposal.current_price)) || 1;
         sigRr.textContent = (tpD / slD).toFixed(2) + ':1';
       }
       if(reasoningEl) reasoningEl.textContent = proposal.reasoning;
       if(stateBadge){
-        stateBadge.textContent = 'PROPOSED';
+        stateBadge.textContent = 'HIGH-CONFLUENCE ' + signal.signal_type;
         stateBadge.className = 'signal-state-badge proposed';
       }
       if(emptyBody) emptyBody.style.display = 'none';
@@ -791,7 +806,7 @@
     overviewPairs.forEach(function(sym){
       var wrap = document.createElement('div');
       wrap.className = 'mini-chart-wrap';
-      wrap.innerHTML = '<div class="mini-chart-label">' + escapeHtml(sym) + '</div><div class="mini-chart-container" id="mc-' + sym.replace(/[^a-zA-Z0-9]/g, '_') + '"></div>';
+      wrap.innerHTML = '<div class="mini-chart-label">' + escapeHtml(sym) + '</div><div class="mini-chart-container" id="mc-' + sym.replace(/[^a-zA-Z0-9]/g, '_') + '"></div><div class="mini-chart-status" id="mcs-' + sym.replace(/[^a-zA-Z0-9]/g, '_') + '">Waiting for live market data</div>';
       grid.appendChild(wrap);
     });
 
@@ -800,7 +815,9 @@
       var container = document.getElementById(safeId);
       if (!container) return;
 
-      var precision = (sym.indexOf('JPY') !== -1 || sym.indexOf('BTC') !== -1 || sym.indexOf('XAU') !== -1) ? 2 : 5;
+      var safeId = sym.replace(/[^a-zA-Z0-9]/g, '_');
+      var statusEl = document.getElementById('mcs-' + safeId);
+      var hasLiveTick = false;
 
       var chart = LightweightCharts.createChart(container, {
         layout: {
@@ -823,21 +840,12 @@
       var series = chart.addLineSeries({
         color: '#00d4aa',
         lineWidth: 1.5,
-        priceFormat: { type: 'price', precision: precision, minMove: precision === 2 ? 0.01 : 0.00001 },
         crosshairMarkerVisible: false,
         lastValueVisible: false,
         priceLineVisible: false,
       });
 
-      var basePrice = pairs[sym] || 1.0;
-      var now = Math.floor(Date.now() / 1000);
-      var seedData = [];
-      for (var i = 60; i >= 1; i--) {
-        var noise = (Math.sin(i * 0.3 + 1) * 0.006) + (Math.sin(i * 0.7) * 0.003) + (Math.random() - 0.5) * 0.002;
-        seedData.push({ time: now - i * 2, value: basePrice * (1 + noise) });
-      }
-      series.setData(seedData);
-      chart.timeScale().fitContent();
+      series.setData([]);
 
       marketChartInstances.push(chart);
       lineSeries[sym] = series;
@@ -845,8 +853,17 @@
       addWSListener(sym, function(tick){
         var s = lineSeries[tick.symbol];
         if (!s) return;
+        if (tick.type === 'status') {
+          hasLiveTick = false;
+          s.setData([]);
+          if (statusEl) statusEl.textContent = 'Live market data unavailable';
+          return;
+        }
+        if (!Number.isFinite(Number(tick.price)) || !tick.timestamp) return;
         var t = Math.floor(new Date(tick.timestamp).getTime() / 1000);
-        if (isNaN(t)) { t = Math.floor(Date.now() / 1000); }
+        if (!Number.isFinite(t)) return;
+        hasLiveTick = true;
+        if (statusEl) statusEl.textContent = '';
         s.update({ time: t, value: tick.price });
       });
     });
@@ -1122,6 +1139,7 @@
           '% (' + (data.weekly_resolved_signals || 0) + ' resolved)';
       }
       var subscription = data.subscription || {};
+      var botAccess = data.bot_access || {has_access: subscription.has_access, status: subscription.status};
       var trialTitle = document.getElementById('trial-title');
       var trialTimer = document.getElementById('trial-timer');
       if(trialTitle){
@@ -1147,14 +1165,15 @@
       }
       var botButton = document.getElementById('bot-toggle-btn');
       if(botButton){
-        botButton.disabled = subscription.has_access === false;
-        botButton.title = subscription.has_access === false ? 'An active subscription is required' : '';
+        botButton.disabled = botAccess.has_access === false;
+        botButton.title = botAccess.status === 'admin_bot_bypass' ? 'Bot access granted by administrator' :
+          botAccess.has_access === false ? 'Bot access is locked; an active subscription is required' : '';
       }
       ['dashboard-start-bot', 'dashboard-activate-bot'].forEach(function(id){
         var actionButton = document.getElementById(id);
         if(!actionButton) return;
-        actionButton.textContent = subscription.status === 'admin_denied' ? 'Contact Support' :
-          subscription.has_access === false ? 'Activate Subscription' :
+        actionButton.textContent = botAccess.status === 'admin_denied' ? 'Contact Support' :
+          botAccess.has_access === false ? 'Activate Subscription' :
           id === 'dashboard-start-bot' ? 'Start Bot' : 'Activate Bot';
       });
     })

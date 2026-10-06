@@ -7,7 +7,7 @@
   <div class="auth-wrap" style="max-width:520px">
     <div class="auth-form-panel full">
       <h2 style="font-size:20px;font-weight:800;margin-bottom:4px">Verify Your Email</h2>
-      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">Enable two-factor authentication via email verification.</p>
+      <p style="color:var(--text2);font-size:13px;margin-bottom:8px">{{ purpose_label|default:'Enable two-factor authentication via email verification.' }}. Codes expire after {{ otp_expiry_minutes }} minutes.</p>
 
       <div style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.15);border-radius:10px;padding:14px;font-size:12px;color:var(--accent);margin-bottom:16px">
         <strong>📧 Setup Instructions:</strong>
@@ -32,8 +32,11 @@
         <button type="submit" class="btn-primary" style="margin-top:8px">Verify & Enable 2FA →</button>
       </form>
 
-      <div class="form-divider" style="margin-top:20px">or</div>
-      <a href="{% url 'dashboard' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center;margin-top:4px">Skip for now</a>
+      <div class="form-divider" style="margin-top:20px">Didn't receive the email?</div>
+      <form method="post" action="{% url 'resend_otp' %}" style="margin-top:4px">
+        {% csrf_token %}
+        <button type="submit" class="btn-outline" style="width:100%;cursor:pointer;font-size:13px">Resend Code</button>
+      </form>
     </div>
   </div>
 </div>

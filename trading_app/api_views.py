@@ -24,7 +24,7 @@ from .serializers import (
     OTPVerifySerializer, UserSerializer, RiskConfigSerializer,
 )
 from .services.cache_service import CacheService
-from .services.email_service import generate_otp, send_otp_email
+from .services.email_service import send_otp_email
 from .services.credential_encrypt import encrypt, decrypt
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
 from .ml.symbols import deriv_symbol_for
@@ -34,6 +34,7 @@ from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest as RiskOrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
 from .decorators import two_factor_required_api
+from .services.admin_access import AuthorizedAdminPermission
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
@@ -83,24 +84,33 @@ class SignalViewSet(viewsets.ModelViewSet):
     permission_classes = [permissions.IsAuthenticated]
 
     def get_queryset(self):
+        access = _subscription_access_response(self.request.user)
+        if access is not None:
+            return TradingSignal.objects.none()
         return TradingSignal.objects.filter(user=self.request.user).order_by('-created_at')
 
     def create(self, request, *args, **kwargs):
-        access = _subscription_access_response(request.user)
-        if access is not None:
-            return access
-        return super().create(request, *args, **kwargs)
+        return Response({
+            'error': 'Signals can only be created by the centralized live analysis pipeline.',
+        }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def update(self, request, *args, **kwargs):
+        return Response({'error': 'Signals are immutable.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
+
+    def partial_update(self, request, *args, **kwargs):
+        return Response({'error': 'Signals are immutable.'}, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 def _subscription_access_response(user):
-    from trading_app.services.subscription_access import subscription_status
+    from trading_app.services.subscription_access import bot_access_status
 
-    access = subscription_status(user)
+    access = bot_access_status(user)
     if access['has_access']:
         return None
     return Response({
-        'error': 'Bot access is unavailable. Start a subscription to continue.',
-        'subscription': _serialize_subscription_status(access),
+        'error': 'Bot access is unavailable. Start a subscription or contact support.',
+        'bot_access': {'has_access': False, 'status': access['status']},
+        'subscription': _serialize_subscription_status(access['subscription']),
     }, status=status.HTTP_403_FORBIDDEN)
 
 
@@ -332,19 +342,17 @@ def risk_config_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 @throttle_classes([UserRateThrottle])
-@_measure_analysis_duration
 def analyze_and_signal_view(request):
-    return _run_analysis_pipeline(request, verification_mode=False)
+    return _measure_analysis_duration(_run_analysis_pipeline)(request, verification_mode=False)
 
 
 @api_view(['POST'])
 @permission_classes([permissions.IsAdminUser])
 @throttle_classes([UserRateThrottle])
-@_measure_analysis_duration
 def analysis_verification_view(request):
     if not settings.TRADING_ANALYSIS_VERIFICATION_ENABLED:
         return Response({'error': 'Analysis verification is disabled.'}, status=status.HTTP_404_NOT_FOUND)
-    return _run_analysis_pipeline(request, verification_mode=True)
+    return _measure_analysis_duration(_run_analysis_pipeline)(request, verification_mode=True)
 
 
 def _run_analysis_pipeline(request, verification_mode: bool):
@@ -355,11 +363,15 @@ def _run_analysis_pipeline(request, verification_mode: bool):
     if not verification_mode and bot_status.get('status') != 'running':
         return Response({'error': 'Start the bot before requesting an analysis.'}, status=status.HTTP_409_CONFLICT)
 
-    symbol = request.data.get('prompt', request.data.get('symbol', 'EUR/USD'))
+    symbol = request.data.get(
+        'prompt', request.data.get(
+            'symbol', request.query_params.get('symbol', request.user.selected_market or 'EUR/USD'),
+        ),
+    )
     if symbol != request.user.selected_market:
         return Response({'error': 'Analysis is limited to your selected market.'}, status=status.HTTP_400_BAD_REQUEST)
     try:
-        granularity = int(request.data.get('granularity', 300))
+        granularity = int(request.data.get('granularity', request.query_params.get('granularity', 300)))
     except (TypeError, ValueError):
         return Response({'error': 'granularity must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
     from trading_app.trading_bot.deriv_adapter import GRANULARITY_MAP
@@ -368,23 +380,29 @@ def _run_analysis_pipeline(request, verification_mode: bool):
     analysis_started = time.perf_counter()
     stage_timings: dict[str, float] = {}
     try:
+        from trading_app.models import AnalysisWaitCycle
+        from datetime import timedelta
+
         candle_started = time.perf_counter()
-        if verification_mode:
-            raw_candles, mtf, live_error = _fetch_verification_candles(
-                request.user, symbol, granularity,
+        raw_candles, mtf, live_error = _fetch_verification_candles(
+            request.user, symbol, granularity,
+        )
+        if live_error:
+            return _wait_response(
+                request.user, symbol, granularity, live_error,
+                verification_mode=verification_mode,
             )
-            if live_error:
-                return Response({'error': live_error, 'data_source': 'live_deriv'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-        else:
-            raw_candles = _fetch_chart_candles(
-                request.user, symbol, count=200, granularity=granularity,
-            )
-            mtf = None
         stage_timings['live_candle_retrieval_ms'] = round((time.perf_counter() - candle_started) * 1000, 3)
         if not raw_candles:
-            return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+            return _wait_response(
+                request.user, symbol, granularity, 'Live market data unavailable',
+                verification_mode=verification_mode,
+            )
         preprocess_started = time.perf_counter()
         candles = _candles_to_dicts(raw_candles)
+        latest_candle_time = int(candles[-1].get('time', 0)) if candles else 0
+        data_age_seconds = int(timezone.now().timestamp()) - latest_candle_time
+        candle_fresh = 0 <= data_age_seconds <= max(granularity * 2, 120)
         from trading_app.strategies.base import prepare_context
         shared_context = prepare_context(candles)
         stage_timings['preprocessing_ms'] = round((time.perf_counter() - preprocess_started) * 1000, 3)
@@ -398,11 +416,14 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         from trading_app.strategies.consensus import combine
         from trading_app.strategies.runner import run_parallel
         analysis_box = {}
-        if not verification_mode:
-            mtf = choch.fetch_multi_timeframe_candles(
-                symbol, (14400, 900, 300, 60), request.user,
-                chart_candles=candles, chart_granularity=granularity,
-            )
+        mtf = {
+            label: _candles_to_dicts(mtf[label]) if mtf.get(label) and not isinstance(mtf[label][0], dict) else mtf.get(label, [])
+            for label in ('H4', 'M15', 'M5', 'M1')
+        }
+        mtf_freshness = {
+            label: _candles_are_fresh(mtf[label], {'H4': 14400, 'M15': 900, 'M5': 300, 'M1': 60}[label])
+            for label in mtf
+        }
         shared_context.multi_timeframe = mtf
         shared_context.news_status = choch.check_news_window(symbol, 'M1')
 
@@ -456,33 +477,28 @@ def _run_analysis_pipeline(request, verification_mode: bool):
                 or (consensus.bias == 'bearish' and float(analysis.stop_loss) > float(candles[-1]['close']) and float(analysis.take_profit) < float(candles[-1]['close']))
             )
         )
-        fast_consensus_ready = (
+        strategy_confluence_ready = (
             consensus.bias != 'neutral'
+            and all(result.bias == consensus.bias for result in strategy_results)
             and consensus.total_directional_votes >= settings.MIN_STRATEGY_VOTES
             and consensus.agreement >= settings.STRATEGY_CONSENSUS_THRESHOLD
             and actionable_levels_ready
+            and candle_fresh
+            and all(mtf_freshness.values())
         )
-        ml_signal = None
-        if not fast_consensus_ready:
-            ml_started = time.perf_counter()
-            ml_future = executor.submit(
-                _predict_from_existing_candles,
-                candles, shared_context.featured, symbol, granularity,
-            )
-            ml_signal = ml_future.result()
-            stage_timings['ml_prediction_ms'] = round((time.perf_counter() - ml_started) * 1000, 3)
-            if ml_signal is not None:
-                strategy_results.append(_ml_strategy_result(ml_signal, stage_timings['ml_prediction_ms']))
-            consensus_started = time.perf_counter()
-            consensus = combine(
-                strategy_results,
-                threshold=settings.STRATEGY_CONSENSUS_THRESHOLD,
-                minimum_votes=settings.MIN_STRATEGY_VOTES,
-            )
-            stage_timings['consensus_ms'] += round((time.perf_counter() - consensus_started) * 1000, 3)
+        ml_started = time.perf_counter()
+        ml_signal = _predict_from_existing_candles(
+            candles, shared_context.featured, symbol, granularity,
+        )
+        stage_timings['ml_prediction_ms'] = round((time.perf_counter() - ml_started) * 1000, 3)
         executor.shutdown(wait=True)
 
-        bias = consensus.bias
+        ml_compatible = bool(
+            ml_signal is None
+            or ml_signal.bias not in ('bullish', 'bearish')
+            or ml_signal.bias == consensus.bias
+        )
+        bias = consensus.bias if strategy_confluence_ready and ml_compatible else 'neutral'
         confidence = int(consensus.confidence * 100)
         total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
         stage_timings['total_analysis_ms'] = total_analysis_ms
@@ -507,7 +523,12 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             },
             'strategies': [result.as_dict() for result in strategy_results],
             'timings': stage_timings,
-            'fast_path': fast_consensus_ready,
+            'data_fresh': candle_fresh,
+            'data_age_seconds': data_age_seconds,
+            'multi_timeframe_available': {label: bool(mtf.get(label)) for label in ('H4', 'M15', 'M5', 'M1')},
+            'multi_timeframe_fresh': mtf_freshness,
+            'ml_compatible': ml_compatible,
+            'fast_path': False,
         }
         if verification_mode:
             analysis_metrics['data_source'] = 'live_deriv'
@@ -529,33 +550,49 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             except Exception as e:
                 logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
 
-        if not verification_mode:
+        if not verification_mode and bias != 'neutral':
             existing = TradingSignal.objects.filter(
-                user=request.user, symbol=symbol, signal_type__in=('BUY', 'SELL'),
+                user=request.user, symbol=symbol,
+                signal_type='BUY' if bias == 'bullish' else 'SELL',
                 outcome='PENDING',
+                granularity=granularity,
                 entry_price__isnull=False,
                 stop_loss__isnull=False,
                 take_profit__isnull=False,
-            ).order_by('-created_at').first()
+                evidence_at__gte=timezone.now() - timedelta(seconds=max(granularity * 2, 120)),
+            ).order_by('-evidence_at').first()
             if existing:
                 return Response({
+                    'decision': existing.signal_type,
                     'signal': TradingSignalSerializer(existing).data,
                     'analysis': analysis_metrics,
                     'pending': True,
                 })
 
         if bias == 'neutral':
-            return Response({
-                'signal': None,
-                'analysis': analysis_metrics,
-                'message': 'No consensus',
-            })
+            reasons = []
+            if not candle_fresh:
+                reasons.append('Market data is stale')
+            if not all(mtf_freshness.values()):
+                reasons.append('Required timeframes are missing or stale')
+            if consensus.bias == 'neutral':
+                reasons.append(consensus.reason)
+            if not ml_compatible:
+                reasons.append('ML prediction is unavailable or contradicts strategy confluence')
+            return _wait_response(
+                request.user, symbol, granularity, '; '.join(reasons) or 'Confluence is incomplete',
+                analysis=analysis_metrics, verification_mode=verification_mode,
+            )
 
         if not analysis.stop_loss or not analysis.take_profit or not candles[-1].get('close'):
             analysis_metrics['bias'] = 'neutral'
             analysis_metrics['confidence'] = 0
             analysis_metrics['rationale'] = 'No consensus: required Entry, Stop Loss, or Take Profit is unavailable'
-            return Response({'signal': None, 'analysis': analysis_metrics, 'message': 'No consensus'})
+            return _wait_response(
+                request.user, symbol, granularity,
+                'Required entry, stop-loss, or take-profit evidence is unavailable',
+                analysis=analysis_metrics, verification_mode=verification_mode,
+            )
 
         signal_values = {
             'user': request.user,
@@ -566,6 +603,9 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             'stop_loss': Decimal(str(analysis.stop_loss)).quantize(Decimal('0.00001')),
             'take_profit': Decimal(str(analysis.take_profit)).quantize(Decimal('0.00001')),
             'reasoning': analysis.rationale,
+            'granularity': granularity,
+            'evidence_at': timezone.now(),
+            'strategy_evidence': [result.as_dict() for result in strategy_results],
             'source': 'SYSTEM',
             'risk_level': 'LOW' if confidence < 40 else 'MEDIUM' if confidence < 70 else 'HIGH',
         }
@@ -573,57 +613,33 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         if not persist_signal:
             signal = TradingSignal(**signal_values)
             return Response({
+                'decision': signal.signal_type,
                 'signal': TradingSignalSerializer(signal).data,
                 'analysis': analysis_metrics,
                 'persisted': False,
             })
 
         signal = TradingSignal.objects.create(**signal_values)
+        AnalysisWaitCycle.objects.filter(
+            user=request.user, symbol=symbol, granularity=granularity,
+        ).delete()
         audit.log_signal(symbol, signal.signal_type, confidence, {
             'signal_id': signal.id, 'rationale': signal.reasoning,
         })
 
         if verification_mode:
             return Response({
+                'decision': signal.signal_type,
                 'signal': TradingSignalSerializer(signal).data,
                 'analysis': analysis_metrics,
                 'persisted': True,
             })
 
-        risk = RiskConfig.get_for_user(request.user)
-        if not verification_mode and risk.auto_execute and signal.signal_type != 'HOLD' and risk.trading_enabled:
-            if confidence < risk.min_confidence:
-                return Response({
-                    'signal': TradingSignalSerializer(signal).data,
-                    'analysis': analysis_metrics,
-                    'message': f'Confidence {confidence}% below threshold {risk.min_confidence}%. Signal created but not auto-executed.',
-                })
-
-            trade_data = {
-                'symbol': symbol,
-                'action': signal.signal_type,
-                'volume': float(risk.max_position_size),
-                'entry_price': 0,
-                'stop_loss': signal.stop_loss or 0,
-                'take_profit': signal.take_profit or 0,
-                'order_type': 'MARKET',
-            }
-            inner_serializer = TradeCreateSerializer(data=trade_data)
-            if inner_serializer.is_valid():
-                trade = inner_serializer.save(user=request.user, status='PENDING', is_live=not request.user.paper_mode)
-                _execute_via_adapter(request.user, trade, risk)
-                signal.is_executed = trade.status == 'OPEN'
-                signal.save()
-                return Response({
-                    'signal': TradingSignalSerializer(signal).data,
-                    'trade': TradeSerializer(trade).data,
-                    'analysis': analysis_metrics,
-                })
-
         total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
         stage_timings['total_analysis_ms'] = total_analysis_ms
         analysis_metrics['timings'] = stage_timings
         return Response({
+            'decision': signal.signal_type,
             'signal': TradingSignalSerializer(signal).data,
             'analysis': analysis_metrics,
             'analysis_duration_ms': total_analysis_ms,
@@ -631,7 +647,95 @@ def _run_analysis_pipeline(request, verification_mode: bool):
 
     except Exception as e:
         logger.error('Analysis failed: %s', e, exc_info=True)
+        from trading_app.services.system_events import record_system_event
+        record_system_event('ANALYSIS_FAILED', request.data.get('symbol', ''))
         return Response({'error': 'Analysis failed. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+def _wait_response(user, symbol, granularity, reason, *, analysis=None, verification_mode=False):
+    from datetime import timedelta
+    from trading_app.models import AnalysisWaitCycle
+
+    from django.db import IntegrityError, transaction
+
+    now = timezone.now()
+    if verification_mode:
+        wait_started_at = now
+        wait_expires_at = now + timedelta(seconds=180)
+    else:
+        with transaction.atomic():
+            cycle = AnalysisWaitCycle.objects.select_for_update().filter(
+                user=user, symbol=symbol, granularity=granularity,
+            ).first()
+            if cycle is None:
+                try:
+                    cycle = AnalysisWaitCycle.objects.create(
+                        user=user, symbol=symbol, granularity=granularity,
+                        wait_started_at=now, wait_expires_at=now + timedelta(seconds=180),
+                    )
+                except IntegrityError:
+                    cycle = AnalysisWaitCycle.objects.select_for_update().get(
+                        user=user, symbol=symbol, granularity=granularity,
+                    )
+            elif cycle.wait_expires_at <= now:
+                cycle.wait_started_at = now
+                cycle.wait_expires_at = now + timedelta(seconds=180)
+                cycle.save(update_fields=['wait_started_at', 'wait_expires_at'])
+        wait_started_at = cycle.wait_started_at
+        wait_expires_at = cycle.wait_expires_at
+    remaining = max(0, int((wait_expires_at - now).total_seconds()))
+    payload = {
+        'decision': 'WAIT',
+        'signal': None,
+        'reason': reason,
+        'message': reason,
+        'wait_started_at': wait_started_at.isoformat(),
+        'wait_expires_at': wait_expires_at.isoformat(),
+        'wait_seconds_remaining': remaining,
+        'reanalysis_due': remaining == 0,
+    }
+    if analysis is not None:
+        payload['analysis'] = analysis
+    if verification_mode:
+        payload['data_source'] = 'live_deriv'
+        payload['verification_mode'] = 'read_only'
+    return Response(payload)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def analysis_wait_status_view(request):
+    from trading_app.models import AnalysisWaitCycle
+
+    symbol = request.query_params.get('symbol', request.user.selected_market or 'EUR/USD')
+    try:
+        granularity = int(request.query_params.get('granularity', 300))
+    except (TypeError, ValueError):
+        return Response({'error': 'granularity must be an integer'}, status=status.HTTP_400_BAD_REQUEST)
+    cycle = AnalysisWaitCycle.objects.filter(
+        user=request.user, symbol=symbol, granularity=granularity,
+    ).first()
+    if cycle is None:
+        return Response({'decision': 'WAIT', 'wait_started_at': None, 'wait_expires_at': None, 'wait_seconds_remaining': 0})
+    remaining = max(0, int((cycle.wait_expires_at - timezone.now()).total_seconds()))
+    if remaining == 0:
+        bot_status = CacheService.get(f'bot_status_{request.user.id}', {'status': 'idle'})
+        from trading_app.services.subscription_access import bot_access_status
+        if bot_status.get('status') == 'running' and bot_access_status(request.user)['has_access']:
+            return _measure_analysis_duration(_run_analysis_pipeline)(request, verification_mode=False)
+        cycle.delete()
+        return Response({
+            'decision': 'WAIT', 'wait_started_at': None, 'wait_expires_at': None,
+            'wait_seconds_remaining': 0, 'reanalysis_due': True,
+            'reason': 'WAIT expired; start the bot to run a fresh analysis.',
+        })
+    return Response({
+        'decision': 'WAIT',
+        'wait_started_at': cycle.wait_started_at.isoformat(),
+        'wait_expires_at': cycle.wait_expires_at.isoformat(),
+        'wait_seconds_remaining': remaining,
+        'reanalysis_due': remaining == 0,
+    })
 
 
 def _predict_from_existing_candles(candles, featured_candles, symbol: str, granularity: int):
@@ -645,6 +749,16 @@ def _predict_from_existing_candles(candles, featured_candles, symbol: str, granu
         featured_candles=featured_candles,
         model_data=model_data,
     )
+
+
+def _candles_are_fresh(candles, granularity: int) -> bool:
+    if not candles:
+        return False
+    raw_time = candles[-1].get('time')
+    if raw_time is None:
+        return False
+    age_seconds = timezone.now().timestamp() - float(raw_time)
+    return -5 <= age_seconds <= max(granularity * 2, 120)
 
 
 def _technical_strategy_result(analysis, processing_time_ms: float):
@@ -737,55 +851,9 @@ def stake_config_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def signal_propose_view(request):
-    """
-    access = _subscription_access_response(request.user)
-    if access is not None:
-        return access
-
-    Given a symbol and optional signal_type, compute bot-calculated SL/TP
-    using ATR + confidence scaling. Returns the proposed levels with reasoning
-    so the frontend can display them before the user confirms execution.
-    """
-    symbol = request.data.get('symbol', 'EUR/USD')
-    signal_type = request.data.get('signal_type', 'BUY').upper()
-    try:
-        confidence = float(request.data.get('confidence', 0.65))
-    except (ValueError, TypeError):
-        return Response({'error': 'Invalid confidence value'}, status=status.HTTP_400_BAD_REQUEST)
-
-    user = request.user
-    risk = RiskConfig.get_for_user(user)
-
-    raw_candles = _fetch_chart_candles(user, symbol, count=200)
-    if not raw_candles:
-        return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-    candles = _candles_to_dicts(raw_candles)
-
-    from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
-
-    proposal = compute_sl_tp(
-        candles=candles,
-        signal_type=signal_type,
-        confidence=confidence,
-        current_price=float(candles[-1]['close']) if candles else None,
-        risk_per_trade_pct=float(risk.risk_per_trade),
-        account_balance=float(user.balance),
-    )
-
     return Response({
-        'symbol': symbol,
-        'signal_type': signal_type,
-        'confidence': confidence,
-        'current_price': str(candles[-1]['close']) if candles else '0',
-        'stop_loss': str(proposal.stop_loss),
-        'take_profit': str(proposal.take_profit),
-        'sl_distance': str(proposal.sl_distance),
-        'tp_distance': str(proposal.tp_distance),
-        'atr': str(proposal.atr_value),
-        'reasoning': proposal.reasoning,
-        'method': proposal.method,
-        'stake_amount': str(user.stake_amount),
-    })
+        'error': 'Directional proposals are available only from approved live confluence analysis.',
+    }, status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
 
 # ---------------------------------------------------------------------------
@@ -796,7 +864,9 @@ def signal_propose_view(request):
 @permission_classes([permissions.AllowAny])
 def request_otp_view(request):
     email = request.data.get('email', '')
-    purpose = request.data.get('purpose', '2fa')
+    purpose = request.data.get('purpose', 'password_reset')
+    if purpose != 'password_reset':
+        return Response({'error': 'Only password recovery codes may be requested through this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not email:
         return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -806,25 +876,19 @@ def request_otp_view(request):
     except User.DoesNotExist:
         return Response({'status': 'If an account with that email exists, an OTP has been sent.'})
 
-    if not CacheService.check_rate_limit(f'otp_{user.id}', max_attempts=3, window=60):
+    from trading_app.services.otp_service import can_request_otp, invalidate_otp, issue_otp
+    if not can_request_otp(user.id, purpose, scope='issue'):
         return Response(
             {'error': 'Too many OTP requests. Please wait 60 seconds.'},
             status=status.HTTP_429_TOO_MANY_REQUESTS,
         )
 
-    otp_code = generate_otp()
-    expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-
-    EmailOTP.objects.create(
-        user=user,
-        code=otp_code,
-        purpose=purpose,
-        expires_at=expires_at,
-    )
-    CacheService.set_otp(user.id, otp_code)
-
-    sent = send_otp_email(user, otp_code)
-    return Response({'status': 'If an account with that email exists, an OTP has been sent.'})
+    _otp, otp_code = issue_otp(user, purpose)
+    sent = send_otp_email(user, otp_code, purpose=purpose)
+    if not sent:
+        invalidate_otp(_otp)
+        return Response({'status': 'email_delivery_failed'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    return Response({'status': 'otp_sent'})
 
 
 @api_view(['POST'])
@@ -836,6 +900,8 @@ def verify_otp_view(request):
     email = request.data.get('email', '')
     code = serializer.validated_data['code']
     purpose = serializer.validated_data['purpose']
+    if purpose != 'password_reset':
+        return Response({'error': 'Use the authenticated web login flow for 2FA.'}, status=status.HTTP_400_BAD_REQUEST)
 
     if not email:
         return Response({'error': 'Email is required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -845,26 +911,17 @@ def verify_otp_view(request):
     except User.DoesNotExist:
         return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if CacheService.verify_otp(user.id, code):
-        otp = EmailOTP.objects.filter(
-            user=user, code=code, purpose=purpose, is_used=False
-        ).last()
-        if otp and otp.is_valid():
-            otp.is_used = True
-            otp.save()
-            return Response({'status': 'verified'})
-
-    otp = EmailOTP.objects.filter(
-        user=user, code=code, purpose=purpose, is_used=False
-    ).last()
-
-    if otp and otp.is_valid():
-        otp.is_used = True
-        otp.save()
-        CacheService.delete_otp(user.id)
+    from trading_app.services.otp_service import OTPResult, consume_otp
+    result = consume_otp(user, purpose, code)
+    if result == OTPResult.VERIFIED:
         return Response({'status': 'verified'})
-
-    return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
+    if result == OTPResult.RATE_LIMITED:
+        return Response({'status': result.value, 'error': 'Too many attempts. Request a new code later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    return Response({'status': result.value, 'error': {
+        OTPResult.EXPIRED: 'Verification code expired.',
+        OTPResult.USED: 'Verification code has already been used.',
+        OTPResult.INVALID: 'Incorrect or expired verification code.',
+    }[result]}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['GET'])
@@ -885,36 +942,121 @@ def subscription_view(request):
 @api_view(['POST'])
 @permission_classes([permissions.IsAuthenticated])
 def subscription_checkout_view(request):
-    if not settings.MOCK_SUBSCRIPTIONS_ENABLED:
-        return Response({
-            'status': 'provider_required',
-            'access_granted': False,
-            'message': 'Payment checkout is not configured. Please contact support.',
-            'required_provider': 'Payment processor checkout and signed webhook/callback',
-        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-    tier = str(request.data.get('tier', 'BASIC')).upper()
+    tier = str(request.data.get('tier', '')).upper()
     if tier != 'BASIC':
-        return Response({'error': 'Only the $10 BASIC monthly plan is available in Phase 1.'}, status=status.HTTP_400_BAD_REQUEST)
-    now = timezone.now()
-    subscription, _ = Subscription.objects.get_or_create(user=request.user)
-    subscription.tier = 'BASIC'
-    subscription.is_active = True
-    subscription.started_at = now
-    subscription.expires_at = now + timezone.timedelta(days=30)
-    subscription.save(update_fields=['tier', 'is_active', 'started_at', 'expires_at'])
+        return Response({'error': 'Unsupported subscription product.'}, status=status.HTTP_400_BAD_REQUEST)
+    phone_value = request.data.get('phone_number')
+    if not phone_value:
+        return Response({'error': 'phone_number is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    from trading_app.services.subscription_access import subscription_status
+    from trading_app.models import PaymentTransaction
+    from trading_app.payments import daraja
+
+    try:
+        config = daraja.DarajaConfig.from_settings()
+        config.validate(require_product_price=True)
+    except daraja.DarajaError as exc:
+        return Response({
+            'status': 'payment_unavailable',
+            'access_granted': False,
+            'message': str(exc),
+        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
+    try:
+        phone_number = daraja.normalize_phone_number(phone_value)
+    except daraja.DarajaError as exc:
+        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+
+    subscription, _ = Subscription.objects.get_or_create(
+        user=request.user,
+        defaults={'tier': 'FREE', 'is_active': True},
+    )
+    payment = PaymentTransaction.objects.create(
+        user=request.user,
+        subscription=subscription,
+        tier='BASIC',
+        amount_kes=config.basic_amount_kes,
+        phone_number=phone_number,
+        status=PaymentTransaction.STATUS_INITIATED,
+    )
+    try:
+        stk_response = daraja.initiate_stk_push(
+            phone_number=phone_number,
+            account_reference=f'ATS{payment.pk}',
+            transaction_desc='BASIC subscription',
+        )
+    except daraja.DarajaTimeoutError:
+        payment.status = PaymentTransaction.STATUS_PENDING
+        payment.result_code = 'REQUEST_OUTCOME_UNKNOWN'
+        payment.result_description = 'The request timed out; provider acceptance is unknown. Contact support before retrying.'
+        payment.save(update_fields=['status', 'result_code', 'result_description'])
+        return Response({
+            'status': 'payment_request_unconfirmed',
+            'access_granted': False,
+            'payment_id': payment.pk,
+            'message': 'Payment request status is unknown. Do not retry until it has been checked.',
+        }, status=status.HTTP_202_ACCEPTED)
+    except daraja.DarajaError as exc:
+        payment.status = PaymentTransaction.STATUS_FAILED
+        payment.result_description = str(exc)[:255]
+        payment.completed_at = timezone.now()
+        payment.save(update_fields=['status', 'result_description', 'completed_at'])
+        return Response({
+            'status': 'payment_request_failed',
+            'access_granted': False,
+            'message': str(exc),
+        }, status=status.HTTP_502_BAD_GATEWAY)
+
+    payment.merchant_request_id = stk_response['merchant_request_id']
+    payment.checkout_request_id = stk_response['checkout_request_id']
+    payment.status = PaymentTransaction.STATUS_PENDING
+    payment.save(update_fields=['merchant_request_id', 'checkout_request_id', 'status'])
 
     return Response({
-        'status': 'mock_activated',
+        'status': 'payment_pending',
         'tier': 'BASIC',
-        'amount_usd': '10.00',
+        'amount_kes': payment.amount_kes,
         'duration_days': 30,
+        'access_granted': False,
+        'payment_id': payment.pk,
+        'message': 'M-Pesa payment prompt sent. Subscription access is granted only after payment verification.',
+    }, status=status.HTTP_202_ACCEPTED)
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def daraja_payment_status_view(request, payment_id):
+    from trading_app.models import PaymentTransaction
+    from trading_app.services.subscription_access import subscription_status
+
+    payment = PaymentTransaction.objects.filter(pk=payment_id, user=request.user).select_related('subscription').first()
+    if payment is None:
+        return Response({'error': 'Payment not found.'}, status=status.HTTP_404_NOT_FOUND)
+    return Response({
+        'payment_id': payment.pk,
+        'status': payment.status,
+        'tier': payment.tier,
+        'amount_kes': payment.amount_kes,
+        'receipt_number': payment.mpesa_receipt_number or None,
         'access_granted': subscription_status(request.user)['has_access'],
-        'expires_at': subscription.expires_at.isoformat(),
-        'message': 'Mock subscription activated for development. No payment was processed.',
-    }, status=status.HTTP_200_OK)
+    })
+
+
+@api_view(['POST'])
+@permission_classes([permissions.AllowAny])
+def daraja_stk_callback_view(request):
+    from trading_app.payments import daraja
+    from trading_app.payments.callback import CallbackError, process_stk_callback
+
+    try:
+        status_value = process_stk_callback(request.data, status_query=daraja.query_stk_status)
+    except CallbackError as exc:
+        logger.warning('Rejected Daraja callback (%s).', type(exc).__name__)
+        return Response({'ResultCode': 1, 'ResultDesc': 'Callback could not be processed.'})
+    except Exception:
+        logger.exception('Daraja callback processing failed.')
+        return Response({'ResultCode': 1, 'ResultDesc': 'Callback could not be processed.'})
+    logger.info('Daraja callback processed with payment state %s.', status_value)
+    return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})
 
 
 @api_view(['GET'])
@@ -927,6 +1069,7 @@ def dashboard_stats_view(request):
     user = request.user
     from trading_app.models import PredictionRecord
     from trading_app.services.subscription_access import subscription_status
+    from trading_app.services.subscription_access import bot_access_status
 
     open_trades = Trade.objects.filter(user=user, status='OPEN').count()
     total_trades = Trade.objects.filter(user=user).count()
@@ -1011,6 +1154,7 @@ def dashboard_stats_view(request):
         'total_signals': total_signals,
         'resolved_signals': resolved_count,
         'subscription': _serialize_subscription_status(subscription_status(user)),
+        'bot_access': bot_access_status(user),
     })
 
 
@@ -1115,16 +1259,14 @@ def api_password_reset_request(request):
     except User.DoesNotExist:
         return Response(response_msg)
 
-    if not CacheService.check_rate_limit(f'api_pwd_reset_{user.id}', max_attempts=3, window=300):
+    from trading_app.services.otp_service import can_request_otp, invalidate_otp, issue_otp
+    if not can_request_otp(user.id, 'password_reset', scope='issue'):
         return Response(response_msg)
 
-    otp_code = generate_otp()
-    expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-    EmailOTP.objects.create(
-        user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
-    )
-    CacheService.set_otp(user.id, otp_code)
-    send_otp_email(user, otp_code)
+    _otp, otp_code = issue_otp(user, 'password_reset')
+    if not send_otp_email(user, otp_code, purpose='password_reset'):
+        invalidate_otp(_otp)
+        return Response({'status': 'email_delivery_failed'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
 
     reset_token = secrets.token_urlsafe(32)
     CacheService.set(f'pwd_reset_token_{reset_token}', user.id, timeout=600)
@@ -1139,8 +1281,7 @@ def api_password_reset_request(request):
 def api_password_reset_verify(request):
     code = request.data.get('code', '')
 
-    # Prefer session-stored token (web client); fallback to request body (legacy API clients)
-    reset_token = request.session.get('password_reset_token', '') or request.data.get('reset_token', '')
+    reset_token = request.session.get('password_reset_token', '')
 
     if not reset_token or not code:
         return Response({'error': 'code and reset_token are required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1155,36 +1296,24 @@ def api_password_reset_verify(request):
     except User.DoesNotExist:
         return Response({'error': 'User not found'}, status=status.HTTP_400_BAD_REQUEST)
 
-    if CacheService.verify_otp(user.id, code):
-        otp = EmailOTP.objects.filter(
-            user=user, code=code, purpose='password_reset', is_used=False
-        ).last()
-        if otp and otp.is_valid():
-            otp.is_used = True
-            otp.save()
-            CacheService.reset_rate_limit(f'api_pwd_reset_{user.id}')
-            # Issue a short-lived verified token for the confirm step so the
-            # original reset_token is never exposed again.
-            confirmed_token = secrets.token_urlsafe(32)
-            CacheService.set(f'pwd_reset_verified_{confirmed_token}', user.id, timeout=300)
-            return Response({'status': 'verified', 'verified_token': confirmed_token})
-
-    return Response({'error': 'Invalid or expired code'}, status=status.HTTP_400_BAD_REQUEST)
+    from trading_app.services.otp_service import OTPResult, consume_otp
+    result = consume_otp(user, 'password_reset', code)
+    if result == OTPResult.VERIFIED:
+        confirmed_token = secrets.token_urlsafe(32)
+        CacheService.set(f'pwd_reset_verified_{confirmed_token}', user.id, timeout=300)
+        return Response({'status': 'verified', 'verified_token': confirmed_token})
+    if result == OTPResult.RATE_LIMITED:
+        return Response({'status': result.value, 'error': 'Too many attempts. Request a new code later.'}, status=status.HTTP_429_TOO_MANY_REQUESTS)
+    return Response({'status': result.value, 'error': 'Incorrect, expired, or already-used code.'}, status=status.HTTP_400_BAD_REQUEST)
 
 
 @api_view(['POST'])
 @permission_classes([permissions.AllowAny])
 def api_password_reset_confirm(request):
-    # Prefer verified_token (secure flow); fallback to session-stored token (web client)
     verified_token = request.data.get('verified_token', '')
     new_password = request.data.get('new_password', '')
 
-    user_id = None
-    if verified_token:
-        user_id = CacheService.get(f'pwd_reset_verified_{verified_token}')
-    elif request.session.get('password_reset_token'):
-        reset_token = request.session['password_reset_token']
-        user_id = CacheService.get(f'pwd_reset_token_{reset_token}')
+    user_id = CacheService.get(f'pwd_reset_verified_{verified_token}') if verified_token else None
 
     if not user_id or not new_password:
         return Response({'error': 'verified_token and new_password are required'}, status=status.HTTP_400_BAD_REQUEST)
@@ -1212,11 +1341,10 @@ def api_password_reset_confirm(request):
     user.set_password(new_password)
     user.save()
 
-    # Clean up whichever token path was used
-    if verified_token:
-        CacheService.delete(f'pwd_reset_verified_{verified_token}')
-    else:
-        CacheService.delete(f'pwd_reset_token_{reset_token}')
+    from trading_app.models import RememberMeToken
+    RememberMeToken.objects.filter(user=user).delete()
+
+    CacheService.delete(f'pwd_reset_verified_{verified_token}')
 
     from django.contrib.sessions.models import Session
     sessions = Session.objects.filter(expire_date__gte=timezone.now())
@@ -1377,7 +1505,7 @@ def ticker_unsubscribe_view(request):
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
-@permission_classes([permissions.IsAdminUser])
+@permission_classes([permissions.IsAuthenticated, AuthorizedAdminPermission])
 def model_export_view(request):
     """
     Return metadata + download URL for the latest trained model.
@@ -1433,7 +1561,7 @@ def model_export_view(request):
 
 
 @api_view(['GET'])
-@permission_classes([permissions.IsAdminUser])
+@permission_classes([permissions.IsAuthenticated, AuthorizedAdminPermission])
 def model_download_view(request, filename):
     """
     Serve a trained model file for download.
@@ -1498,6 +1626,278 @@ def health_check_view(request):
     })
 
 
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated, AuthorizedAdminPermission])
+def admin_overview_view(request):
+    from django.db import connection
+    from datetime import timedelta
+    from trading_app.models import PaymentTransaction
+    from trading_app.services.subscription_access import subscription_status
+    from trading_app.services.subscription_access import bot_access_status
+    from trading_app.services.email_diagnostics import email_configuration_status
+
+    users = User.objects.order_by('-date_joined')
+    search = request.query_params.get('search', '').strip()
+    if search:
+        from django.db.models import Q
+        users = users.filter(
+            Q(email__icontains=search) | Q(first_name__icontains=search)
+            | Q(last_name__icontains=search) | Q(phone__icontains=search)
+        )
+    try:
+        page = max(1, int(request.query_params.get('page', 1)))
+        page_size = min(100, max(1, int(request.query_params.get('page_size', 25))))
+    except (TypeError, ValueError):
+        return Response({'error': 'page and page_size must be integers.'}, status=status.HTTP_400_BAD_REQUEST)
+    user_count = users.count()
+    users = users[(page - 1) * page_size:page * page_size]
+    user_rows = []
+    for user in users:
+        access = subscription_status(user)
+        subscription = getattr(user, 'subscription', None)
+        bot_status = CacheService.get(f'bot_status_{user.pk}', {'status': 'idle'})
+        latest_signal = TradingSignal.objects.filter(user=user).order_by('-created_at').first()
+        user_rows.append({
+            'id': user.pk,
+            'full_name': user.get_full_name(),
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'email': user.email,
+            'phone': user.phone,
+            'created_at': user.date_joined.isoformat(),
+            'registered_at': user.date_joined.isoformat(),
+            'last_login': user.last_login.isoformat() if user.last_login else None,
+            'account_status': 'active' if user.is_active else 'inactive',
+            'is_active': user.is_active,
+            'trial_started_at': user.trial_started_at.isoformat() if user.trial_started_at else None,
+            'trial_expires_at': (user.trial_started_at + timedelta(hours=24)).isoformat() if user.trial_started_at else None,
+            'trial_status': access['status'] if access['status'] in ('trial', 'expired', 'trial_limit_reached') else 'not_in_trial',
+            'subscription_status': access['status'],
+            'subscription_tier': access['tier'],
+            'subscription_started_at': subscription.started_at.isoformat() if subscription else None,
+            'subscription_expires_at': access['expires_at'].isoformat() if access['expires_at'] else None,
+            'subscription_bypass': user.subscription_bypass,
+            'bot_bypass': user.bot_bypass,
+            'bot_access': bot_access_status(user),
+            'subscription_access_denied': user.subscription_access_denied,
+            'selected_market': user.selected_market,
+            'bot_status': bot_status.get('status', 'idle'),
+            'bot_market': bot_status.get('market', user.selected_market),
+            'latest_signal': _admin_signal_payload(latest_signal),
+            'two_factor_enabled': user.two_factor_enabled,
+            'email_verified': user.email_verified,
+        })
+
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT 1')
+            database_status = 'ok'
+    except Exception:
+        database_status = 'error'
+    try:
+        CacheService.set('_admin_health_probe', 'ok', timeout=5)
+        cache_status = 'ok' if CacheService.get('_admin_health_probe') == 'ok' else 'error'
+    except Exception:
+        cache_status = 'error'
+
+    signals = TradingSignal.objects.select_related('user').order_by('-created_at')[:100]
+    payments = PaymentTransaction.objects.select_related('user', 'subscription').order_by('-created_at')[:100]
+    from trading_app.models import SystemEvent
+    system_events = SystemEvent.objects.all()[:100]
+    latest_feed_event = SystemEvent.objects.filter(
+        event_type__in=(SystemEvent.EVENT_FEED_FAILED, SystemEvent.EVENT_FEED_SUCCEEDED),
+    ).first()
+    auth_activity = Notification.objects.filter(
+        notification_type='account',
+        title__in=('New Login', 'Account Created', 'Two-Factor Authentication'),
+    ).select_related('user').order_by('-created_at')[:100]
+    return Response({
+        'users': user_rows,
+        'user_pagination': {
+            'page': page, 'page_size': page_size, 'total': user_count,
+            'pages': (user_count + page_size - 1) // page_size,
+        },
+        'analysis_activity': [{
+            'id': signal.pk,
+            'user_id': signal.user_id,
+            'user_email': signal.user.email if signal.user else None,
+            'market': signal.symbol,
+            'signal': signal.signal_type,
+            'confidence': signal.confidence,
+            'entry': str(signal.entry_price) if signal.entry_price is not None else None,
+            'stop_loss': str(signal.stop_loss) if signal.stop_loss is not None else None,
+            'take_profit': str(signal.take_profit) if signal.take_profit is not None else None,
+            'outcome': signal.outcome,
+            'strategy_source': signal.source,
+            'reasoning': signal.reasoning,
+            'created_at': signal.created_at.isoformat(),
+        } for signal in signals],
+        'payments': [{
+            'id': payment.pk,
+            'user_id': payment.user_id,
+            'email': payment.user.email,
+            'tier': payment.tier,
+            'amount_kes': payment.amount_kes,
+            'status': payment.status,
+            'receipt_number': payment.mpesa_receipt_number or None,
+            'created_at': payment.created_at.isoformat(),
+            'completed_at': payment.completed_at.isoformat() if payment.completed_at else None,
+        } for payment in payments],
+        'authentication_activity': [{
+            'user_id': item.user_id,
+            'email': item.user.email,
+            'event': item.title,
+            'created_at': item.created_at.isoformat(),
+        } for item in auth_activity],
+        'system_events': [{
+            'event_type': event.event_type,
+            'market': event.market,
+            'created_at': event.created_at.isoformat(),
+        } for event in system_events],
+        'system': {
+            'database': database_status,
+            'cache': cache_status,
+            'email': email_configuration_status(),
+            'deriv_data': 'unknown' if latest_feed_event is None else (
+                'available' if latest_feed_event.event_type == SystemEvent.EVENT_FEED_SUCCEEDED else 'unavailable'
+            ),
+            'failed_analysis_requests': SystemEvent.objects.filter(
+                event_type=SystemEvent.EVENT_ANALYSIS_FAILED,
+            ).count(),
+        },
+    })
+
+
+def _admin_signal_payload(signal):
+    if signal is None:
+        return None
+    return {
+        'id': signal.pk,
+        'market': signal.symbol,
+        'signal': signal.signal_type,
+        'confidence': signal.confidence,
+        'entry': str(signal.entry_price) if signal.entry_price is not None else None,
+        'stop_loss': str(signal.stop_loss) if signal.stop_loss is not None else None,
+        'take_profit': str(signal.take_profit) if signal.take_profit is not None else None,
+        'outcome': signal.outcome,
+        'created_at': signal.created_at.isoformat(),
+    }
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated, AuthorizedAdminPermission])
+def admin_user_detail_view(request, user_id):
+    from datetime import timedelta
+    from django.contrib.sessions.models import Session
+    from trading_app.models import PaymentTransaction
+    from trading_app.services.subscription_access import bot_access_status, subscription_status
+
+    user = get_object_or_404(User, pk=user_id)
+    subscription = getattr(user, 'subscription', None)
+    access = subscription_status(user)
+    sessions = []
+    active_sessions = Session.objects.filter(expire_date__gt=timezone.now()).order_by('expire_date')[:1000]
+    for session in active_sessions:
+        if str(user.pk) == str(session.get_decoded().get('_auth_user_id')):
+            sessions.append({'expires_at': session.expire_date.isoformat()})
+    return Response({
+        'account': {
+            'id': user.pk,
+            'first_name': user.first_name,
+            'last_name': user.last_name,
+            'full_name': user.get_full_name(),
+            'email': user.email,
+            'phone': user.phone,
+            'created_at': user.date_joined.isoformat(),
+            'last_login': user.last_login.isoformat() if user.last_login else None,
+            'is_active': user.is_active,
+            'email_verified': user.email_verified,
+            'two_factor_enabled': user.two_factor_enabled,
+        },
+        'trial': {
+            'started_at': user.trial_started_at.isoformat() if user.trial_started_at else None,
+            'expires_at': (user.trial_started_at + timedelta(hours=24)).isoformat() if user.trial_started_at else None,
+            'status': access['status'] if access['status'] in ('trial', 'expired', 'trial_limit_reached') else 'not_in_trial',
+        },
+        'subscription': {
+            'status': access['status'],
+            'tier': access['tier'],
+            'started_at': subscription.started_at.isoformat() if subscription else None,
+            'expires_at': access['expires_at'].isoformat() if access['expires_at'] else None,
+            'bypass': user.subscription_bypass,
+        },
+        'bot': {
+            'access': bot_access_status(user),
+            'bypass': user.bot_bypass,
+            'status': CacheService.get(f'bot_status_{user.pk}', {'status': 'idle'}),
+        },
+        'payments': list(PaymentTransaction.objects.filter(user=user).order_by('-created_at').values(
+            'id', 'tier', 'amount_kes', 'status', 'mpesa_receipt_number', 'created_at', 'completed_at',
+        )[:25]),
+        'trades': list(Trade.objects.filter(user=user).order_by('-created_at').values(
+            'id', 'symbol', 'action', 'status', 'entry_price', 'exit_price', 'pnl', 'created_at',
+        )[:25]),
+        'signals': [_admin_signal_payload(signal) for signal in TradingSignal.objects.filter(
+            user=user,
+        ).order_by('-created_at')[:25]],
+        'active_sessions': sessions,
+    })
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated, AuthorizedAdminPermission])
+def admin_user_access_view(request, user_id):
+    from django.contrib.sessions.models import Session
+    from trading_app.models import AdminAuditLog
+    target = get_object_or_404(User, pk=user_id)
+    fields = ('is_active', 'subscription_bypass', 'bot_bypass', 'subscription_access_denied', 'revoke_sessions')
+    updates = {}
+    for field in fields:
+        if field in request.data:
+            value = request.data[field]
+            if not isinstance(value, bool):
+                return Response({'error': f'{field} must be a boolean.'}, status=status.HTTP_400_BAD_REQUEST)
+            updates[field] = value
+    if not updates:
+        return Response({'error': 'No supported access changes provided.'}, status=status.HTTP_400_BAD_REQUEST)
+    if target.pk == request.user.pk and any(field != 'revoke_sessions' for field in updates):
+        return Response({'error': 'Administrator access settings cannot be changed through this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
+    if target.pk == request.user.pk and updates.get('is_active') is False:
+        return Response({'error': 'The administrator cannot deactivate their own account.'}, status=status.HTTP_400_BAD_REQUEST)
+    revoke_sessions = updates.pop('revoke_sessions', False)
+    previous_state = {field: getattr(target, field) for field in updates}
+    for field, value in updates.items():
+        setattr(target, field, value)
+    if updates:
+        target.save(update_fields=list(updates))
+        for field, value in updates.items():
+            if previous_state[field] != value:
+                AdminAuditLog.objects.create(
+                    administrator=request.user,
+                    affected_user=target,
+                    action=f'{field}_changed',
+                    previous_state={field: previous_state[field]},
+                    new_state={field: value},
+                    ip_address=request.META.get('REMOTE_ADDR') or None,
+                    user_agent=request.META.get('HTTP_USER_AGENT', '')[:512],
+                )
+    if revoke_sessions or updates.get('is_active') is False:
+        for session in Session.objects.filter(expire_date__gte=timezone.now()).iterator():
+            if str(target.pk) == str(session.get_decoded().get('_auth_user_id')):
+                session.delete()
+        target.remember_me_tokens.all().delete()
+        AdminAuditLog.objects.create(
+            administrator=request.user,
+            affected_user=target,
+            action='sessions_revoked' if revoke_sessions else 'account_deactivated',
+            previous_state={'active_sessions_revoked': False},
+            new_state={'active_sessions_revoked': True},
+            ip_address=request.META.get('REMOTE_ADDR') or None,
+            user_agent=request.META.get('HTTP_USER_AGENT', '')[:512],
+        )
+    return Response({'status': 'updated', 'user_id': target.pk, 'updated_fields': sorted(updates)})
+
+
 # ---------------------------------------------------------------------------
 # Internal helpers
 # ---------------------------------------------------------------------------
@@ -1519,6 +1919,8 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
     live_cache_key = f'live_{symbol}'
     cached = CacheService.get_candles(live_cache_key, granularity)
     if cached and len(cached) >= count:
+        from trading_app.services.system_events import record_system_event
+        record_system_event('FEED_SUCCEEDED', symbol)
         return cached[-count:], 'live'
 
     adapter = None
@@ -1535,6 +1937,8 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
         candles = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, count)
         if candles:
             CacheService.set_candles(live_cache_key, granularity, candles)
+            from trading_app.services.system_events import record_system_event
+            record_system_event('FEED_SUCCEEDED', symbol)
             return candles, 'live'
     except Exception as e:
         logger.warning('Chart candle fetch failed for %s: %s', symbol, e)
@@ -1545,6 +1949,8 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
             except Exception as e:
                 logger.warning('Chart adapter disconnect failed for %s: %s', symbol, e)
 
+    from trading_app.services.system_events import record_system_event
+    record_system_event('FEED_FAILED', symbol)
     return [], 'unavailable'
 
 
@@ -1560,6 +1966,16 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
     now_epoch = time.time()
     tick_received = threading.Event()
     tick_subscription_started = False
+    requested_deriv_symbol = deriv_symbol_for_market(symbol)
+
+    def accept_current_tick(tick):
+        tick_timestamp = getattr(tick, 'timestamp', None)
+        if getattr(tick, 'symbol', None) != requested_deriv_symbol or tick_timestamp is None:
+            return
+        tick_age = timezone.now().timestamp() - tick_timestamp.timestamp()
+        if -5 <= tick_age <= 60:
+            tick_received.set()
+
     try:
         adapter.connect(build_credentials(user))
         connection_deadline = time.monotonic() + 5
@@ -1568,19 +1984,19 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
                 raise TimeoutError('Deriv WebSocket connection timed out')
             time.sleep(0.05)
         adapter.subscribe_ticks(
-            deriv_symbol_for_market(symbol), lambda _tick: tick_received.set(),
+            requested_deriv_symbol, accept_current_tick,
         )
         tick_subscription_started = True
         if not tick_received.wait(timeout=8):
             return [], {}, 'Live market data unavailable: no current Deriv tick received.'
         try:
-            adapter.unsubscribe_ticks(deriv_symbol_for_market(symbol))
+            adapter.unsubscribe_ticks(requested_deriv_symbol)
             tick_subscription_started = False
         except Exception:
             pass
         for granularity in granularities:
             try:
-                raw = adapter.get_candles(deriv_symbol_for_market(symbol), granularity, 200)
+                raw = adapter.get_candles(requested_deriv_symbol, granularity, 200)
             except Exception as exc:
                 message = str(exc).lower()
                 if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
@@ -1589,8 +2005,10 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
             if not raw:
                 return [], {}, f'Live market data unavailable for {TIMEFRAME_LABELS.get(granularity, granularity)}.'
             newest_epoch = max(int(candle.timestamp.timestamp()) for candle in raw)
-            max_age = granularity + 90
-            if now_epoch - newest_epoch > max_age:
+            if any(candle.symbol != requested_deriv_symbol for candle in raw):
+                return [], {}, f'Live market data unavailable: {TIMEFRAME_LABELS.get(granularity, granularity)} market mismatch.'
+            max_age = max(granularity * 2, 120)
+            if now_epoch - newest_epoch < -5 or now_epoch - newest_epoch > max_age:
                 return [], {}, f'Live market data unavailable: {TIMEFRAME_LABELS.get(granularity, granularity)} candles are stale.'
             raw_by_granularity[granularity] = raw
     except Exception as exc:
@@ -1602,7 +2020,7 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
     finally:
         if tick_subscription_started:
             try:
-                adapter.unsubscribe_ticks(deriv_symbol_for_market(symbol))
+                adapter.unsubscribe_ticks(requested_deriv_symbol)
             except Exception:
                 pass
         try:

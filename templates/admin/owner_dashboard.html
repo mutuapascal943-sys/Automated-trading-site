@@ -1,0 +1,166 @@
+{% extends 'admin/base_site.html' %}
+{% block content %}
+<section id="owner-admin" data-overview-url="{% url 'api_admin_overview' %}">
+  <form id="admin-csrf" hidden>{% csrf_token %}</form>
+  <h1>Owner dashboard</h1>
+  <p id="admin-load-status" role="status">Loading current system data...</p>
+  <div class="module">
+    <h2>Recent account authentication</h2>
+    <table><thead><tr><th>Time</th><th>User</th><th>Event</th></tr></thead><tbody id="admin-auth-activity"></tbody></table>
+  </div>
+  <div class="module">
+    <h2>System status</h2>
+    <dl id="admin-system-status"></dl>
+  </div>
+  <div class="module">
+    <h2>Users, access and bot status</h2>
+    <form id="admin-user-search">
+      <input id="admin-user-search-input" type="search" name="search" placeholder="Search name, email, or phone" autocomplete="off">
+      <button type="submit">Search</button>
+      <button id="admin-user-search-clear" type="button">Clear</button>
+      <button id="admin-user-previous" type="button" disabled>Previous</button>
+      <span id="admin-user-page" aria-live="polite"></span>
+      <button id="admin-user-next" type="button" disabled>Next</button>
+    </form>
+    <table>
+      <thead><tr><th>ID</th><th>User</th><th>Phone</th><th>Registered</th><th>Last login</th><th>Account</th><th>Trial/subscription</th><th>Expiry</th><th>Market/bot</th><th>Subscription bypass</th><th>Bot bypass</th><th>Latest signal</th><th>Client details</th><th>Access controls</th></tr></thead>
+      <tbody id="admin-users"></tbody>
+    </table>
+  </div>
+  <div class="module">
+    <h2>Recent analysis</h2>
+    <table><thead><tr><th>Time</th><th>User</th><th>Market</th><th>Signal</th><th>Confidence</th><th>Entry</th><th>Stop</th><th>Target</th><th>Outcome</th></tr></thead><tbody id="admin-analysis"></tbody></table>
+  </div>
+  <div class="module">
+    <h2>Payment records</h2>
+    <table><thead><tr><th>ID</th><th>User</th><th>Tier</th><th>Amount (KES)</th><th>Provider status</th><th>Receipt</th><th>Created</th></tr></thead><tbody id="admin-payments"></tbody></table>
+  </div>
+</section>
+<script>
+(() => {
+  const root = document.getElementById('owner-admin');
+  const status = document.getElementById('admin-load-status');
+  const text = value => value === null || value === undefined || value === '' ? '—' : String(value);
+  const cell = value => { const node = document.createElement('td'); node.textContent = text(value); return node; };
+  const row = values => { const node = document.createElement('tr'); values.forEach(value => node.appendChild(cell(value))); return node; };
+  const csrf = document.querySelector('#admin-csrf [name=csrfmiddlewaretoken]').value;
+  const accessCell = user => {
+    const cell = document.createElement('td');
+    const active = document.createElement('input'); active.type = 'checkbox'; active.checked = user.is_active;
+    active.setAttribute('aria-label', `Account active for ${user.email}`);
+    const bypass = document.createElement('input'); bypass.type = 'checkbox'; bypass.checked = user.subscription_bypass;
+    bypass.setAttribute('aria-label', `Subscription bypass for ${user.email}`);
+    const botBypass = document.createElement('input'); botBypass.type = 'checkbox'; botBypass.checked = user.bot_bypass;
+    botBypass.setAttribute('aria-label', `Bot bypass for ${user.email}`);
+    const denied = document.createElement('input'); denied.type = 'checkbox'; denied.checked = user.subscription_access_denied;
+    denied.setAttribute('aria-label', `Access denied for ${user.email}`);
+    const revoke = document.createElement('input'); revoke.type = 'checkbox';
+    revoke.setAttribute('aria-label', `Revoke sessions for ${user.email}`);
+    const save = document.createElement('button'); save.type = 'button'; save.textContent = 'Save access';
+    save.addEventListener('click', () => {
+      if(!window.confirm(`Apply access changes for ${user.email}?`)) return;
+      save.disabled = true;
+      fetch(`/api/admin/users/${user.id}/access/`, {
+        method: 'POST', credentials: 'same-origin',
+        headers: { 'Content-Type': 'application/json', 'X-CSRFToken': csrf },
+        body: JSON.stringify({ is_active: active.checked, subscription_bypass: bypass.checked, bot_bypass: botBypass.checked, subscription_access_denied: denied.checked, revoke_sessions: revoke.checked }),
+      }).then(response => { if (!response.ok) throw new Error('Update rejected'); return response.json(); })
+        .then(() => { status.textContent = 'Access updated. Reloading persisted administrator data...'; window.location.reload(); })
+        .catch(() => { status.textContent = 'Access update failed; reload to confirm current values.'; })
+        .finally(() => { save.disabled = false; });
+    });
+    cell.append('Active ', active, ' Subscription bypass ', bypass, ' Bot bypass ', botBypass, ' Deny ', denied, ' Revoke sessions ', revoke, ' ', save);
+    return cell;
+  };
+  const query = new URLSearchParams(window.location.search);
+  const searchInput = document.getElementById('admin-user-search-input');
+  searchInput.value = query.get('search') || '';
+  const page = Math.max(1, Number(query.get('page') || 1));
+  document.getElementById('admin-user-search').addEventListener('submit', event => {
+    event.preventDefault();
+    const params = new URLSearchParams();
+    if(searchInput.value.trim()) params.set('search', searchInput.value.trim());
+    window.location.search = params.toString();
+  });
+  document.getElementById('admin-user-search-clear').addEventListener('click', () => { window.location.search = ''; });
+  fetch(root.dataset.overviewUrl + window.location.search, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+    .then(response => { if (!response.ok) throw new Error('Request failed'); return response.json(); })
+    .then(data => {
+      const pagination = data.user_pagination;
+      document.getElementById('admin-user-page').textContent = `Page ${pagination.page} of ${Math.max(1, pagination.pages)} (${pagination.total} users)`;
+      document.getElementById('admin-user-previous').disabled = pagination.page <= 1;
+      document.getElementById('admin-user-next').disabled = pagination.page >= pagination.pages;
+      document.getElementById('admin-user-previous').onclick = () => { query.set('page', String(page - 1)); window.location.search = query.toString(); };
+      document.getElementById('admin-user-next').onclick = () => { query.set('page', String(page + 1)); window.location.search = query.toString(); };
+      const system = document.getElementById('admin-system-status');
+      Object.entries(data.system).forEach(([name, value]) => {
+        const term = document.createElement('dt'); term.textContent = name.replaceAll('_', ' ');
+        const detail = document.createElement('dd'); detail.textContent = typeof value === 'object' ? JSON.stringify(value) : text(value);
+        system.append(term, detail);
+      });
+      data.users.forEach(user => {
+        const userRow = row([
+        user.id, `${user.full_name || user.email} / ${user.email}`, user.phone, user.registered_at,
+        user.last_login, user.is_active ? 'Active' : 'Inactive', `${user.trial_status} / ${user.subscription_status} (${user.subscription_tier})`,
+        user.subscription_expires_at, `${user.bot_market} / ${user.bot_status}`,
+        user.subscription_bypass ? 'Granted' : (user.subscription_access_denied ? 'Denied' : 'None'),
+        user.bot_bypass ? 'Granted' : 'None',
+        user.latest_signal ? `${user.latest_signal.signal} ${user.latest_signal.confidence}%` : null,
+        ]);
+        const detailCell = document.createElement('td');
+        const detailButton = document.createElement('button');
+        detailButton.type = 'button';
+        detailButton.textContent = 'View details';
+        detailButton.addEventListener('click', () => {
+          const existing = userRow.nextElementSibling;
+          if(existing && existing.dataset.detailUser === String(user.id)) { existing.remove(); return; }
+          detailButton.disabled = true;
+          fetch(`/api/admin/users/${user.id}/`, { credentials: 'same-origin', headers: { 'Accept': 'application/json' } })
+            .then(response => { if(!response.ok) throw new Error('Client details unavailable'); return response.json(); })
+            .then(detail => {
+              const detailRow = document.createElement('tr');
+              detailRow.dataset.detailUser = String(user.id);
+              const cell = document.createElement('td'); cell.colSpan = 14;
+              const title = document.createElement('strong'); title.textContent = `${detail.account.full_name || detail.account.email} · Client details`;
+              const grid = document.createElement('div'); grid.className = 'admin-client-detail';
+              const section = (heading, value) => {
+                const article = document.createElement('section');
+                const h = document.createElement('h3'); h.textContent = heading;
+                const pre = document.createElement('pre'); pre.textContent = JSON.stringify(value, null, 2);
+                article.append(h, pre); grid.appendChild(article);
+              };
+              section('Account and security', detail.account);
+              section('Trial', detail.trial);
+              section('Subscription', detail.subscription);
+              section('Bot access', detail.bot);
+              section('Payments', detail.payments);
+              section('Recent trades', detail.trades);
+              section('Recent signals', detail.signals);
+              section('Security sessions', {active_session_count: detail.active_sessions.length, sessions: detail.active_sessions});
+              cell.append(title, grid); detailRow.appendChild(cell); userRow.after(detailRow);
+            })
+            .catch(() => { status.textContent = 'Client details could not be loaded.'; })
+            .finally(() => { detailButton.disabled = false; });
+        });
+        detailCell.appendChild(detailButton);
+        userRow.appendChild(detailCell);
+        userRow.appendChild(accessCell(user));
+        document.getElementById('admin-users').appendChild(userRow);
+      });
+      data.analysis_activity.forEach(item => document.getElementById('admin-analysis').appendChild(row([
+        item.created_at, item.user_email, item.market, item.signal, item.confidence,
+        item.entry, item.stop_loss, item.take_profit, item.outcome,
+      ])));
+      data.authentication_activity.forEach(item => document.getElementById('admin-auth-activity').appendChild(row([
+        item.created_at, item.email, item.event,
+      ])));
+      data.payments.forEach(payment => document.getElementById('admin-payments').appendChild(row([
+        payment.id, payment.email, payment.tier, payment.amount_kes, payment.status,
+        payment.receipt_number, payment.created_at,
+      ])));
+      status.textContent = 'Current persisted data loaded. Feed connectivity and failed-request history are not persisted by this application.';
+    })
+    .catch(() => { status.textContent = 'Unable to load owner data. Verify the administrator session and try again.'; });
+})();
+</script>
+{% endblock %}

@@ -6,7 +6,8 @@ from django.utils import timezone
 from django.conf import settings
 from decouple import config
 from decimal import Decimal
-from .services.email_service import generate_otp, send_otp_email
+from .services.email_service import send_otp_email
+from .services.otp_service import invalidate_otp, issue_otp
 from .services.cache_service import CacheService
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
 from .models import EmailOTP, Trade, User, TradingSignal, PredictionRecord, RiskConfig, Notification
@@ -16,6 +17,7 @@ from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
 import logging
+from types import SimpleNamespace
 
 logger = logging.getLogger(__name__)
 audit = ConsoleAuditLogger()
@@ -32,18 +34,11 @@ CANDLE_GRANULARITY = 300  # 5-minute candles for faster signal generation
 def send_otp_email_task(self, user_id: int, purpose: str = '2fa') -> bool:
     try:
         user = User.objects.get(id=user_id)
-        otp_code = generate_otp()
-        expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-
-        EmailOTP.objects.create(
-            user=user,
-            code=otp_code,
-            purpose=purpose,
-            expires_at=expires_at,
-        )
-
-        CacheService.set_otp(user_id, otp_code)
-        return send_otp_email(user, otp_code)
+        otp, otp_code = issue_otp(user, purpose)
+        sent = send_otp_email(user, otp_code, purpose=purpose)
+        if not sent:
+            invalidate_otp(otp)
+        return sent
     except User.DoesNotExist:
         logger.error(f'User {user_id} not found for OTP email')
         return False
@@ -110,6 +105,37 @@ def run_bot_cycle():
             logger.error(f'Bot cycle failed for user {user.id}: {e}')
 
 
+@shared_task
+def check_expired_wait_cycles():
+    from .models import AnalysisWaitCycle
+    from .api_views import _run_analysis_pipeline
+    from .services.subscription_access import bot_access_status
+
+    due_cycles = AnalysisWaitCycle.objects.filter(
+        wait_expires_at__lte=timezone.now(),
+    ).select_related('user')[:50]
+    for cycle in due_cycles:
+        user = cycle.user
+        bot_status = CacheService.get(f'bot_status_{user.id}', {'status': 'idle'})
+        if (
+            bot_status.get('status') != 'running'
+            or user.selected_market != cycle.symbol
+            or not bot_access_status(user)['has_access']
+        ):
+            cycle.delete()
+            continue
+        request = SimpleNamespace(
+            user=user,
+            data={'prompt': cycle.symbol, 'granularity': cycle.granularity},
+            query_params={},
+            META={},
+        )
+        try:
+            _run_analysis_pipeline(request, verification_mode=False)
+        except Exception:
+            logger.exception('WAIT expiry reanalysis failed for user %s', user.pk)
+
+
 def _record_prediction(user, symbol, granularity, candle_time, ml_signal, entry_price=None):
     """Create a new live prediction only when no prediction is currently open
     for this symbol. The active prediction is held until it resolves as
@@ -134,9 +160,9 @@ def _record_prediction(user, symbol, granularity, candle_time, ml_signal, entry_
 
 
 def _run_single_user_bot(user):
-    from .services.subscription_access import subscription_status
+    from .services.subscription_access import bot_access_status
 
-    if not subscription_status(user)['has_access']:
+    if not bot_access_status(user)['has_access']:
         logger.info('Bot scan skipped for user %s: subscription/trial inactive', user.id)
         return
     bot_status = CacheService.get(f'bot_status_{user.id}', {'status': 'idle'})
@@ -192,9 +218,13 @@ def _run_single_user_bot(user):
                     adapter.disconnect()
             except Exception as e:
                 logger.warning(f'Failed to fetch candles for {symbol}: {e}')
+                from trading_app.services.system_events import record_system_event
+                record_system_event('FEED_FAILED', symbol)
 
             if not candles:
                 logger.warning('Live market data unavailable for %s; skipping bot analysis', symbol)
+                from trading_app.services.system_events import record_system_event
+                record_system_event('FEED_FAILED', symbol)
                 continue
 
             recent_trades = list(
@@ -225,39 +255,8 @@ def _run_single_user_bot(user):
                     entry_price=candle_dicts[-1].get('close'),
                 )
 
-            if analysis.bias != 'neutral' and ml_signal is not None and ml_signal.bias != 'neutral':
-                confidence = int((analysis.confidence * 0.6 + ml_signal.confidence * 0.4) * 100)
-                ml_bias = 'BUY' if ml_signal.bias == 'bullish' else 'SELL'
-                if ml_bias != ('BUY' if analysis.bias == 'bullish' else 'SELL'):
-                    confidence = int(confidence * 0.8)
-                signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
-                source_detail = f' [ML: {ml_signal.model_info}]'
-            elif analysis.bias != 'neutral':
-                confidence = int(analysis.confidence * 100)
-                signal_type = 'BUY' if analysis.bias == 'bullish' else 'SELL'
-                source_detail = ''
-            else:
-                continue
-
-            existing_signal = TradingSignal.objects.filter(
-                user=user,
-                symbol=symbol,
-                signal_type=signal_type,
-                outcome='PENDING',
-            ).order_by('-created_at').first()
-            if existing_signal:
-                logger.info(
-                    'Holding pending %s signal %s for user %s until TP/SL resolves',
-                    signal_type, existing_signal.id, user.id,
-                )
-                continue
-
-            if confidence < risk.min_confidence:
-                logger.warning('Trade execution is disabled in analysis-only mode for %s', trade.symbol)
-                trade.status = 'CANCELLED'
-                trade.is_live = False
-                trade.save(update_fields=['status', 'is_live'])
-                return trade
+            # Signals are generated only by the live API pipeline's centralized
+            # strategy confluence engine. Background work records ML outcomes.
 
     cached = CacheService.get_market_data(symbol)
     if cached and cached.get('price'):

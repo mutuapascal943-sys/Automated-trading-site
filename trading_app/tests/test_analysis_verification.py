@@ -54,14 +54,20 @@ class AnalysisVerificationTests(TestCase):
     def _live_adapter(self):
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.side_effect = lambda symbol, granularity, count: _live_candles(granularity)
+        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+            SimpleNamespace(
+                symbol=symbol, open=Decimal('101.0'), high=Decimal('102.0'),
+                low=Decimal('100.0'), close=Decimal('101.5'), volume=Decimal('25'),
+                timestamp=timezone.now() - timedelta(seconds=10), granularity=granularity,
+            ) for _ in range(count)
+        ]
         adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
             symbol=symbol, timestamp=timezone.now(),
         ))
         return adapter
 
     @contextmanager
-    def _pipeline_fixtures(self, adapter, choch_bias='bearish'):
+    def _pipeline_fixtures(self, adapter, choch_bias='bullish', strategy_bias='bullish'):
         with ExitStack() as stack:
             stack.enter_context(patch('trading_app.api_views._resolve_adapter', return_value=adapter))
             evaluators = {}
@@ -71,15 +77,16 @@ class AnalysisVerificationTests(TestCase):
             ):
                 evaluator = stack.enter_context(patch(f'trading_app.strategies.{module}.evaluate'))
                 evaluator.return_value = StrategyResult(
-                    name, choch_bias if module == 'choch' else 'bullish', 0.9,
+                    name, choch_bias if module == 'choch' else strategy_bias, 0.9,
                     (f'{name} fixture vote',), (), {}, 0.1,
                 )
                 evaluators[name] = evaluator
             analyze = stack.enter_context(patch('trading_app.trading_bot.technical_analyzer.analyze_technical'))
             analyze.return_value = SimpleNamespace(
-                bias='bullish', confidence=0.9, rationale='Read-only fixture analysis',
+                bias=strategy_bias, confidence=0.9, rationale='Read-only fixture analysis',
                 rsi=65, sma_short=101.4, sma_long=101.0, atr=0.5,
-                stop_loss=100.5, take_profit=103.5,
+                stop_loss=100.5 if strategy_bias == 'bullish' else 102.5,
+                take_profit=103.5 if strategy_bias == 'bullish' else 99.5,
             )
             stack.enter_context(patch('trading_app.ml.inference.load_latest_model', return_value=None))
             consensus = stack.enter_context(patch(
@@ -214,8 +221,8 @@ class AnalysisVerificationTests(TestCase):
         self.assertEqual(body['analysis']['bias'], 'bullish')
         self.assertGreater(body['analysis']['confidence'], 0)
         self.assertEqual(body['analysis']['consensus']['directional_votes'], 6)
-        self.assertEqual(body['analysis']['consensus']['buy_votes'], 5)
-        self.assertEqual(body['analysis']['consensus']['sell_votes'], 1)
+        self.assertEqual(body['analysis']['consensus']['buy_votes'], 6)
+        self.assertEqual(body['analysis']['consensus']['sell_votes'], 0)
         strategy_names = {item['name'] for item in body['analysis']['strategies']}
         self.assertTrue({
             'Fibonacci', 'ICT', 'Momentum', 'Support/Resistance', 'CHoCH', 'Technical/SMC',
@@ -226,7 +233,7 @@ class AnalysisVerificationTests(TestCase):
         fixtures['consensus'].assert_called_once()
         choch_evaluate = fixtures['evaluators']['CHoCH']
         choch_result = next(item for item in body['analysis']['strategies'] if item['name'] == 'CHoCH')
-        self.assertEqual(choch_result['bias'], 'bearish')
+        self.assertEqual(choch_result['bias'], 'bullish')
         choch_context = choch_evaluate.call_args.args[0]
         self.assertEqual(set(choch_context.multi_timeframe), {'H4', 'M15', 'M5', 'M1'})
         self.assertEqual(
@@ -234,6 +241,7 @@ class AnalysisVerificationTests(TestCase):
             {'H4': 200, 'M15': 200, 'M5': 200, 'M1': 200},
         )
         signal_data = body['signal']
+        self.assertEqual(body['decision'], 'BUY')
         self.assertEqual(signal_data['signal_type'], 'BUY')
         self.assertEqual(Decimal(signal_data['entry_price']), Decimal('101.50000'))
         self.assertEqual(Decimal(signal_data['stop_loss']), Decimal('100.50000'))
@@ -306,11 +314,20 @@ class AnalysisVerificationTests(TestCase):
 
     def test_verification_live_fetch_uses_one_adapter_and_reuses_selected_frame(self):
         from trading_app.api_views import _fetch_verification_candles
+        from trading_app.api_views import deriv_symbol_for_market
 
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.side_effect = lambda symbol, granularity, count: _live_candles(granularity)
-        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace())
+        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+            SimpleNamespace(
+                symbol=symbol, open=Decimal('101'), high=Decimal('102'), low=Decimal('100'),
+                close=Decimal('101.5'), volume=Decimal('25'),
+                timestamp=timezone.now() - timedelta(seconds=10), granularity=granularity,
+            ) for _ in range(count)
+        ]
+        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
+            symbol=symbol, timestamp=timezone.now(),
+        ))
         with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
             raw, mtf, error = _fetch_verification_candles(self.user, self.user.selected_market, 300)
 
@@ -328,8 +345,17 @@ class AnalysisVerificationTests(TestCase):
 
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.return_value = _live_candles(14400, age_seconds=14400 + 180)
-        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace())
+        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+            SimpleNamespace(
+                symbol=symbol, open=Decimal('101'), high=Decimal('102'), low=Decimal('100'),
+                close=Decimal('101.5'), volume=Decimal('25'),
+                timestamp=timezone.now() - timedelta(seconds=granularity * 2 + 180),
+                granularity=granularity,
+            ) for _ in range(count)
+        ]
+        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
+            symbol=symbol, timestamp=timezone.now(),
+        ))
         with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
             raw, mtf, error = _fetch_verification_candles(self.user, self.user.selected_market, 300)
 
@@ -337,6 +363,38 @@ class AnalysisVerificationTests(TestCase):
         self.assertEqual(mtf, {})
         self.assertIn('stale', error.lower())
         adapter.disconnect.assert_called_once()
+
+    def test_verification_rejects_candles_for_another_market(self):
+        from trading_app.api_views import _fetch_verification_candles
+
+        adapter = self._live_adapter()
+        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+            SimpleNamespace(
+                symbol='frxGBPUSD', open=Decimal('1'), high=Decimal('2'),
+                low=Decimal('0.5'), close=Decimal('1.5'), volume=Decimal('1'),
+                timestamp=timezone.now(), granularity=granularity,
+            )
+        ]
+        with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
+            raw, mtf, error = _fetch_verification_candles(self.user, 'EUR/USD', 300)
+        self.assertEqual(raw, [])
+        self.assertEqual(mtf, {})
+        self.assertIn('market mismatch', error.lower())
+
+    def test_verification_ignores_wrong_symbol_and_stale_ticks(self):
+        from trading_app.api_views import _fetch_verification_candles
+
+        adapter = self._live_adapter()
+        def send_bad_tick(symbol, callback):
+            callback(SimpleNamespace(symbol='frxGBPUSD', timestamp=timezone.now()))
+            callback(SimpleNamespace(symbol=symbol, timestamp=timezone.now() - timedelta(seconds=120)))
+        adapter.subscribe_ticks.side_effect = send_bad_tick
+        with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
+            raw, mtf, error = _fetch_verification_candles(self.user, self.user.selected_market, 300)
+        self.assertEqual(raw, [])
+        self.assertEqual(mtf, {})
+        self.assertIn('no current deriv tick', error.lower())
+        adapter.get_candles.assert_not_called()
 
     def test_verification_rejects_closed_market(self):
         from trading_app.api_views import _fetch_verification_candles
@@ -460,7 +518,7 @@ class AnalysisVerificationTests(TestCase):
     @patch('trading_app.strategies.ict.evaluate')
     @patch('trading_app.strategies.momentum.evaluate')
     @patch('trading_app.strategies.support_resistance.evaluate')
-    def test_normal_analysis_keeps_execution_settings_behavior(
+    def test_normal_analysis_never_executes_even_when_execution_settings_are_enabled(
         self, sr_evaluate, momentum_evaluate, ict_evaluate, fib_evaluate,
         choch_evaluate, analyze, _model, _mtf, fetch_candles, execute,
     ):
@@ -487,7 +545,139 @@ class AnalysisVerificationTests(TestCase):
             }, format='json')
 
         self.assertEqual(response.status_code, 200, response.content)
-        execute.assert_called_once()
+        execute.assert_not_called()
         self.risk.refresh_from_db()
         self.assertTrue(self.risk.auto_execute)
         self.assertTrue(self.risk.trading_enabled)
+
+    @override_settings(
+        TRADING_ANALYSIS_VERIFICATION_ENABLED=True,
+        MIN_STRATEGY_VOTES=3,
+        STRATEGY_CONSENSUS_THRESHOLD=0.7,
+    )
+    def test_single_opposing_strategy_returns_wait(self):
+        adapter = self._live_adapter()
+        with self._pipeline_fixtures(adapter, choch_bias='bearish'):
+            response = self._post_verification(persist=False)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body['decision'], 'WAIT')
+        self.assertIsNone(body['signal'])
+        self.assertGreater(body['wait_seconds_remaining'], 0)
+        self.assertEqual(body['analysis']['consensus']['reason'], 'No consensus')
+        self.assertFalse(self.user.analysis_wait_cycles.exists())
+        self.assertEqual(
+            (timezone.datetime.fromisoformat(body['wait_expires_at']) - timezone.datetime.fromisoformat(body['wait_started_at'])).total_seconds(),
+            180,
+        )
+        status_before_refresh = self.client.get(reverse('api_analysis_wait_status'), {
+            'symbol': self.user.selected_market, 'granularity': 300,
+        }).json()
+        status_after_refresh = self.client.get(reverse('api_analysis_wait_status'), {
+            'symbol': self.user.selected_market, 'granularity': 300,
+        }).json()
+        self.assertEqual(status_before_refresh['wait_expires_at'], status_after_refresh['wait_expires_at'])
+
+    def test_production_wait_cycle_persists_and_restarts_after_expiry(self):
+        from datetime import timedelta
+        from trading_app.models import AnalysisWaitCycle
+        from trading_app.api_views import _wait_response
+
+        cycle = AnalysisWaitCycle.objects.create(
+            user=self.user, symbol=self.user.selected_market, granularity=300,
+            wait_started_at=timezone.now() - timedelta(seconds=181),
+            wait_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        response = _wait_response(self.user, self.user.selected_market, 300, 'No confluence')
+        self.assertEqual(response.data['decision'], 'WAIT')
+        cycle.refresh_from_db()
+        self.assertGreater(cycle.wait_started_at, timezone.now() - timedelta(seconds=10))
+        self.assertEqual((cycle.wait_expires_at - cycle.wait_started_at).total_seconds(), 180)
+        status = self.client.get(reverse('api_analysis_wait_status'), {
+            'symbol': self.user.selected_market, 'granularity': 300,
+        }).json()
+        self.assertEqual(status['wait_expires_at'], cycle.wait_expires_at.isoformat())
+
+    def test_expired_wait_status_triggers_fresh_analysis_and_new_wait_cycle(self):
+        from datetime import timedelta
+        from django.core.cache import cache
+        from trading_app.models import AnalysisWaitCycle
+
+        self.user.subscription_bypass = True
+        self.user.save(update_fields=['subscription_bypass'])
+        cache.set(f'bot_status_{self.user.pk}', {'status': 'running', 'market': self.user.selected_market})
+        expired_at = timezone.now() - timedelta(seconds=1)
+        AnalysisWaitCycle.objects.create(
+            user=self.user, symbol=self.user.selected_market, granularity=300,
+            wait_started_at=expired_at - timedelta(seconds=180), wait_expires_at=expired_at,
+        )
+        adapter = self._live_adapter()
+        with self._pipeline_fixtures(adapter, choch_bias='bearish'):
+            response = self.client.get(reverse('api_analysis_wait_status'), {
+                'symbol': self.user.selected_market, 'granularity': 300,
+            })
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['decision'], 'WAIT')
+        cycle = AnalysisWaitCycle.objects.get(user=self.user, symbol=self.user.selected_market, granularity=300)
+        self.assertGreater(cycle.wait_started_at, expired_at)
+        self.assertEqual((cycle.wait_expires_at - cycle.wait_started_at).total_seconds(), 180)
+
+    def test_expired_wait_does_not_choose_a_direction_without_fresh_confluence(self):
+        from datetime import timedelta
+        from django.core.cache import cache
+        from trading_app.models import AnalysisWaitCycle
+
+        cache.set(f'bot_status_{self.user.pk}', {'status': 'running', 'market': self.user.selected_market})
+        AnalysisWaitCycle.objects.create(
+            user=self.user, symbol=self.user.selected_market, granularity=300,
+            wait_started_at=timezone.now() - timedelta(seconds=181),
+            wait_expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        adapter = self._live_adapter()
+        with self._pipeline_fixtures(adapter, choch_bias='bearish'):
+            response = self.client.get(reverse('api_analysis_wait_status'), {
+                'symbol': self.user.selected_market, 'granularity': 300,
+            })
+        self.assertEqual(response.json()['decision'], 'WAIT')
+        self.assertIsNone(response.json()['signal'])
+
+    def test_expired_wait_can_return_fresh_bullish_or_bearish_confluence(self):
+        from datetime import timedelta
+        from django.core.cache import cache
+        from trading_app.models import AnalysisWaitCycle
+
+        for direction in ('bullish', 'bearish'):
+            with self.subTest(direction=direction):
+                AnalysisWaitCycle.objects.update_or_create(
+                    user=self.user, symbol=self.user.selected_market, granularity=300,
+                    defaults={
+                        'wait_started_at': timezone.now() - timedelta(seconds=181),
+                        'wait_expires_at': timezone.now() - timedelta(seconds=1),
+                    },
+                )
+                cache.set(f'bot_status_{self.user.pk}', {'status': 'running', 'market': self.user.selected_market})
+                adapter = self._live_adapter()
+                with self._pipeline_fixtures(
+                    adapter, choch_bias=direction, strategy_bias=direction,
+                ):
+                    with patch('trading_app.api_views._predict_from_existing_candles', return_value=None):
+                        response = self.client.get(reverse('api_analysis_wait_status'), {
+                            'symbol': self.user.selected_market, 'granularity': 300,
+                        })
+                expected = 'BUY' if direction == 'bullish' else 'SELL'
+                self.assertEqual(response.json()['decision'], expected)
+                AnalysisWaitCycle.objects.filter(user=self.user).delete()
+
+    def test_ml_direction_alone_cannot_override_conflicting_strategies(self):
+        adapter = self._live_adapter()
+        bearish_ml = SimpleNamespace(
+            bias='bearish', confidence=0.99, model_info='fixture',
+            features={}, probability=0.01, horizon=4,
+        )
+        with self._pipeline_fixtures(adapter, choch_bias='bearish'):
+            with patch('trading_app.api_views._predict_from_existing_candles', return_value=bearish_ml):
+                response = self._post_verification(persist=False)
+        self.assertEqual(response.json()['decision'], 'WAIT')
+        self.assertIsNone(response.json()['signal'])

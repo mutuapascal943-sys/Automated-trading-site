@@ -24,6 +24,7 @@ def combine(
     threshold: float,
     minimum_votes: int,
 ) -> ConsensusResult:
+    results = list(results)
     votes = [result for result in results if result.bias in ('bullish', 'bearish')]
     buy = [result for result in votes if result.bias == 'bullish']
     sell = [result for result in votes if result.bias == 'bearish']
@@ -33,7 +34,14 @@ def combine(
 
     winner, loser = (buy, sell) if len(buy) >= len(sell) else (sell, buy)
     agreement = len(winner) / total
-    if len(winner) < minimum_votes or agreement < threshold or len(buy) == len(sell):
+    if (
+        len(winner) < minimum_votes
+        or len(votes) != len(results)
+        or agreement < threshold
+        or len(buy) == len(sell)
+        or bool(loser)
+        or any(result.bias not in ('bullish', 'bearish', 'neutral', 'insufficient_data') for result in results)
+    ):
         return ConsensusResult(
             'neutral', 0.0, len(buy), len(sell), total, agreement,
             'No consensus', tuple(result.name for result in votes),

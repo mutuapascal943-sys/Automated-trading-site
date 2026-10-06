@@ -1,6 +1,6 @@
 <div class="sub-hero">
   <h2>Upgrade Your <span style="color:var(--accent)">Trading Edge</span></h2>
-  <p>Unlock bot access with a $10 monthly subscription after the 24-hour trial.</p>
+  <p>Unlock bot access with a BASIC subscription after the 24-hour trial.</p>
 </div>
 <div class="plans-grid" style="max-width:900px;margin:0 auto">
   <div class="plan-card">
@@ -15,30 +15,36 @@
   <div class="plan-card featured">
     <div class="plan-tag">⭐ MOST POPULAR</div>
     <div class="plan-name">Basic</div>
-    <div class="plan-price"><sup>$</sup>10<span>/month</span></div>
+    <div class="plan-price">KES<span> per month</span></div>
     <ul class="plan-features">
       <li>Live market analysis</li><li>Unlimited signals</li><li>TP & SL recommendations</li><li>Full dashboard</li><li>Email notifications</li>
     </ul>
-    <button class="btn-primary" id="checkout-basic-button" type="button" onclick="requestSubscriptionCheckout()">Activate Basic (Mock)</button>
+    <label for="mpesa-phone-number">M-Pesa phone number</label>
+    <input id="mpesa-phone-number" class="form-input" type="tel" autocomplete="tel" placeholder="07XXXXXXXX" inputmode="tel">
+    <button class="btn-primary" id="checkout-basic-button" type="button" onclick="requestSubscriptionCheckout()">Pay with M-Pesa</button>
   </div>
   <div class="plan-card">
     <div class="plan-tag">PAYMENT STATUS</div>
-    <div class="plan-name">Provider setup required</div>
-    <div class="plan-price"><sup>$</sup>10<span>/month</span></div>
+    <div class="plan-name">Payment status</div>
+    <div class="plan-price">M-Pesa<span> STK Push</span></div>
     <ul class="plan-features">
-      <li>30-day subscription term</li><li>Development mock only; no payment is processed</li><li>Production access requires provider confirmation</li>
+      <li>30-day subscription term after verified payment</li><li>Access is not granted when a prompt is merely sent</li><li>Keep the phone nearby to approve the M-Pesa prompt</li>
     </ul>
-    <button class="btn-outline" disabled title="Payment integration is not configured">Awaiting payment provider</button>
+    <button class="btn-outline" id="mpesa-payment-status" disabled>Payment status will appear here</button>
   </div>
 </div>
 <script>
 function requestSubscriptionCheckout(){
   var button = document.getElementById('checkout-basic-button');
-  if(button){ button.disabled = true; button.textContent = 'Activating...'; }
+  var phoneInput = document.getElementById('mpesa-phone-number');
+  var statusButton = document.getElementById('mpesa-payment-status');
+  var phone = phoneInput ? phoneInput.value.trim() : '';
+  if(!phone){ showToast('Enter the M-Pesa phone number first.', 'error'); return; }
+  if(button){ button.disabled = true; button.textContent = 'Sending payment prompt...'; }
   fetch('/api/subscription/checkout/', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-    body: JSON.stringify({tier: 'BASIC'}),
+    body: JSON.stringify({tier: 'BASIC', phone_number: phone}),
   })
   .then(function(response){
     return response.json().then(function(data){
@@ -47,23 +53,54 @@ function requestSubscriptionCheckout(){
     });
   })
   .then(function(data){
-    showToast(data.message || 'Subscription activated.', data.access_granted ? 'success' : 'info');
-    if(data.access_granted){
-      if(button){ button.textContent = 'Basic Active'; }
-      if(typeof fetchDashboardStats === 'function') fetchDashboardStats();
-      var botButton = document.getElementById('bot-toggle-btn');
-      if(botButton){ botButton.disabled = false; botButton.title = ''; }
-    }
+    showToast(data.message || 'M-Pesa prompt sent. Awaiting verified payment.', 'info');
+    if(statusButton){ statusButton.textContent = 'Awaiting M-Pesa confirmation'; }
+    if(data.payment_id){ pollDarajaPaymentStatus(data.payment_id, statusButton, button); }
   })
   .catch(function(error){
     showToast(error.message || 'Checkout is temporarily unavailable.', 'error');
   })
   .finally(function(){
-    if(button && button.textContent === 'Activating...'){
+    if(button){
       button.disabled = false;
-      button.textContent = 'Activate Basic (Mock)';
+      button.textContent = 'Pay with M-Pesa';
     }
   });
+}
+
+function pollDarajaPaymentStatus(paymentId, statusButton, checkoutButton){
+  var attempts = 0;
+  var timer = setInterval(function(){
+    attempts += 1;
+    fetch('/api/payments/' + encodeURIComponent(paymentId) + '/status/', {
+      credentials: 'same-origin',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(response){
+      if(!response.ok) throw new Error('Unable to check payment status.');
+      return response.json();
+    })
+    .then(function(data){
+      if(data.status === 'SUCCESS' && data.access_granted){
+        clearInterval(timer);
+        if(statusButton){ statusButton.textContent = 'Payment verified, subscription active'; }
+        if(checkoutButton){ checkoutButton.textContent = 'Basic Active'; checkoutButton.disabled = true; }
+        if(typeof fetchDashboardStats === 'function') fetchDashboardStats();
+      } else if(data.status === 'FAILED' || data.status === 'CANCELLED'){
+        clearInterval(timer);
+        if(statusButton){ statusButton.textContent = 'Payment ' + data.status.toLowerCase(); }
+      } else if(attempts >= 36){
+        clearInterval(timer);
+        if(statusButton){ statusButton.textContent = 'Still awaiting provider confirmation'; }
+      }
+    })
+    .catch(function(){
+      if(attempts >= 36){
+        clearInterval(timer);
+        if(statusButton){ statusButton.textContent = 'Payment status unavailable; check again later'; }
+      }
+    });
+  }, 5000);
 }
 </script>
 <div class="risk-warning" style="max-width:900px;margin:24px auto 0">

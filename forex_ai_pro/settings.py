@@ -1,6 +1,7 @@
 import os
 from pathlib import Path
-from decouple import config
+from decouple import Config, RepositoryEnv, config
+from trading_app.email_config import build_email_settings
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -22,6 +23,14 @@ MIN_STRATEGY_VOTES = config('MIN_STRATEGY_VOTES', default=3, cast=int)
 TRADING_ANALYSIS_VERIFICATION_ENABLED = config(
     'TRADING_ANALYSIS_VERIFICATION_ENABLED', default=False, cast=bool,
 )
+DARAJA_CONSUMER_KEY = config('DARAJA_CONSUMER_KEY', default='')
+DARAJA_CONSUMER_SECRET = config('DARAJA_CONSUMER_SECRET', default='')
+DARAJA_SHORTCODE = config('DARAJA_SHORTCODE', default='')
+DARAJA_PASSKEY = config('DARAJA_PASSKEY', default='')
+DARAJA_CALLBACK_URL = config('DARAJA_CALLBACK_URL', default='')
+DARAJA_ENVIRONMENT = config('DARAJA_ENVIRONMENT', default='sandbox').lower()
+DARAJA_BASIC_AMOUNT_KES = config('DARAJA_BASIC_AMOUNT_KES', default=0, cast=int)
+DARAJA_TRANSACTION_TYPE = config('DARAJA_TRANSACTION_TYPE', default='CustomerPayBillOnline')
 
 ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
 
@@ -46,6 +55,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'trading_app.decorators.TwoFactorSessionMiddleware',
     'trading_app.middleware.dev_verification_session.DevVerificationSessionScopeMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
@@ -250,19 +260,18 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 
 # Email Configuration
-if not DEBUG and config('EMAIL_HOST_USER', default=''):
-    EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
-    EMAIL_HOST = config('EMAIL_HOST', default='smtp.gmail.com')
-    EMAIL_PORT = config('EMAIL_PORT', default=587, cast=int)
-    EMAIL_HOST_USER = config('EMAIL_HOST_USER', default='')
-    EMAIL_HOST_PASSWORD = config('EMAIL_HOST_PASSWORD', default='')
-    EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=True, cast=bool)
-elif config('EMAIL_FILE_BACKEND', default=False, cast=bool):
-    EMAIL_BACKEND = 'django.core.mail.backends.filebased.EmailBackend'
-    EMAIL_FILE_PATH = BASE_DIR / 'sent_emails'
-else:
-    EMAIL_BACKEND = 'django.core.mail.backends.console.EmailBackend'
-DEFAULT_FROM_EMAIL = config('DEFAULT_FROM_EMAIL', default='ATS Application <noreply@atsapplication.com>')
+_email_env = Config(RepositoryEnv(str(BASE_DIR / '.env')))
+globals().update(build_email_settings(
+    DEBUG,
+    host=_email_env('EMAIL_HOST', default='smtp.gmail.com'),
+    port=_email_env('EMAIL_PORT', default=587, cast=int),
+    use_tls=_email_env('EMAIL_USE_TLS', default=True, cast=bool),
+    username=_email_env('EMAIL_HOST_USER', default=''),
+    password=_email_env('EMAIL_HOST_PASSWORD', default=''),
+    from_email=_email_env('DEFAULT_FROM_EMAIL', default='ATS Application <noreply@atsapplication.com>'),
+    file_backend=_email_env('EMAIL_FILE_BACKEND', default=False, cast=bool),
+    base_dir=BASE_DIR,
+))
 
 # OTP Settings
 OTP_EXPIRY_SECONDS = config('OTP_EXPIRY_SECONDS', default=300, cast=int)

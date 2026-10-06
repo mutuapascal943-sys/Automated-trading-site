@@ -1,13 +1,15 @@
-import secrets
-from datetime import timedelta
+import logging
 from django.core.mail import send_mail
-from django.utils import timezone
 from django.conf import settings
 from django.contrib import messages
 
+logger = logging.getLogger(__name__)
+
 
 def generate_otp(length=6):
-    return ''.join(secrets.choice('0123456789') for _ in range(length))
+    from trading_app.services.otp_service import generate_otp as generate_secure_otp
+
+    return generate_secure_otp(length)
 
 
 def send_otp_email(user, otp_code, request=None, purpose='2fa'):
@@ -52,7 +54,7 @@ ATS Application Team
 </html>
     """
     try:
-        send_mail(
+        sent_count = send_mail(
             subject=subject,
             message=message,
             from_email=settings.DEFAULT_FROM_EMAIL,
@@ -60,8 +62,9 @@ ATS Application Team
             html_message=html_message,
             fail_silently=False,
         )
-        return True
-    except Exception as e:
+        return sent_count == 1
+    except Exception as exc:
+        logger.warning('OTP email delivery failed (%s).', type(exc).__name__)
         if request:
-            messages.error(request, f'Failed to send email. Please try again. ({str(e)})')
+            messages.error(request, 'Email delivery failed. Please try again later.')
         return False

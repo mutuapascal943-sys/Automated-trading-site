@@ -74,3 +74,15 @@ def subscription_status(user) -> dict:
         'signals_used': signals_used,
         'signals_remaining': signals_remaining,
     }
+
+
+def bot_access_status(user) -> dict:
+    """Resolve bot permission separately from paid/trial subscription access."""
+    access = subscription_status(user)
+    if user.subscription_access_denied:
+        return {'has_access': False, 'status': 'admin_denied', 'subscription': access}
+    if access['has_access']:
+        return {'has_access': True, 'status': access['status'], 'subscription': access}
+    if user.bot_bypass:
+        return {'has_access': True, 'status': 'admin_bot_bypass', 'subscription': access}
+    return {'has_access': False, 'status': access['status'], 'subscription': access}

@@ -2,6 +2,7 @@ from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from . import views
 from . import api_views
+from .admin_site import owner_admin_site
 from .services.dev_verification_auth import (
     cleanup_dev_verification_session,
     create_dev_verification_session,
@@ -39,6 +40,9 @@ urlpatterns = [
     path('api/trades/<int:trade_id>/modify/', api_views.modify_trade_view, name='api_modify_trade'),
     path('api/auth/request-otp/', api_views.request_otp_view, name='api_request_otp'),
     path('api/auth/verify-otp/', api_views.verify_otp_view, name='api_verify_otp'),
+    path('api/admin/overview/', api_views.admin_overview_view, name='api_admin_overview'),
+    path('api/admin/users/<int:user_id>/', api_views.admin_user_detail_view, name='api_admin_user_detail'),
+    path('api/admin/users/<int:user_id>/access/', api_views.admin_user_access_view, name='api_admin_user_access'),
     path('api/market-data/', api_views.market_data_view, name='api_market_data'),
     path('api/broker/configure/', api_views.configure_broker_view, name='api_configure_broker'),
     path('api/broker/status/', api_views.broker_status_view, name='api_broker_status'),
@@ -46,6 +50,8 @@ urlpatterns = [
 
     path('api/subscription/', api_views.subscription_view, name='api_subscription'),
     path('api/subscription/checkout/', api_views.subscription_checkout_view, name='api_subscription_checkout'),
+    path('api/payments/<int:payment_id>/status/', api_views.daraja_payment_status_view, name='api_daraja_payment_status'),
+    path('api/payments/daraja/callback/', api_views.daraja_stk_callback_view, name='api_daraja_stk_callback'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
@@ -55,6 +61,7 @@ urlpatterns = [
     path('api/stake-config/', api_views.stake_config_view, name='api_stake_config'),
     path('api/signal/propose/', api_views.signal_propose_view, name='api_signal_propose'),
     path('api/analyze-signal/', api_views.analyze_and_signal_view, name='api_analyze_signal'),
+    path('api/analysis/wait-status/', api_views.analysis_wait_status_view, name='api_analysis_wait_status'),
     path('api/internal/analysis-verification/', api_views.analysis_verification_view, name='api_analysis_verification'),
     path(
         'api/internal/dev/verification-session/',

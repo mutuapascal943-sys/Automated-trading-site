@@ -8,7 +8,7 @@ from django.core.cache import cache
 from rest_framework.test import APIClient
 
 from trading_app.models import Subscription, TradingSignal, User
-from trading_app.services.subscription_access import subscription_status
+from trading_app.services.subscription_access import bot_access_status, subscription_status
 
 
 class SubscriptionAccessTests(TestCase):
@@ -72,11 +72,74 @@ class SubscriptionAccessTests(TestCase):
             expires_at=timezone.now() + timedelta(days=30),
         )
         self.assertEqual(subscription_status(self.user)['status'], 'subscribed')
+        self.assertTrue(bot_access_status(self.user)['has_access'])
+
+    def test_expired_subscription_without_bypass_locks_bot(self):
+        Subscription.objects.create(
+            user=self.user, tier='BASIC', is_active=True,
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.save(update_fields=['trial_started_at'])
+        self.assertFalse(bot_access_status(self.user)['has_access'])
+
+    def test_subscription_bypass_allows_expired_trial_and_subscription(self):
+        Subscription.objects.create(
+            user=self.user, tier='BASIC', is_active=False,
+            expires_at=timezone.now() - timedelta(days=1),
+        )
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.subscription_bypass = True
+        self.user.save(update_fields=['trial_started_at', 'subscription_bypass'])
+        self.assertEqual(subscription_status(self.user)['status'], 'admin_bypass')
+        self.assertTrue(bot_access_status(self.user)['has_access'])
+
+    def test_bot_bypass_off_restores_expired_subscription_lock(self):
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.bot_bypass = True
+        self.user.save(update_fields=['trial_started_at', 'bot_bypass'])
+        self.assertTrue(bot_access_status(self.user)['has_access'])
+        self.user.bot_bypass = False
+        self.user.save(update_fields=['bot_bypass'])
+        self.assertFalse(bot_access_status(self.user)['has_access'])
 
     def test_admin_bypass_grants_access(self):
         self.user.subscription_bypass = True
         self.user.save(update_fields=['subscription_bypass'])
         self.assertEqual(subscription_status(self.user)['status'], 'admin_bypass')
+
+    def test_bot_bypass_is_independent_of_subscription_access(self):
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.bot_bypass = True
+        self.user.save(update_fields=['trial_started_at', 'bot_bypass'])
+        self.assertFalse(subscription_status(self.user)['has_access'])
+        self.assertEqual(bot_access_status(self.user)['status'], 'admin_bot_bypass')
+
+    def test_bot_bypass_allows_bot_start_after_trial_expires(self):
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.bot_bypass = True
+        self.user.save(update_fields=['trial_started_at', 'bot_bypass'])
+        response = self.client.post('/api/bot/control/', {'action': 'start'}, format='json')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['status'], 'running')
+
+    def test_admin_denial_overrides_bot_bypass(self):
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.bot_bypass = True
+        self.user.subscription_access_denied = True
+        self.user.save(update_fields=['trial_started_at', 'bot_bypass', 'subscription_access_denied'])
+        self.assertFalse(bot_access_status(self.user)['has_access'])
+        self.assertEqual(bot_access_status(self.user)['status'], 'admin_denied')
+
+    def test_user_cannot_grant_bot_bypass_through_bot_api(self):
+        self.user.trial_started_at = timezone.now() - timedelta(days=2)
+        self.user.save(update_fields=['trial_started_at'])
+        response = self.client.post('/api/bot/control/', {
+            'action': 'start', 'bot_bypass': True,
+        }, format='json')
+        self.assertEqual(response.status_code, 403)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.bot_bypass)
 
     def test_admin_revocation_overrides_trial_and_bypass(self):
         self.user.trial_started_at = timezone.now()
@@ -136,13 +199,21 @@ class SubscriptionAccessTests(TestCase):
         response = self.client.post('/api/analyze-signal/', {'symbol': 'EUR/USD'}, format='json')
         self.assertEqual(response.status_code, 403)
 
+    def test_user_cannot_create_signal_outside_central_pipeline(self):
+        response = self.client.post('/api/signals/', {
+            'symbol': 'EUR/USD', 'signal_type': 'BUY', 'confidence': 99,
+            'entry_price': '1.10000', 'stop_loss': '1.09000', 'take_profit': '1.12000',
+        }, format='json')
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(TradingSignal.objects.filter(user=self.user).exists())
+
     @patch('trading_app.strategies.fibonacci.evaluate')
     @patch('trading_app.strategies.ict.evaluate')
     @patch('trading_app.strategies.momentum.evaluate')
     @patch('trading_app.strategies.support_resistance.evaluate')
     @patch('trading_app.trading_bot.technical_analyzer.analyze_technical')
     @patch('trading_app.api_views._candles_to_dicts')
-    @patch('trading_app.api_views._fetch_chart_candles')
+    @patch('trading_app.api_views._fetch_verification_candles')
     def test_analysis_response_includes_server_timing(
         self, fetch_candles, convert_candles, analyze, sr_vote, momentum_vote, ict_vote, fib_vote,
     ):
@@ -151,7 +222,7 @@ class SubscriptionAccessTests(TestCase):
         self.user.trial_started_at = timezone.now()
         self.user.save(update_fields=['trial_started_at'])
         cache.set(f'bot_status_{self.user.id}', {'status': 'running', 'market': 'EUR/USD'})
-        fetch_candles.return_value = [object()]
+        fetch_candles.return_value = ([object()], {}, None)
         convert_candles.return_value = [{
             'time': int(timezone.now().timestamp()),
             'open': 1.1, 'high': 1.12, 'low': 1.09, 'close': 1.11, 'volume': 1,
@@ -169,20 +240,30 @@ class SubscriptionAccessTests(TestCase):
             mocked_vote.return_value = StrategyResult(name, 'bullish', 0.8, (), (), {}, 0.1)
         convert_candles.return_value = [{
             'time': int(timezone.now().timestamp()) - (199 - i) * 900,
-            'open': 1.1 + i * 0.001, 'high': 1.101 + i * 0.001,
-            'low': 1.099 + i * 0.001, 'close': 1.1 + i * 0.001,
+            'open': 1.1, 'high': 1.101,
+            'low': 1.099, 'close': 1.1,
             'volume': 100,
         } for i in range(200)]
-
-        response = self.client.post(
-            reverse('api_analyze_signal'), {
-                'symbol': 'EUR/USD', 'granularity': 900,
-            }, format='json',
+        fetch_candles.return_value = (
+            [object()], {key: convert_candles.return_value for key in ('H4', 'M15', 'M5', 'M1')}, None,
         )
+
+        from trading_app.strategies.base import StrategyResult
+        choch_vote = StrategyResult('CHoCH', 'bullish', 0.8, (), (), {}, 0.1)
+        with patch('trading_app.strategies.choch.evaluate', return_value=choch_vote), \
+            patch('trading_app.api_views._predict_from_existing_candles', return_value=None), \
+                patch('trading_app.strategies.choch.fetch_multi_timeframe_candles', return_value={
+                    key: convert_candles.return_value for key in ('H4', 'M15', 'M5', 'M1')
+                }):
+            response = self.client.post(
+                reverse('api_analyze_signal'), {
+                    'symbol': 'EUR/USD', 'granularity': 900,
+                }, format='json',
+            )
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(fetch_candles.call_count, 1)
-        self.assertEqual(fetch_candles.call_args.kwargs['granularity'], 900)
+        self.assertEqual(fetch_candles.call_args.args[2], 900)
         self.assertEqual(response.json()['analysis']['granularity'], 900)
         self.assertGreaterEqual(response.json()['analysis_duration_ms'], 0)
         self.assertEqual(
@@ -194,7 +275,7 @@ class SubscriptionAccessTests(TestCase):
         self.assertIn('timings', response.json()['analysis'])
 
     @patch('trading_app.ml.inference.load_latest_model', return_value=None)
-    @patch('trading_app.api_views._fetch_chart_candles')
+    @patch('trading_app.api_views._fetch_verification_candles')
     def test_analysis_without_consensus_returns_neutral_no_signal(self, fetch_candles, _model):
         from django.urls import reverse
         self.user.trial_started_at = timezone.now()
@@ -204,7 +285,7 @@ class SubscriptionAccessTests(TestCase):
             open=1.1, high=1.12, low=1.09, close=1.11, volume=1,
             timestamp=timezone.now(),
         ) for _ in range(200)]
-        fetch_candles.return_value = raw_candles
+        fetch_candles.return_value = (raw_candles, {}, None)
 
         with patch('trading_app.trading_bot.technical_analyzer.analyze_technical') as analyze:
             analyze.return_value = SimpleNamespace(
@@ -213,7 +294,7 @@ class SubscriptionAccessTests(TestCase):
                 stop_loss=None, take_profit=None,
             )
             with patch('trading_app.api_views._candles_to_dicts', return_value=[{
-                'time': int(timezone.now().timestamp()) + i * 300,
+                'time': int(timezone.now().timestamp()) - (199 - i) * 300,
                 'open': 1.1, 'high': 1.12, 'low': 1.09, 'close': 1.11,
                 'volume': 1,
             } for i in range(200)]):
@@ -223,11 +304,12 @@ class SubscriptionAccessTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(response.json()['signal'])
-        self.assertEqual(response.json()['message'], 'No consensus')
+        self.assertEqual(response.json()['decision'], 'WAIT')
+        self.assertIn('No consensus', response.json()['message'])
 
     @patch('trading_app.ml.inference.load_latest_model', return_value=None)
-    @patch('trading_app.api_views._fetch_chart_candles')
-    def test_fast_consensus_skips_unneeded_ml(self, fetch_candles, model_loader):
+    @patch('trading_app.api_views._fetch_verification_candles')
+    def test_strategy_confluence_still_runs_ml_compatibility_check(self, fetch_candles, model_loader):
         from django.urls import reverse
         from trading_app.strategies.base import StrategyResult
 
@@ -239,12 +321,15 @@ class SubscriptionAccessTests(TestCase):
             open=1.1, high=1.12, low=1.09, close=1.11, volume=100,
             timestamp=timezone.now(),
         ) for _ in range(200)]
-        fetch_candles.return_value = raw_candles
+        fetch_candles.return_value = (raw_candles, {}, None)
         candle_dicts = [{
             'time': int(timezone.now().timestamp()) - (199 - i) * 300,
             'open': 1.1, 'high': 1.12, 'low': 1.09, 'close': 1.11,
             'volume': 100,
         } for i in range(200)]
+        fetch_candles.return_value = (
+            [object()], {key: candle_dicts for key in ('H4', 'M15', 'M5', 'M1')}, None,
+        )
         technical = SimpleNamespace(
             bias='bullish', confidence=0.8, rationale='technical bullish', rsi=60,
             sma_short=1.11, sma_long=1.10, atr=0.01,
@@ -257,6 +342,10 @@ class SubscriptionAccessTests(TestCase):
 
         with patch('trading_app.api_views._candles_to_dicts', return_value=candle_dicts), \
                 patch('trading_app.trading_bot.technical_analyzer.analyze_technical', return_value=technical), \
+            patch('trading_app.strategies.choch.evaluate', return_value=StrategyResult('CHoCH', 'bullish', 0.8, (), (), {}, 0.1)), \
+            patch('trading_app.strategies.choch.fetch_multi_timeframe_candles', return_value={
+                key: candle_dicts for key in ('H4', 'M15', 'M5', 'M1')
+            }), \
                 patch('trading_app.strategies.momentum.evaluate', return_value=bullish_vote), \
             patch('trading_app.strategies.support_resistance.evaluate', return_value=sr_vote), \
             patch('trading_app.strategies.fibonacci.evaluate', return_value=fib_vote), \
@@ -266,16 +355,16 @@ class SubscriptionAccessTests(TestCase):
             }, format='json')
 
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['analysis']['fast_path'])
+        self.assertFalse(response.json()['analysis']['fast_path'])
         self.assertEqual(response.json()['signal']['signal_type'], 'BUY')
-        model_loader.assert_not_called()
+        model_loader.assert_called_once()
 
     @patch('trading_app.ml.inference.load_latest_model', return_value=None)
     @patch('trading_app.strategies.fibonacci.evaluate')
     @patch('trading_app.strategies.ict.evaluate')
     @patch('trading_app.strategies.momentum.evaluate')
     @patch('trading_app.strategies.support_resistance.evaluate')
-    @patch('trading_app.api_views._fetch_chart_candles')
+    @patch('trading_app.api_views._fetch_verification_candles')
     def test_null_level_pending_signal_does_not_block_new_valid_signal(
         self, fetch_candles, sr_eval, momentum_eval, ict_eval, fib_eval, _model,
     ):
@@ -299,11 +388,18 @@ class SubscriptionAccessTests(TestCase):
             'open': 1.10, 'high': 1.12, 'low': 1.09, 'close': 1.11,
             'volume': 100,
         } for i in range(200)]
+        fetch_candles.return_value = (
+            [object()], {key: candle_dicts for key in ('H4', 'M15', 'M5', 'M1')}, None,
+        )
         vote = StrategyResult('test_vote', 'bullish', 0.8, (), (), {}, 0.1)
         for evaluator in (sr_eval, momentum_eval, ict_eval, fib_eval):
             evaluator.return_value = vote
 
         with patch('trading_app.api_views._candles_to_dicts', return_value=candle_dicts), \
+            patch('trading_app.strategies.choch.evaluate', return_value=StrategyResult('CHoCH', 'bullish', 0.8, (), (), {}, 0.1)), \
+            patch('trading_app.strategies.choch.fetch_multi_timeframe_candles', return_value={
+                key: candle_dicts for key in ('H4', 'M15', 'M5', 'M1')
+            }), \
                 patch('trading_app.trading_bot.technical_analyzer.analyze_technical') as analyze:
             analyze.return_value = SimpleNamespace(
                 bias='bullish', confidence=0.85, rationale='test setup', rsi=65,
@@ -329,21 +425,29 @@ class SubscriptionAccessTests(TestCase):
         self.assertFalse(response.json()['execution_enabled'])
 
     @override_settings(MOCK_SUBSCRIPTIONS_ENABLED=True)
-    def test_mock_checkout_grants_thirty_day_access(self):
-        response = self.client.post('/api/subscription/checkout/', {'tier': 'BASIC'}, format='json')
-        self.assertEqual(response.status_code, 200)
-        self.assertTrue(response.json()['access_granted'])
-        self.assertEqual(response.json()['status'], 'mock_activated')
-        self.user.refresh_from_db()
-        subscription = self.user.subscription
-        self.assertEqual(subscription.tier, 'BASIC')
-        self.assertGreater(subscription.expires_at, timezone.now() + timedelta(days=29))
+    @patch('trading_app.payments.daraja.initiate_stk_push', side_effect=__import__('trading_app.payments.daraja', fromlist=['DarajaError']).DarajaError('sandbox unavailable'))
+    def test_mock_checkout_setting_cannot_activate_subscription(self, _stk):
+        response = self.client.post('/api/subscription/checkout/', {
+            'tier': 'BASIC', 'phone_number': '0712345678',
+        }, format='json')
+        self.assertEqual(response.status_code, 502)
+        self.assertNotEqual(response.json().get('status'), 'mock_activated')
+        subscription = Subscription.objects.filter(user=self.user).first()
+        self.assertTrue(subscription is None or subscription.tier == 'FREE')
 
     @override_settings(MOCK_SUBSCRIPTIONS_ENABLED=False)
-    def test_checkout_requires_provider_when_mock_is_disabled(self):
-        response = self.client.post('/api/subscription/checkout/', {'tier': 'BASIC'}, format='json')
-        self.assertEqual(response.status_code, 503)
+    @patch('trading_app.payments.daraja.initiate_stk_push', side_effect=__import__('trading_app.payments.daraja', fromlist=['DarajaError']).DarajaError('sandbox unavailable'))
+    def test_checkout_requires_provider_when_mock_is_disabled(self, _stk):
+        response = self.client.post('/api/subscription/checkout/', {
+            'tier': 'BASIC', 'phone_number': '0712345678',
+        }, format='json')
+        self.assertEqual(response.status_code, 502)
         self.assertFalse(response.json()['access_granted'])
+        self.assertEqual(Subscription.objects.get(user=self.user).tier, 'FREE')
+
+    def test_checkout_rejects_missing_phone_number(self):
+        response = self.client.post('/api/subscription/checkout/', {'tier': 'BASIC'}, format='json')
+        self.assertEqual(response.status_code, 400)
         self.assertFalse(Subscription.objects.filter(user=self.user).exists())
 
     @patch('trading_app.tasks.build_credentials', return_value={})

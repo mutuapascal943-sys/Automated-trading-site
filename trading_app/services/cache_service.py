@@ -34,26 +34,24 @@ class CacheService:
         cache.set(key, candles, timeout=timeout or CacheService.CANDLE_CACHE_TIMEOUT)
 
     @staticmethod
-    def set_otp(user_id: int, otp_code: str) -> None:
-        key = f'{CacheService.OTP_PREFIX}{user_id}'
-        cache.set(key, otp_code, timeout=settings.OTP_EXPIRY_SECONDS)
+    def set_otp(user_id: int, otp_code: str, purpose: str = '2fa') -> None:
+        from trading_app.services.otp_service import cache_otp_marker
+
+        cache_otp_marker(user_id, purpose)
 
     @staticmethod
-    def get_otp(user_id: int) -> str | None:
-        key = f'{CacheService.OTP_PREFIX}{user_id}'
-        return cache.get(key)
+    def get_otp(user_id: int, purpose: str = '2fa') -> str | None:
+        # Raw OTP values are deliberately never cached; this legacy method remains empty.
+        return None
 
     @staticmethod
-    def delete_otp(user_id: int) -> None:
-        key = f'{CacheService.OTP_PREFIX}{user_id}'
-        cache.delete(key)
+    def delete_otp(user_id: int, purpose: str | None = None) -> None:
+        from trading_app.services.otp_service import clear_otp_marker
+
+        clear_otp_marker(user_id, purpose)
 
     @staticmethod
     def verify_otp(user_id: int, code: str) -> bool:
-        stored = CacheService.get_otp(user_id)
-        if stored and stored == code:
-            CacheService.delete_otp(user_id)
-            return True
         return False
 
     @staticmethod

@@ -14,6 +14,7 @@
 
       <form class="auth-form active" method="post" action="{% url 'login' %}">
         {% csrf_token %}
+        {% if request.GET.next|default:''|slice:":7" == "/admin/" %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
         <div>
           <label class="form-label" for="login-email">Email Address</label>
           {{ form.username }}
@@ -31,7 +32,7 @@
         <button type="submit" class="btn-primary">Sign In →</button>
         <div class="form-divider">or</div>
         <a href="{% url 'register' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Create new account</a>
-        <a href="{% url 'admin:login' %}" class="form-link" style="display:block;text-align:center;margin-top:14px">Administrator sign in</a>
+        <a href="{% url 'owner_admin:login' %}" class="form-link" style="display:block;text-align:center;margin-top:14px">Administrator sign in</a>
       </form>
     </div>
   </div>

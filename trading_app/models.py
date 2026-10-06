@@ -8,9 +8,14 @@ class User(AbstractUser):
     email = models.EmailField(unique=True)
     broker = models.CharField(max_length=100, blank=True, default='')
     two_factor_enabled = models.BooleanField(default=False)
+    email_verified = models.BooleanField(default=False)
     subscription_bypass = models.BooleanField(
         default=False,
         help_text='Admin grant for bot access without an active paid subscription or trial',
+    )
+    bot_bypass = models.BooleanField(
+        default=False,
+        help_text='Admin grant for bot access independent of subscription access',
     )
     subscription_access_denied = models.BooleanField(
         default=False,
@@ -81,7 +86,7 @@ class RiskConfig(models.Model):
 
 class EmailOTP(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='otps')
-    code = models.CharField(max_length=6)
+    code = models.CharField(max_length=64)
     purpose = models.CharField(max_length=20, default='2fa', choices=[
         ('2fa', 'Two-Factor Authentication'),
         ('password_reset', 'Password Reset'),
@@ -90,6 +95,7 @@ class EmailOTP(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     is_used = models.BooleanField(default=False)
+    failed_attempts = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
         indexes = [
@@ -162,6 +168,9 @@ class TradingSignal(models.Model):
     outcome_price = models.DecimalField(max_digits=14, decimal_places=5, null=True, blank=True)
     outcome_resolved_at = models.DateTimeField(null=True, blank=True)
     reasoning = models.TextField(blank=True, default='')
+    granularity = models.PositiveIntegerField(null=True, blank=True)
+    evidence_at = models.DateTimeField(null=True, blank=True)
+    strategy_evidence = models.JSONField(default=list, blank=True)
     risk_level = models.CharField(max_length=10, default='MEDIUM', choices=[
         ('LOW', 'Low'), ('MEDIUM', 'Medium'), ('HIGH', 'High'),
     ])
@@ -232,6 +241,44 @@ class Subscription(models.Model):
 
     def __str__(self):
         return f'{self.user.email} - {self.tier}'
+
+
+class PaymentTransaction(models.Model):
+    STATUS_INITIATED = 'INITIATED'
+    STATUS_PENDING = 'PENDING'
+    STATUS_SUCCESS = 'SUCCESS'
+    STATUS_FAILED = 'FAILED'
+    STATUS_CANCELLED = 'CANCELLED'
+    STATUS_CHOICES = [
+        (STATUS_INITIATED, 'Initiated'),
+        (STATUS_PENDING, 'Pending'),
+        (STATUS_SUCCESS, 'Successful'),
+        (STATUS_FAILED, 'Failed'),
+        (STATUS_CANCELLED, 'Cancelled'),
+    ]
+
+    user = models.ForeignKey(User, on_delete=models.PROTECT, related_name='payment_transactions')
+    subscription = models.ForeignKey(Subscription, on_delete=models.PROTECT, related_name='payment_transactions')
+    tier = models.CharField(max_length=10, choices=Subscription.TIERS)
+    amount_kes = models.PositiveIntegerField()
+    phone_number = models.CharField(max_length=12)
+    merchant_request_id = models.CharField(max_length=100, blank=True, default='')
+    checkout_request_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
+    mpesa_receipt_number = models.CharField(max_length=32, unique=True, null=True, blank=True)
+    result_code = models.CharField(max_length=20, blank=True, default='')
+    result_description = models.CharField(max_length=255, blank=True, default='')
+    status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_INITIATED)
+    created_at = models.DateTimeField(auto_now_add=True)
+    completed_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['user', 'status', 'created_at']),
+            models.Index(fields=['merchant_request_id']),
+        ]
+
+    def __str__(self):
+        return f'{self.tier} payment {self.pk} ({self.status})'
 
 
 SECURITY_QUESTIONS = [
@@ -316,3 +363,61 @@ class RememberMeToken(models.Model):
 
     def __str__(self):
         return f'{self.user.email} - remember_me'
+
+
+class SystemEvent(models.Model):
+    EVENT_ANALYSIS_FAILED = 'ANALYSIS_FAILED'
+    EVENT_FEED_FAILED = 'FEED_FAILED'
+    EVENT_FEED_SUCCEEDED = 'FEED_SUCCEEDED'
+    EVENT_CHOICES = [
+        (EVENT_ANALYSIS_FAILED, 'Analysis failed'),
+        (EVENT_FEED_FAILED, 'Market data unavailable'),
+        (EVENT_FEED_SUCCEEDED, 'Market data available'),
+    ]
+
+    event_type = models.CharField(max_length=32, choices=EVENT_CHOICES)
+    market = models.CharField(max_length=30, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.event_type} {self.market}'.strip()
+
+
+class AdminAuditLog(models.Model):
+    administrator = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='admin_audit_actions',
+    )
+    affected_user = models.ForeignKey(
+        User, on_delete=models.PROTECT, related_name='admin_audit_events',
+    )
+    action = models.CharField(max_length=64)
+    previous_state = models.JSONField(default=dict)
+    new_state = models.JSONField(default=dict)
+    ip_address = models.GenericIPAddressField(null=True, blank=True)
+    user_agent = models.CharField(max_length=512, blank=True, default='')
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        ordering = ['-created_at']
+
+    def __str__(self):
+        return f'{self.action}: {self.administrator_id} -> {self.affected_user_id}'
+
+
+class AnalysisWaitCycle(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='analysis_wait_cycles')
+    symbol = models.CharField(max_length=30)
+    granularity = models.PositiveIntegerField()
+    wait_started_at = models.DateTimeField()
+    wait_expires_at = models.DateTimeField()
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user', 'symbol', 'granularity'],
+                name='unique_analysis_wait_cycle',
+            ),
+        ]

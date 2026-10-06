@@ -216,13 +216,13 @@ class ConsensusTests(TestCase):
     def _result(self, name, bias):
         return StrategyResult(name, bias, 0.8, (), (), {}, 0.1)
 
-    def test_consensus_counts_only_directional_votes(self):
+    def test_consensus_rejects_any_directional_contradiction(self):
         result = combine([
             self._result('a', 'bullish'), self._result('b', 'bullish'),
-            self._result('c', 'bullish'), self._result('d', 'neutral'),
+            self._result('c', 'bullish'), self._result('d', 'bearish'),
         ], threshold=0.70, minimum_votes=3)
-        self.assertEqual(result.bias, 'bullish')
-        self.assertEqual((result.buy_votes, result.sell_votes, result.total_directional_votes), (3, 0, 3))
+        self.assertEqual(result.bias, 'neutral')
+        self.assertEqual((result.buy_votes, result.sell_votes, result.total_directional_votes), (3, 1, 4))
 
     def test_insufficient_or_conflicting_consensus_is_neutral(self):
         results = [self._result('a', 'bullish'), self._result('b', 'bearish'), self._result('c', 'neutral')]

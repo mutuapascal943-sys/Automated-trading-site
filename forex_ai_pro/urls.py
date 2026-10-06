@@ -1,11 +1,11 @@
 from django.urls import path, include
-from django.contrib import admin
 from django.conf import settings
 from django.conf.urls.static import static
 from django.shortcuts import redirect
+from trading_app.admin_site import owner_admin_site
 
 urlpatterns = [
-    path('admin/', admin.site.urls),
+    path('admin/', owner_admin_site.urls),
     path('', include('trading_app.urls')),
 ]
 

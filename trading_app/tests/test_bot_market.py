@@ -94,10 +94,11 @@ class BotMarketAPITests(TestCase):
     def test_admin_login_is_available_from_auth_screens(self):
         login_page = self.client.get(reverse('login'))
         self.assertEqual(login_page.status_code, 200)
-        self.assertContains(login_page, reverse('admin:login'))
+        self.assertContains(login_page, reverse('owner_admin:login'))
 
-        admin_page = self.client.get(reverse('admin:login'))
-        self.assertEqual(admin_page.status_code, 200)
+        admin_page = self.client.get(reverse('owner_admin:login'))
+        self.assertEqual(admin_page.status_code, 302)
+        self.assertIn(reverse('login'), admin_page['Location'])
 
     def test_bot_market_requires_auth(self):
         c = APIClient()

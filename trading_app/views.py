@@ -19,8 +19,10 @@ from .forms import (
 )
 from .models import User, EmailOTP, Trade, TradingSignal, SecurityQuestion, RememberMeToken, Notification
 from .decorators import two_factor_required
-from .services.email_service import generate_otp, send_otp_email
+from .services.email_service import send_otp_email
+from .services.otp_service import OTPResult, can_request_otp, consume_otp, invalidate_otp, issue_otp
 from .services.cache_service import CacheService
+from .services.admin_access import is_authorized_admin
 
 logger = logging.getLogger(__name__)
 
@@ -43,27 +45,66 @@ def register_view(request):
             user.username = username
             user.trial_started_at = timezone.now()
             user.save()
-            create_notification(user, 'Account Created', 'Welcome to Automated Trading Signal Application! Please verify your email to get started.', 'account')
-            login(request, user)
-
-            otp_code = generate_otp()
-            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-            EmailOTP.objects.create(
-                user=user, code=otp_code, purpose='2fa', expires_at=expires_at
-            )
-            CacheService.set_otp(user.id, otp_code)
-            send_otp_email(user, otp_code, request, purpose='email_verify')
-
-            messages.success(request, 'Account created! Check your email for the verification code.')
+            request.session['registration_user_id'] = user.id
+            if _issue_email_otp(request, user, 'email_verify', scope='issue'):
+                messages.success(request, 'Account created. Check your email for the verification code.')
+            else:
+                messages.error(request, 'Your account was created, but email verification is not complete. Resend a code when delivery is available.')
             return redirect('setup_2fa')
     return render(request, 'registration/register.html', {'form': form})
 
 
 def _login_rate_key(request) -> str:
-    """Rate-limit key based on IP + submitted email to prevent global lockout."""
     email = request.POST.get('username', 'unknown')
     ip = request.META.get('REMOTE_ADDR', 'unknown')
     return f'login_{ip}_{email}'
+
+
+def _issue_email_otp(request, user, purpose: str, scope: str = 'issue') -> bool:
+    if not can_request_otp(user.id, purpose, scope=scope):
+        messages.error(request, 'Too many verification code requests. Please wait before trying again.')
+        return False
+    otp, raw_code = issue_otp(user, purpose)
+    if not send_otp_email(user, raw_code, purpose=purpose):
+        invalidate_otp(otp)
+        messages.error(request, 'Email delivery failed. Please try again later.')
+        return False
+    messages.info(request, 'A verification code has been sent to your email.')
+    return True
+
+
+def _otp_error_message(result: OTPResult) -> str:
+    return {
+        OTPResult.INVALID: 'Incorrect verification code. Please try again.',
+        OTPResult.EXPIRED: 'Verification code expired. Request a new code.',
+        OTPResult.RATE_LIMITED: 'Too many incorrect attempts. Request a new code later.',
+        OTPResult.USED: 'This verification code has already been used. Request a new code.',
+    }.get(result, 'Verification failed. Please request a new code.')
+
+
+def _complete_login(request, user, remember_me: bool = False, rate_key: str | None = None):
+    login(request, user)
+    request.session['2fa_verified'] = True
+    if is_authorized_admin(user):
+        request.session['admin_2fa_verified'] = True
+    else:
+        request.session.pop('admin_2fa_verified', None)
+    for key in ('pending_2fa_user_id', 'pending_2fa_remember_me', 'otp_sent'):
+        request.session.pop(key, None)
+    if rate_key:
+        CacheService.reset_rate_limit(rate_key)
+    create_notification(user, 'New Login', 'New sign-in to your account from a web browser.', 'account')
+    admin_return_to = request.session.pop('admin_return_to', '')
+    if is_authorized_admin(user) and admin_return_to.startswith('/admin/') and not remember_me:
+        return redirect(admin_return_to)
+    if not remember_me:
+        return redirect('dashboard')
+    token = secrets.token_hex(32)
+    RememberMeToken.objects.create(user=user, token=token, expires_at=timezone.now() + timedelta(days=30))
+    response = HttpResponseRedirect(reverse('dashboard'))
+    response.set_signed_cookie('remember_me', token, max_age=30 * 24 * 3600,
+                               secure=not settings.DEBUG, httponly=True, samesite='Lax')
+    return response
 
 
 def login_view(request):
@@ -71,157 +112,113 @@ def login_view(request):
         return redirect('dashboard')
     form = LoginForm()
     if request.method == 'POST':
-        # Rate limit applies to ALL login attempts (even wrong usernames)
-        # to prevent credential stuffing at the network level.
-        rl_key = _login_rate_key(request)
-        if not CacheService.check_rate_limit(
-            rl_key,
-            max_attempts=settings.MAX_LOGIN_ATTEMPTS,
-            window=300,
-        ):
+        rate_key = _login_rate_key(request)
+        if not CacheService.check_rate_limit(rate_key, max_attempts=settings.MAX_LOGIN_ATTEMPTS, window=300):
             messages.error(request, 'Too many login attempts. Please try again in 5 minutes.')
             return render(request, 'registration/login.html', {'form': form})
-
         form = LoginForm(request, data=request.POST)
         if form.is_valid():
             user = form.get_user()
-
             remember_me = request.POST.get('remember_me') == 'on'
-            login(request, user)
-
-            if remember_me:
-                token = secrets.token_hex(32)
-                RememberMeToken.objects.create(
-                    user=user,
-                    token=token,
-                    expires_at=timezone.now() + timedelta(days=30),
-                )
-                response = HttpResponseRedirect(
-                    reverse('verify_2fa') if user.two_factor_enabled else reverse('dashboard')
-                )
-                response.set_signed_cookie(
-                    'remember_me', token,
-                    max_age=30 * 24 * 3600,
-                    secure=not settings.DEBUG,
-                    httponly=True,
-                    samesite='Lax',
-                )
-                if not user.two_factor_enabled:
-                    CacheService.reset_rate_limit(rl_key)
-                    messages.success(request, f'Welcome back, {user.email}!')
-                return response
-
-            if user.two_factor_enabled:
-                otp_code = generate_otp()
-                expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-                EmailOTP.objects.create(
-                    user=user, code=otp_code, purpose='2fa', expires_at=expires_at
-                )
-                CacheService.set_otp(user.id, otp_code)
-                send_otp_email(user, otp_code, request, purpose='2fa')
-                messages.info(request, 'A verification code has been sent to your email.')
+            next_path = request.POST.get('next', request.GET.get('next', ''))
+            if next_path.startswith('/admin/'):
+                request.session['admin_return_to'] = next_path
+            if user.two_factor_enabled or is_authorized_admin(user):
+                request.session['pending_2fa_user_id'] = user.id
+                request.session['pending_2fa_remember_me'] = remember_me
+                if not _issue_email_otp(request, user, '2fa', scope='issue'):
+                    form.add_error(None, 'We could not send your verification code. Please use resend after a short wait.')
+                    request.session.pop('pending_2fa_user_id', None)
+                    request.session.pop('pending_2fa_remember_me', None)
+                    return render(request, 'registration/login.html', {'form': form})
                 return redirect('verify_2fa')
-
-            CacheService.reset_rate_limit(rl_key)
-            create_notification(user, 'New Login', f'New sign-in to your account from a web browser.', 'account')
             messages.success(request, f'Welcome back, {user.email}!')
-            return redirect('dashboard')
+            return _complete_login(request, user, remember_me=remember_me, rate_key=rate_key)
     return render(request, 'registration/login.html', {'form': form})
 
 
-@login_required
 def setup_2fa_view(request):
-    if request.user.two_factor_enabled:
+    pending_registration_id = request.session.get('registration_user_id')
+    if pending_registration_id and not request.user.is_authenticated:
+        try:
+            verification_user = User.objects.get(pk=pending_registration_id)
+        except User.DoesNotExist:
+            request.session.pop('registration_user_id', None)
+            messages.error(request, 'Registration verification expired. Please register again.')
+            return redirect('register')
+    elif request.user.is_authenticated:
+        verification_user = request.user
+    else:
+        return redirect('login')
+
+    if verification_user.two_factor_enabled:
         messages.info(request, '2FA is already enabled.')
         return redirect('dashboard')
+    active_purpose = 'email_verify' if pending_registration_id else '2fa'
+    otp_form = OTPForm()
 
     if request.method == 'POST':
         otp_form = OTPForm(request.POST)
         if otp_form.is_valid():
-            code = otp_form.cleaned_data['otp_code']
-
-            if CacheService.verify_otp(request.user.id, code):
-                otp = EmailOTP.objects.filter(
-                    user=request.user, code=code, purpose='2fa', is_used=False
-                ).last()
-                if otp and otp.is_valid():
-                    otp.is_used = True
-                    otp.save()
-                    request.user.two_factor_enabled = True
-                    request.user.save()
-                    request.session['2fa_verified'] = True
-                    messages.success(request, 'Two-factor authentication enabled successfully!')
-                    return redirect('dashboard')
-
-            messages.error(request, 'Invalid or expired code. A new code has been sent.')
-            otp_code = generate_otp()
-            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-            EmailOTP.objects.create(
-                user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
-            )
-            CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request, purpose='2fa')
+            result = consume_otp(verification_user, active_purpose, otp_form.cleaned_data['otp_code'])
+            if result == OTPResult.VERIFIED:
+                if pending_registration_id:
+                    verification_user.two_factor_enabled = True
+                    verification_user.email_verified = True
+                    verification_user.save(update_fields=['two_factor_enabled', 'email_verified'])
+                    request.session.pop('registration_user_id', None)
+                    create_notification(verification_user, 'Account Created', 'Email verified successfully.', 'account')
+                    return _complete_login(request, verification_user)
+                verification_user.two_factor_enabled = True
+                verification_user.save(update_fields=['two_factor_enabled'])
+                request.session['2fa_verified'] = True
+                create_notification(verification_user, 'Two-Factor Authentication', 'Email two-factor authentication enabled.', 'account')
+                messages.success(request, 'Two-factor authentication enabled successfully.')
+                return redirect('dashboard')
+            otp_form.add_error('otp_code', _otp_error_message(result))
     else:
-        otp_code = generate_otp()
-        expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-        EmailOTP.objects.create(
-            user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
-        )
-        CacheService.set_otp(request.user.id, otp_code)
-        send_otp_email(request.user, otp_code, request, purpose='2fa')
-        messages.info(request, 'A verification code has been sent to your email.')
+        if not EmailOTP.objects.filter(user=verification_user, purpose=active_purpose, is_used=False, expires_at__gt=timezone.now()).exists():
+            _issue_email_otp(request, verification_user, active_purpose, scope='issue')
 
-    otp_form = OTPForm()
     return render(request, 'registration/setup_2fa.html', {
         'otp_form': otp_form,
-        'user_email': request.user.email,
+        'user_email': verification_user.email,
+        'purpose_label': 'email verification' if pending_registration_id else '2FA setup',
+        'pending_registration': bool(pending_registration_id),
     })
 
 
-@login_required
 def verify_2fa_view(request):
-    if not request.user.two_factor_enabled:
+    pending_user_id = request.session.get('pending_2fa_user_id')
+    pending_login = not request.user.is_authenticated
+    if pending_login:
+        try:
+            user = User.objects.get(pk=pending_user_id)
+        except User.DoesNotExist:
+            return redirect('login')
+    else:
+        user = request.user
+    if not user.two_factor_enabled and not is_authorized_admin(user):
         return redirect('dashboard')
+    otp_form = OTPForm()
 
     if request.method == 'POST':
         otp_form = OTPForm(request.POST)
         if otp_form.is_valid():
-            code = otp_form.cleaned_data['otp_code']
-
-            if CacheService.verify_otp(request.user.id, code):
-                otp = EmailOTP.objects.filter(
-                    user=request.user, code=code, purpose='2fa', is_used=False
-                ).last()
-                if otp and otp.is_valid():
-                    otp.is_used = True
-                    otp.save()
-                    request.session['2fa_verified'] = True
-                    CacheService.reset_rate_limit(f'login_{request.user.id}')
-                    messages.success(request, f'Welcome back, {request.user.email}!')
-                    return redirect('dashboard')
-
-            messages.error(request, 'Invalid or expired code. A new code has been sent.')
-            otp_code = generate_otp()
-            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-            EmailOTP.objects.create(
-                user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
-            )
-            CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request, purpose='2fa')
+            result = consume_otp(user, '2fa', otp_form.cleaned_data['otp_code'])
+            if result == OTPResult.VERIFIED:
+                remember_me = request.session.get('pending_2fa_remember_me', False)
+                return _complete_login(request, user, remember_me=remember_me)
+            otp_form.add_error('otp_code', _otp_error_message(result))
     else:
-        if not request.session.get('otp_sent'):
-            otp_code = generate_otp()
-            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-            EmailOTP.objects.create(
-                user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
-            )
-            CacheService.set_otp(request.user.id, otp_code)
-            send_otp_email(request.user, otp_code, request, purpose='2fa')
-            request.session['otp_sent'] = True
-            messages.info(request, 'A verification code has been sent to your email.')
+        if pending_user_id and not EmailOTP.objects.filter(user=user, purpose='2fa', is_used=False, expires_at__gt=timezone.now()).exists():
+            _issue_email_otp(request, user, '2fa', scope='resend')
 
-    otp_form = OTPForm()
-    return render(request, 'registration/verify_2fa.html', {'otp_form': otp_form})
+    return render(request, 'registration/verify_2fa.html', {
+        'otp_form': otp_form,
+        'user_email': user.email,
+        'pending_login': pending_login,
+    })
 
 
 @login_required
@@ -250,10 +247,14 @@ def auto_login_view(request):
         try:
             rm_token = RememberMeToken.objects.get(token=token, expires_at__gt=timezone.now())
             user = rm_token.user
-            login(request, user)
-            if user.two_factor_enabled and not request.session.get('2fa_verified'):
+            if user.two_factor_enabled or is_authorized_admin(user):
+                request.session['pending_2fa_user_id'] = user.id
+                request.session['pending_2fa_remember_me'] = True
+                if not EmailOTP.objects.filter(user=user, purpose='2fa', is_used=False, expires_at__gt=timezone.now()).exists():
+                    _issue_email_otp(request, user, '2fa', scope='resend')
                 messages.info(request, 'Please verify your identity with 2FA.')
                 return redirect('verify_2fa')
+            login(request, user)
             messages.success(request, f'Welcome back, {user.email}!')
             return redirect('dashboard')
         except RememberMeToken.DoesNotExist:
@@ -382,24 +383,21 @@ def toggle_2fa_view(request):
     return redirect('settings_profile')
 
 
-@login_required
 def resend_otp_view(request):
-    if request.method == 'POST':
-        if not CacheService.check_rate_limit(f'resend_otp_{request.user.id}', max_attempts=3, window=60):
-            messages.error(request, 'Too many requests. Please wait 60 seconds.')
-            return redirect('verify_2fa')
-
-        otp_code = generate_otp()
-        expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-        EmailOTP.objects.create(
-            user=request.user, code=otp_code, purpose='2fa', expires_at=expires_at
-        )
-        CacheService.set_otp(request.user.id, otp_code)
-        sent = send_otp_email(request.user, otp_code, request, purpose='2fa')
-        if sent:
-            messages.success(request, 'A new verification code has been sent to your email.')
-        return redirect('verify_2fa')
-    return redirect('dashboard')
+    if request.method != 'POST':
+        return redirect('login')
+    user_id = request.session.get('pending_2fa_user_id') or request.session.get('registration_user_id')
+    if user_id:
+        user = User.objects.filter(pk=user_id).first()
+        purpose = 'email_verify' if request.session.get('registration_user_id') else '2fa'
+    elif request.user.is_authenticated and request.user.two_factor_enabled and not request.session.get('2fa_verified'):
+        user = request.user
+        purpose = '2fa'
+    else:
+        return redirect('login')
+    if user:
+        _issue_email_otp(request, user, purpose, scope='resend')
+    return redirect('setup_2fa' if purpose == 'email_verify' else 'verify_2fa')
 
 
 def password_reset_request_view(request):
@@ -415,22 +413,11 @@ def password_reset_request_view(request):
                 user = User.objects.get(email__iexact=email)
             except User.DoesNotExist:
                 messages.success(request, 'If an account with that email exists, a verification code has been sent.')
-                return redirect('password_reset_verify')
-
-            if not CacheService.check_rate_limit(f'pwd_reset_{user.id}', max_attempts=3, window=300):
-                messages.success(request, 'If an account with that email exists, a verification code has been sent.')
-                return redirect('password_reset_verify')
-
-            otp_code = generate_otp()
-            expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-            EmailOTP.objects.create(
-                user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
-            )
-            CacheService.set_otp(user.id, otp_code)
-            send_otp_email(user, otp_code, request, purpose='password_reset')
+                return redirect('password_reset_request')
 
             request.session['reset_user_id'] = user.id
-            messages.success(request, 'A verification code has been sent to your email.')
+            if not _issue_email_otp(request, user, 'password_reset', scope='issue'):
+                messages.error(request, 'We could not deliver the recovery code. Please try again later.')
             return redirect('password_reset_verify')
 
     return render(request, 'registration/password_reset_request.html', {'form': form})
@@ -455,21 +442,13 @@ def password_reset_verify_view(request):
     if request.method == 'POST':
         form = PasswordResetVerifyForm(request.POST)
         if form.is_valid():
-            code = form.cleaned_data['otp_code']
-
-            if CacheService.verify_otp(user.id, code):
-                otp = EmailOTP.objects.filter(
-                    user=user, code=code, purpose='password_reset', is_used=False
-                ).last()
-                if otp and otp.is_valid():
-                    otp.is_used = True
-                    otp.save()
-                    request.session['reset_verified'] = True
-                    CacheService.reset_rate_limit(f'pwd_reset_{user.id}')
-                    messages.success(request, 'Code verified. You can now set a new password.')
-                    return redirect('password_reset_confirm')
-
-            messages.error(request, 'Invalid or expired code. Please request a new one.')
+            result = consume_otp(user, 'password_reset', form.cleaned_data['otp_code'])
+            if result == OTPResult.VERIFIED:
+                request.session['reset_verified'] = True
+                request.session['reset_verified_at'] = timezone.now().timestamp()
+                messages.success(request, 'Code verified. You can now set a new password.')
+                return redirect('password_reset_confirm')
+            form.add_error('otp_code', _otp_error_message(result))
 
     return render(request, 'registration/password_reset_verify.html', {'form': form, 'user_email': user.email})
 
@@ -479,7 +458,8 @@ def password_reset_confirm_view(request):
         return redirect('dashboard')
 
     user_id = request.session.get('reset_user_id')
-    if not user_id or not request.session.get('reset_verified'):
+    verified_at = request.session.get('reset_verified_at', 0)
+    if not user_id or not request.session.get('reset_verified') or timezone.now().timestamp() - verified_at > 300:
         messages.error(request, 'Please start the password reset process again.')
         return redirect('password_reset_request')
 
@@ -494,8 +474,10 @@ def password_reset_confirm_view(request):
         form = SetNewPasswordForm(user, request.POST)
         if form.is_valid():
             form.save()
+            user.remember_me_tokens.all().delete()
             del request.session['reset_user_id']
             del request.session['reset_verified']
+            request.session.pop('reset_verified_at', None)
 
             # Invalidate all existing sessions for this user
             from django.contrib.sessions.models import Session
@@ -524,18 +506,8 @@ def resend_reset_otp_view(request):
     except User.DoesNotExist:
         return redirect('password_reset_request')
 
-    if not CacheService.check_rate_limit(f'resend_reset_otp_{user.id}', max_attempts=3, window=60):
-        messages.error(request, 'Too many requests. Please wait 60 seconds.')
-        return redirect('password_reset_verify')
-
-    otp_code = generate_otp()
-    expires_at = timezone.now() + timezone.timedelta(seconds=settings.OTP_EXPIRY_SECONDS)
-    EmailOTP.objects.create(
-        user=user, code=otp_code, purpose='password_reset', expires_at=expires_at
-    )
-    CacheService.set_otp(user.id, otp_code)
-    send_otp_email(user, otp_code, request, purpose='password_reset')
-    messages.success(request, 'A new verification code has been sent to your email.')
+    if not _issue_email_otp(request, user, 'password_reset', scope='resend'):
+        messages.error(request, 'A new recovery code could not be delivered. Please wait before retrying.')
     return redirect('password_reset_verify')
 
 

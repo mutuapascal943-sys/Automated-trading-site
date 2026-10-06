@@ -80,18 +80,20 @@ class UserModelTests(TestCase):
 
 class EmailOTPModelTests(TestCase):
     def setUp(self):
+        from trading_app.services.otp_service import _digest
         self.user = User.objects.create_user(
             email='otp@example.com', username='otpuser', password='pass123'
         )
         self.otp = EmailOTP.objects.create(
             user=self.user,
-            code='123456',
+            code=_digest(self.user.pk, '2fa', '123456'),
             purpose='2fa',
             expires_at=timezone.now() + timedelta(seconds=300),
         )
 
     def test_create_otp(self):
-        self.assertEqual(self.otp.code, '123456')
+        self.assertNotEqual(self.otp.code, '123456')
+        self.assertEqual(len(self.otp.code), 64)
         self.assertEqual(self.otp.purpose, '2fa')
         self.assertFalse(self.otp.is_used)
 
@@ -126,8 +128,40 @@ class EmailOTPServiceTests(TestCase):
 
     def test_generate_otp_multiple(self):
         codes = [generate_otp() for _ in range(100)]
-        self.assertEqual(len(set(codes)), len(codes),
-                         'OTP codes should be unique')
+        self.assertTrue(all(len(code) == 6 and code.isdigit() for code in codes))
+
+    def test_issue_and_consume_otp_hashes_purpose_binds_and_consumes_once(self):
+        from trading_app.services.otp_service import OTPResult, consume_otp, issue_otp
+        otp, raw_code = issue_otp(self.user, '2fa')
+        self.assertNotEqual(otp.code, raw_code)
+        self.assertEqual(len(otp.code), 64)
+        self.assertEqual(consume_otp(self.user, 'password_reset', raw_code), OTPResult.INVALID)
+        self.assertEqual(consume_otp(self.user, '2fa', raw_code), OTPResult.VERIFIED)
+        self.assertEqual(consume_otp(self.user, '2fa', raw_code), OTPResult.USED)
+
+    def test_consume_rejects_expired_otp(self):
+        from trading_app.services.otp_service import OTPResult, _digest, consume_otp
+        EmailOTP.objects.create(
+            user=self.user, code=_digest(self.user.pk, '2fa', '123456'), purpose='2fa',
+            expires_at=timezone.now() - timedelta(seconds=1),
+        )
+        self.assertEqual(consume_otp(self.user, '2fa', '123456'), OTPResult.EXPIRED)
+
+    def test_consume_locks_after_five_incorrect_attempts(self):
+        from trading_app.services.otp_service import OTPResult, _digest, consume_otp
+        EmailOTP.objects.create(
+            user=self.user, code=_digest(self.user.pk, '2fa', '123456'), purpose='2fa',
+            expires_at=timezone.now() + timedelta(minutes=5),
+        )
+        for _ in range(5):
+            result = consume_otp(self.user, '2fa', '000000')
+        self.assertEqual(result, OTPResult.RATE_LIMITED)
+        self.assertEqual(consume_otp(self.user, '2fa', '123456'), OTPResult.RATE_LIMITED)
+
+    def test_incorrect_code_is_rejected(self):
+        from trading_app.services.otp_service import OTPResult, consume_otp, issue_otp
+        issue_otp(self.user, '2fa')
+        self.assertEqual(consume_otp(self.user, '2fa', '000000'), OTPResult.INVALID)
 
     @override_settings(
         EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend'
@@ -149,17 +183,17 @@ class CacheServiceTests(TestCase):
 
     def test_set_and_get_otp(self):
         CacheService.set_otp(self.user.id, '654321')
-        self.assertEqual(CacheService.get_otp(self.user.id), '654321')
+        self.assertIsNone(CacheService.get_otp(self.user.id))
 
     def test_verify_otp_correct(self):
         CacheService.set_otp(self.user.id, '111111')
-        self.assertTrue(CacheService.verify_otp(self.user.id, '111111'))
+        self.assertFalse(CacheService.verify_otp(self.user.id, '111111'))
         self.assertIsNone(CacheService.get_otp(self.user.id))
 
     def test_verify_otp_wrong(self):
         CacheService.set_otp(self.user.id, '222222')
         self.assertFalse(CacheService.verify_otp(self.user.id, '999999'))
-        self.assertEqual(CacheService.get_otp(self.user.id), '222222')
+        self.assertIsNone(CacheService.get_otp(self.user.id))
 
     def test_delete_otp(self):
         CacheService.set_otp(self.user.id, '333333')
@@ -285,25 +319,25 @@ class RegistrationViewTests(TestCase):
 
     def test_registration_creates_user(self):
         response = self.client.post(reverse('register'), {
-            'email': 'newuser@test.com',
+            'email': 'newuser@example.org',
             'username': 'newuser',
             'password1': 'StrongPass123!',
             'password2': 'StrongPass123!',
             'broker': 'Deriv',
         })
         self.assertEqual(response.status_code, 302)
-        self.assertTrue(User.objects.filter(email='newuser@test.com').exists())
+        self.assertTrue(User.objects.filter(email='newuser@example.org').exists())
 
     def test_registration_creates_email_otp(self):
         self.client.post(reverse('register'), {
-            'email': 'otpcheck@test.com',
+            'email': 'otpcheck@example.org',
             'username': 'otpcheck',
             'password1': 'StrongPass123!',
             'password2': 'StrongPass123!',
             'broker': 'Exness',
         })
-        user = User.objects.get(email='otpcheck@test.com')
-        otps = EmailOTP.objects.filter(user=user, purpose='2fa')
+        user = User.objects.get(email='otpcheck@example.org')
+        otps = EmailOTP.objects.filter(user=user, purpose='email_verify')
         self.assertEqual(otps.count(), 1)
         self.assertFalse(otps.first().is_used)
 
@@ -355,32 +389,78 @@ class LoginViewTests(TestCase):
 
 class TwoFactorViewsTests(TestCase):
     def setUp(self):
+        from django.core import mail
+        mail.outbox.clear()
         self.user = User.objects.create_user(
             email='2fatest@test.com', username='2fatest', password='SecurePass1!'
         )
-        self.client.force_login(self.user)
 
     def test_setup_2fa_page_loads(self):
         response = self.client.get(reverse('setup_2fa'))
         self.assertEqual(response.status_code, 200)
 
     def test_setup_2fa_sends_otp(self):
+        self.client.force_login(self.user)
         self.client.get(reverse('setup_2fa'))
         otp = EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).first()
         self.assertIsNotNone(otp)
-        self.assertEqual(len(otp.code), 6)
+        self.assertEqual(len(otp.code), 64)
 
     def test_setup_2fa_verify_valid_code(self):
+        from django.core import mail
+        self.client.force_login(self.user)
         self.client.get(reverse('setup_2fa'))
-        otp = EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).first()
-        CacheService.set_otp(self.user.id, otp.code)
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
-        response = self.client.post(reverse('setup_2fa'), {'otp_code': otp.code})
+        response = self.client.post(reverse('setup_2fa'), {'otp_code': code})
         self.assertRedirects(response, reverse('dashboard'))
         self.user.refresh_from_db()
         self.assertTrue(self.user.two_factor_enabled)
+        otp = EmailOTP.objects.filter(user=self.user, purpose='2fa').latest('id')
+        self.assertTrue(otp.is_used)
+
+    def test_registration_email_verification_enables_2fa_before_login(self):
+        from django.core import mail
+        user = User.objects.create_user(
+            email='registration-otp@example.com', username='registration-otp', password='SecurePass1!',
+        )
+        self.client.logout()
+        session = self.client.session
+        session['registration_user_id'] = user.id
+        session.save()
+        self.client.get(reverse('setup_2fa'))
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
+        response = self.client.post(reverse('setup_2fa'), {'otp_code': code})
+        self.assertRedirects(response, reverse('dashboard'))
+        user.refresh_from_db()
+        self.assertTrue(user.two_factor_enabled)
+        self.assertEqual(str(self.client.session.get('_auth_user_id')), str(user.pk))
+
+    def test_2fa_login_does_not_authenticate_before_code_verification(self):
+        self.user.two_factor_enabled = True
+        self.user.save(update_fields=['two_factor_enabled'])
+        response = self.client.post(reverse('login'), {
+            'username': self.user.email, 'password': 'SecurePass1!',
+        })
+        self.assertRedirects(response, reverse('verify_2fa'))
+        self.assertNotIn('_auth_user_id', self.client.session)
+        self.assertEqual(self.client.session.get('pending_2fa_user_id'), self.user.pk)
+
+    @patch('trading_app.views.send_otp_email', return_value=False)
+    def test_login_email_delivery_failure_does_not_authenticate(self, _send):
+        self.user.two_factor_enabled = True
+        self.user.save(update_fields=['two_factor_enabled'])
+        response = self.client.post(reverse('login'), {
+            'username': self.user.email, 'password': 'SecurePass1!',
+        })
+        self.assertEqual(response.status_code, 200)
+        self.assertNotIn('_auth_user_id', self.client.session)
+        otp = EmailOTP.objects.filter(user=self.user, purpose='2fa').latest('id')
+        self.assertTrue(otp.is_used)
 
     def test_setup_2fa_verify_invalid_code(self):
+        self.client.force_login(self.user)
+        self.client.get(reverse('setup_2fa'))
         response = self.client.post(reverse('setup_2fa'), {'otp_code': '000000'})
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
@@ -393,51 +473,70 @@ class TwoFactorViewsTests(TestCase):
     def test_verify_2fa_authenticated(self):
         self.user.two_factor_enabled = True
         self.user.save()
+        self.client.force_login(self.user)
         response = self.client.get(reverse('verify_2fa'))
         self.assertEqual(response.status_code, 200)
+
+    def test_unverified_2fa_session_cannot_access_authenticated_api(self):
+        from django.urls import reverse
+        self.user.two_factor_enabled = True
+        self.user.save(update_fields=['two_factor_enabled'])
+        self.client.force_login(self.user)
+        response = self.client.get(reverse('api_subscription'))
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.json()['status'], 'verification_required')
 
     def test_verify_2fa_sends_otp_on_get(self):
         self.user.two_factor_enabled = True
         self.user.save()
-        response = self.client.get(reverse('verify_2fa'))
+        response = self.client.post(reverse('login'), {'username': self.user.email, 'password': 'SecurePass1!'})
+        self.assertRedirects(response, reverse('verify_2fa'))
         otp = EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).first()
         self.assertIsNotNone(otp)
+        self.assertEqual(len(otp.code), 64)
 
     def test_verify_2fa_valid_code(self):
+        from django.core import mail
         self.user.two_factor_enabled = True
         self.user.save()
-        self.client.get(reverse('verify_2fa'))
-        otp = EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).first()
-        CacheService.set_otp(self.user.id, otp.code)
+        login_response = self.client.post(reverse('login'), {'username': self.user.email, 'password': 'SecurePass1!'})
+        self.assertRedirects(login_response, reverse('verify_2fa'))
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
-        response = self.client.post(reverse('verify_2fa'), {'otp_code': otp.code})
+        response = self.client.post(reverse('verify_2fa'), {'otp_code': code})
         self.assertRedirects(response, reverse('dashboard'))
         self.assertTrue(self.client.session.get('2fa_verified'))
+        reuse = self.client.post(reverse('verify_2fa'), {'otp_code': code})
+        self.assertEqual(reuse.status_code, 200)
 
     def test_toggle_2fa_disable(self):
         self.user.two_factor_enabled = True
         self.user.save()
-        EmailOTP.objects.create(
-            user=self.user, code='123456', purpose='2fa',
-            expires_at=timezone.now() + timedelta(minutes=5),
-        )
+        self.client.force_login(self.user)
+        from trading_app.services.otp_service import issue_otp
+        issue_otp(self.user, '2fa')
         response = self.client.get(reverse('toggle_2fa'))
         self.assertRedirects(response, reverse('settings_profile'))
         self.user.refresh_from_db()
         self.assertFalse(self.user.two_factor_enabled)
 
     def test_resend_otp(self):
+        from django.core import mail
         self.user.two_factor_enabled = True
         self.user.save()
-        self.client.get(reverse('verify_2fa'))
+        self.client.post(reverse('login'), {'username': self.user.email, 'password': 'SecurePass1!'})
+        previous = EmailOTP.objects.filter(user=self.user, purpose='2fa').latest('id')
 
         response = self.client.post(reverse('resend_otp'))
         self.assertRedirects(response, reverse('verify_2fa'))
+        previous.refresh_from_db()
+        self.assertTrue(previous.is_used)
+        self.assertGreaterEqual(len(mail.outbox), 2)
 
     def test_resend_otp_rate_limited(self):
         self.user.two_factor_enabled = True
         self.user.save()
-
+        self.client.post(reverse('login'), {'username': self.user.email, 'password': 'SecurePass1!'})
         self.client.post(reverse('resend_otp'))
         self.client.post(reverse('resend_otp'))
         self.client.post(reverse('resend_otp'))
@@ -740,8 +839,10 @@ class ProfileViewTests(TestCase):
 
 class PasswordResetViewTests(TestCase):
     def setUp(self):
+        from django.core import mail
         from django.core.cache import cache
         cache.clear()
+        mail.outbox.clear()
         self.user = User.objects.create_user(
             email='reset@test.com', username='resetuser', password='OldPass123!'
         )
@@ -758,7 +859,7 @@ class PasswordResetViewTests(TestCase):
         self.assertRedirects(response, reverse('password_reset_verify'))
         otps = EmailOTP.objects.filter(user=self.user, purpose='password_reset')
         self.assertEqual(otps.count(), 1)
-        self.assertEqual(len(otps.first().code), 6)
+        self.assertEqual(len(otps.first().code), 64)
 
     def test_password_reset_request_invalid_email(self):
         response = self.client.post(reverse('password_reset_request'), {
@@ -767,14 +868,16 @@ class PasswordResetViewTests(TestCase):
         self.assertRedirects(response, reverse('password_reset_verify'), fetch_redirect_response=False)
 
     def test_password_reset_verify_valid_code(self):
+        from django.core import mail
         self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
-        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
-        CacheService.set_otp(self.user.id, otp.code)
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
         response = self.client.post(reverse('password_reset_verify'), {
-            'otp_code': otp.code,
+            'otp_code': code,
         })
         self.assertRedirects(response, reverse('password_reset_confirm'))
+        reused = self.client.post(reverse('password_reset_verify'), {'otp_code': code})
+        self.assertEqual(reused.status_code, 200)
 
     def test_password_reset_verify_invalid_code(self):
         self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
@@ -788,10 +891,10 @@ class PasswordResetViewTests(TestCase):
         self.assertRedirects(response, reverse('password_reset_request'))
 
     def test_password_reset_confirm_valid(self):
+        from django.core import mail
         self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
-        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
-        CacheService.set_otp(self.user.id, otp.code)
-        self.client.post(reverse('password_reset_verify'), {'otp_code': otp.code})
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
+        self.client.post(reverse('password_reset_verify'), {'otp_code': code})
 
         response = self.client.post(reverse('password_reset_confirm'), {
             'new_password1': 'NewStrongPass456!',
@@ -822,14 +925,14 @@ class PasswordResetViewTests(TestCase):
         self.assertRedirects(response, reverse('password_reset_request'))
 
     def test_full_reset_flow(self):
+        from django.core import mail
         response = self.client.get(reverse('password_reset_request'))
         self.assertEqual(response.status_code, 200)
 
         self.client.post(reverse('password_reset_request'), {'email': 'reset@test.com'})
-        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
-        CacheService.set_otp(self.user.id, otp.code)
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
-        self.client.post(reverse('password_reset_verify'), {'otp_code': otp.code})
+        self.client.post(reverse('password_reset_verify'), {'otp_code': code})
         self.client.post(reverse('password_reset_confirm'), {
             'new_password1': 'FinalNewPass789!',
             'new_password2': 'FinalNewPass789!',
@@ -853,6 +956,8 @@ class PasswordResetViewTests(TestCase):
 
 class PasswordResetAPIViewTests(TestCase):
     def setUp(self):
+        from django.core import mail
+        mail.outbox.clear()
         self.user = User.objects.create_user(
             email='apireset@test.com', username='apiresetuser', password='OldPass123!'
         )
@@ -881,12 +986,12 @@ class PasswordResetAPIViewTests(TestCase):
         self.client.post(reverse('api_password_reset_request'), {
             'email': 'apireset@test.com',
         }, content_type='application/json')
-        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
-        CacheService.set_otp(self.user.id, otp.code)
+        from django.core import mail
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
         response = self.client.post(reverse('api_password_reset_verify'), {
             'reset_token': self.client.session['password_reset_token'],
-            'code': otp.code,
+            'code': code,
         }, content_type='application/json')
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()['status'], 'verified')
@@ -899,15 +1004,32 @@ class PasswordResetAPIViewTests(TestCase):
         }, content_type='application/json')
         self.assertEqual(response.status_code, 400)
 
+    def test_api_password_reset_verify_requires_request_session(self):
+        response = self.client.post(reverse('api_password_reset_verify'), {
+            'reset_token': 'client-supplied-token', 'code': '123456',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+
+    def test_api_password_reset_confirm_cannot_use_unverified_request_token(self):
+        self.client.post(reverse('api_password_reset_request'), {
+            'email': 'apireset@test.com',
+        }, content_type='application/json')
+        response = self.client.post(reverse('api_password_reset_confirm'), {
+            'new_password': 'ApiNewPass456!',
+        }, content_type='application/json')
+        self.assertEqual(response.status_code, 400)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.check_password('OldPass123!'))
+
     def test_api_password_reset_confirm(self):
         self.client.post(reverse('api_password_reset_request'), {
             'email': 'apireset@test.com',
         }, content_type='application/json')
-        otp = EmailOTP.objects.filter(user=self.user, purpose='password_reset').first()
-        CacheService.set_otp(self.user.id, otp.code)
+        from django.core import mail
+        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
         verify_resp = self.client.post(reverse('api_password_reset_verify'), {
             'reset_token': self.client.session['password_reset_token'],
-            'code': otp.code,
+            'code': code,
         }, content_type='application/json')
         verified_token = verify_resp.json()['verified_token']
 
@@ -918,6 +1040,11 @@ class PasswordResetAPIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.user.refresh_from_db()
         self.assertTrue(self.user.check_password('ApiNewPass456!'))
+        replay = self.client.post(reverse('api_password_reset_confirm'), {
+            'verified_token': verified_token,
+            'new_password': 'SecondNewPass789!',
+        }, content_type='application/json')
+        self.assertEqual(replay.status_code, 400)
 
     def test_api_password_reset_confirm_short_password(self):
         response = self.client.post(reverse('api_password_reset_confirm'), {
