@@ -20,12 +20,18 @@ class NewsFilterUnavailable(RuntimeError):
 
 
 def check_news_window(symbol: str, timeframe: str | int = 'M1') -> dict:
-    """Return the status of a red-news filter.
+    """Return the status of a red-news filter."""
+    from django.core.cache import cache
+    blackout = cache.get(f'news_blackout_{symbol.replace("/", "_")}', False)
+    if blackout:
+        return {
+            'status': 'red',
+            'provider': 'CacheBlackout',
+            'symbol': symbol,
+            'timeframe': str(timeframe),
+            'message': 'Red-news window detected from cache; entry is rejected.',
+        }
 
-    The project does not currently include an economic-calendar/news provider,
-    so the safe default is to report the filter as unavailable rather than
-    inventing a negative or positive news result.
-    """
     provider = _get_news_provider()
     if provider is None:
         return {
@@ -60,7 +66,7 @@ def check_news_window(symbol: str, timeframe: str | int = 'M1') -> dict:
             'provider': provider.__class__.__name__,
             'symbol': symbol,
             'timeframe': str(timeframe),
-            'message': 'Red-news window detected; CHoCH entry is rejected.',
+            'message': 'Red-news window detected; entry is rejected.',
         }
     return {
         'status': 'clear',

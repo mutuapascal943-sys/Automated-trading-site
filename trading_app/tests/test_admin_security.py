@@ -10,7 +10,7 @@ from django.urls import reverse
 from django.utils import timezone
 from rest_framework.test import APIClient
 
-from trading_app.models import AdminAuditLog, PaymentTransaction, Subscription, SystemEvent, User
+from trading_app.models import AdminAuditLog, PaymentTransaction, Subscription, SystemEvent, TradingSignal, User
 from trading_app.services.admin_access import ADMIN_EMAIL
 
 
@@ -116,6 +116,23 @@ class OwnerAdminSecurityTests(TestCase):
         self.assertNotIn('broker_api_secret', str(payload))
         self.assertNotIn('EMAIL_HOST_PASSWORD', str(payload))
 
+    def test_admin_overview_reports_system_signal_stats_separately(self):
+        TradingSignal.objects.create(
+            user=self.trader, symbol='EUR/USD', signal_type='BUY', confidence=75, outcome='WIN',
+        )
+        TradingSignal.objects.create(
+            user=self.admin, symbol='BTC/USD', signal_type='SELL', confidence=60, outcome='LOSS',
+        )
+        payload = self._verified_admin_client().get('/api/admin/overview/').json()
+        self.assertEqual(payload['system_signal_performance'], {
+            'total_signals': 2,
+            'resolved_signals': 2,
+            'pending_signals': 0,
+            'wins': 1,
+            'losses': 1,
+            'win_rate': 50.0,
+        })
+
     def test_admin_user_search_and_pagination_are_server_bounded(self):
         for index in range(30):
             User.objects.create_user(
@@ -212,16 +229,35 @@ class OwnerAdminSecurityTests(TestCase):
                 self.assertEqual(record.administrator, self.admin)
                 self.assertIsNotNone(record.created_at.tzinfo)
 
+    def test_admin_grant_and_revoke_subscription_bypass_for_one_month(self):
+        client = self._verified_admin_client()
+        url = f'/api/admin/users/{self.trader.pk}/access/'
+
+        granted = client.post(url, {'grant_subscription_bypass_month': True}, content_type='application/json')
+        self.assertEqual(granted.status_code, 200)
+        self.trader.refresh_from_db()
+        self.assertTrue(self.trader.subscription_bypass)
+        self.assertGreater(self.trader.subscription_bypass_expires_at, timezone.now() + timedelta(days=29))
+        self.assertLess(self.trader.subscription_bypass_expires_at, timezone.now() + timedelta(days=31))
+
+        revoked = client.post(url, {'subscription_bypass': False}, content_type='application/json')
+        self.assertEqual(revoked.status_code, 200)
+        self.trader.refresh_from_db()
+        self.assertFalse(self.trader.subscription_bypass)
+        self.assertIsNone(self.trader.subscription_bypass_expires_at)
+
     def test_access_audit_does_not_include_secrets(self):
         self._verified_admin_client().post(
             f'/api/admin/users/{self.trader.pk}/access/',
             {'subscription_bypass': True}, content_type='application/json',
             HTTP_USER_AGENT='audit-safe-test',
         )
-        record = AdminAuditLog.objects.get(affected_user=self.trader)
-        self.assertNotIn('password', str(record.previous_state).lower())
-        self.assertNotIn('otp', str(record.new_state).lower())
-        self.assertNotIn('secret', str(record))
+        records = AdminAuditLog.objects.filter(affected_user=self.trader)
+        self.assertTrue(records.exists())
+        for record in records:
+            self.assertNotIn('password', str(record.previous_state).lower())
+            self.assertNotIn('otp', str(record.new_state).lower())
+            self.assertNotIn('secret', str(record))
 
     def test_admin_can_revoke_user_sessions_and_remember_me_tokens(self):
         from django.contrib.sessions.models import Session
@@ -249,6 +285,14 @@ class OwnerAdminSecurityTests(TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertNotIn('_auth_user_id', client.session)
         self.assertEqual(client.get('/api/admin/overview/').status_code, 403)
+
+    def test_owner_admin_logout_endpoint_succeeds(self):
+        client = self._verified_admin_client()
+        response = client.post(reverse('owner_admin:logout'))
+        self.assertEqual(response.status_code, 302)
+        self.assertNotIn('_auth_user_id', client.session)
+        self.assertNotIn('admin_2fa_verified', client.session)
+        self.assertEqual(client.get(reverse('owner_admin:owner_dashboard')).status_code, 302)
 
     def test_builtin_admin_login_cannot_bypass_application_2fa(self):
         response = self.client.post(reverse('owner_admin:login'), {

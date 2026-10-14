@@ -45,7 +45,7 @@ def collect_candles(
     sorted oldest-first.
     """
     if app_id is None:
-        app_id = config('DERIV_APP_ID', default='1089')
+        app_id = config('DERIV_APP_ID', default='')
 
     try:
         import websockets

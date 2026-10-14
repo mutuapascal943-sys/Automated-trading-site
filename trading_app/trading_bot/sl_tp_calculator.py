@@ -62,54 +62,49 @@ def compute_sl_tp(
     current_price: Optional[float] = None,
     risk_per_trade_pct: float = 2.0,
     account_balance: float = 10000.0,
+    min_reward_risk: float = 2.0,
+    spread_buffer_pips: float = 0.5,
 ) -> ProposedLevels:
     """
-    Compute bot-calculated stop-loss and take-profit levels.
-
-    Uses ATR (Average True Range) scaled by the model's confidence score:
-    - Higher confidence => tighter SL (less room for noise) and wider TP
-    - Lower confidence  => wider SL (more room for noise) and tighter TP
-
-    SL distance = ATR * sl_multiplier
-    TP distance = ATR * tp_multiplier
-
-    Where multipliers are inversely/proportionally scaled by confidence.
+    Compute bot-calculated stop-loss and take-profit levels with min R:R enforcement and spread buffer.
     """
     atr = _compute_atr(candles)
     price = current_price or (float(candles[-1]['close']) if candles else 1.0)
+    precision = _price_precision(price)
 
-    # Confidence scaling: 0.0 (no confidence) to 1.0 (max confidence)
     conf = max(0.0, min(1.0, confidence))
-
-    # SL multiplier: ranges from 2.0x ATR (low conf, wider SL) to 1.0x ATR (high conf)
     sl_mult = 2.0 - (conf * 1.0)
-
-    # TP multiplier: ranges from 1.5x ATR (low conf) to 3.0x ATR (high conf)
     tp_mult = 1.5 + (conf * 1.5)
 
     sl_distance = atr * sl_mult
     tp_distance = atr * tp_mult
 
-    precision = _price_precision(price)
+    current_rr = tp_distance / sl_distance if sl_distance > 0 else 0.0
+    if current_rr < min_reward_risk:
+        tp_distance = sl_distance * min_reward_risk
+
+    spread_buffer = spread_buffer_pips * (10 ** -precision)
+    sl_distance_with_spread = sl_distance + spread_buffer
 
     if signal_type.upper() == 'BUY':
-        sl = Decimal(str(price - sl_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
+        sl = Decimal(str(price - sl_distance_with_spread)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
         tp = Decimal(str(price + tp_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
     else:
-        sl = Decimal(str(price + sl_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
+        sl = Decimal(str(price + sl_distance_with_spread)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
         tp = Decimal(str(price - tp_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
 
-    sl_dist_dec = Decimal(str(sl_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
+    sl_dist_dec = Decimal(str(sl_distance_with_spread)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
     tp_dist_dec = Decimal(str(tp_distance)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
     atr_dec = Decimal(str(atr)).quantize(Decimal(10) ** -precision, rounding=ROUND_HALF_UP)
 
     vol_label = 'high' if atr > price * 0.005 else 'moderate' if atr > price * 0.002 else 'low'
     conf_label = 'high' if conf >= 0.7 else 'moderate' if conf >= 0.4 else 'low'
 
+    rr_ratio = float(tp_distance / sl_distance_with_spread) if sl_distance_with_spread > 0 else min_reward_risk
     reasoning = (
-        f"SL set at {sl_mult:.1f}x ATR ({atr_dec}) due to {vol_label} volatility, "
+        f"SL set at {sl_mult:.1f}x ATR ({atr_dec}) + spread buffer ({spread_buffer:.5f}) due to {vol_label} volatility, "
         f"confidence: {conf:.2f} ({conf_label}). "
-        f"TP targets {tp_mult:.1f}x ATR for {tp_distance/sl_distance:.1f}:1 R:R ratio."
+        f"TP targets R:R ratio {rr_ratio:.1f}:1."
     )
 
     return ProposedLevels(
@@ -120,5 +115,5 @@ def compute_sl_tp(
         atr_value=atr_dec,
         reasoning=reasoning,
         confidence=conf,
-        method='ATR_scaled',
+        method='ATR_scaled_with_buffer',
     )

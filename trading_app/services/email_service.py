@@ -57,7 +57,7 @@ ATS Application Team
         sent_count = send_mail(
             subject=subject,
             message=message,
-            from_email=settings.DEFAULT_FROM_EMAIL,
+            from_email=settings.DEFAULT_FROM_EMAIL or 'noreply@forexaipro.com',
             recipient_list=[user.email],
             html_message=html_message,
             fail_silently=False,
@@ -65,6 +65,12 @@ ATS Application Team
         return sent_count == 1
     except Exception as exc:
         logger.warning('OTP email delivery failed (%s).', type(exc).__name__)
+        if settings.DEBUG:
+            logger.info('DEVELOPMENT FALLBACK: OTP code for %s is %s', user.email, otp_code)
+            print(f'\n[DEV OTP FALLBACK] Code for {user.email}: {otp_code}\n')
+            if request:
+                messages.info(request, f'[DEV MODE] Email delivery failed, but your OTP code is: {otp_code}')
+            return True
         if request:
             messages.error(request, 'Email delivery failed. Please try again later.')
         return False

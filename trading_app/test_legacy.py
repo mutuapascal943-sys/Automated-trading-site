@@ -58,13 +58,15 @@ class UserModelTests(TestCase):
         self.assertEqual(str(self.user), 'test@example.com')
 
     def test_user_with_broker_api_fields(self):
-        self.user.broker_api_key = 'test_api_key'
-        self.user.broker_api_secret = 'test_api_secret'
-        self.user.broker_account_id = 'acc_123'
+        import secrets
+        api_key, api_secret, account_id = (secrets.token_hex(8) for _ in range(3))
+        self.user.broker_api_key = api_key
+        self.user.broker_api_secret = api_secret
+        self.user.broker_account_id = account_id
         self.user.save()
         updated = User.objects.get(id=self.user.id)
-        self.assertEqual(updated.broker_api_key, 'test_api_key')
-        self.assertEqual(updated.broker_account_id, 'acc_123')
+        self.assertEqual(updated.broker_api_key, api_key)
+        self.assertEqual(updated.broker_account_id, account_id)
 
     def test_daily_trade_count_reset(self):
         self.user.daily_trades_count = 10
@@ -117,9 +119,15 @@ class EmailOTPModelTests(TestCase):
 
 class EmailOTPServiceTests(TestCase):
     def setUp(self):
+        from django.core.cache import cache
+        cache.clear()
         self.user = User.objects.create_user(
             email='service@example.com', username='serviceuser', password='pass123'
         )
+
+    def tearDown(self):
+        from django.core.cache import cache
+        cache.clear()
 
     def test_generate_otp(self):
         code = generate_otp()
@@ -387,20 +395,29 @@ class LoginViewTests(TestCase):
         self.assertContains(response, 'Please enter a correct email and password')
 
 
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class TwoFactorViewsTests(TestCase):
     def setUp(self):
         from django.core import mail
+        from django.core.cache import cache
         mail.outbox.clear()
+        cache.clear()
         self.user = User.objects.create_user(
             email='2fatest@test.com', username='2fatest', password='SecurePass1!'
         )
 
+    def _force_verified_login(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
+
     def test_setup_2fa_page_loads(self):
         response = self.client.get(reverse('setup_2fa'))
-        self.assertEqual(response.status_code, 200)
+        self.assertRedirects(response, reverse('login'))
 
     def test_setup_2fa_sends_otp(self):
-        self.client.force_login(self.user)
+        self._force_verified_login()
         self.client.get(reverse('setup_2fa'))
         otp = EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).first()
         self.assertIsNotNone(otp)
@@ -408,7 +425,7 @@ class TwoFactorViewsTests(TestCase):
 
     def test_setup_2fa_verify_valid_code(self):
         from django.core import mail
-        self.client.force_login(self.user)
+        self._force_verified_login()
         self.client.get(reverse('setup_2fa'))
         code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
 
@@ -455,11 +472,10 @@ class TwoFactorViewsTests(TestCase):
         })
         self.assertEqual(response.status_code, 200)
         self.assertNotIn('_auth_user_id', self.client.session)
-        otp = EmailOTP.objects.filter(user=self.user, purpose='2fa').latest('id')
-        self.assertTrue(otp.is_used)
+        self.assertFalse(EmailOTP.objects.filter(user=self.user, purpose='2fa', is_used=False).exists())
 
     def test_setup_2fa_verify_invalid_code(self):
-        self.client.force_login(self.user)
+        self._force_verified_login()
         self.client.get(reverse('setup_2fa'))
         response = self.client.post(reverse('setup_2fa'), {'otp_code': '000000'})
         self.assertEqual(response.status_code, 200)
@@ -468,12 +484,15 @@ class TwoFactorViewsTests(TestCase):
 
     def test_verify_2fa_redirects_when_2fa_disabled(self):
         response = self.client.get(reverse('verify_2fa'))
-        self.assertRedirects(response, reverse('dashboard'))
+        self.assertRedirects(response, reverse('login'))
 
     def test_verify_2fa_authenticated(self):
         self.user.two_factor_enabled = True
         self.user.save()
         self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
         response = self.client.get(reverse('verify_2fa'))
         self.assertEqual(response.status_code, 200)
 
@@ -513,6 +532,9 @@ class TwoFactorViewsTests(TestCase):
         self.user.two_factor_enabled = True
         self.user.save()
         self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
         from trading_app.services.otp_service import issue_otp
         issue_otp(self.user, '2fa')
         response = self.client.get(reverse('toggle_2fa'))
@@ -619,40 +641,30 @@ class APIViewTests(TestCase):
             'entry_price': 1.27000,
             'reasoning': 'Test signal',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.status_code, 405)
+        self.assertFalse(TradingSignal.objects.filter(user=self.user).exists())
 
     def test_create_document(self):
-        response = self.client.post(reverse('api_document-list'), {
-            'title': 'Test Doc',
-            'content': 'Test content for RAG. ' * 50,
-            'source': 'manual',
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 201)
-        data = response.json()
-        self.assertTrue(data['is_indexed'])
-        self.assertGreater(data['chunk_count'], 0)
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse('api_document-list')
 
     def test_request_otp_via_api(self):
         response = self.client.post(reverse('api_request_otp'), {
             'email': 'api@test.com',
             'purpose': '2fa',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('Only password recovery', response.json()['error'])
 
-    def test_verify_otp_via_api(self):
-        otp = EmailOTP.objects.create(
-            user=self.user, code='555555', purpose='2fa',
-            expires_at=timezone.now() + timedelta(minutes=5),
-        )
-        CacheService.set_otp(self.user.id, '555555')
-
+    def test_verify_otp_via_api_rejects_2fa_outside_authenticated_web_flow(self):
         response = self.client.post(reverse('api_verify_otp'), {
             'email': 'api@test.com',
             'code': '555555',
             'purpose': '2fa',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()['status'], 'verified')
+        self.assertEqual(response.status_code, 400)
+        self.assertIn('authenticated web login flow', response.json()['error'])
 
     def test_verify_otp_wrong_code(self):
         response = self.client.post(reverse('api_verify_otp'), {
@@ -679,29 +691,19 @@ class APIViewTests(TestCase):
             'api_secret': 'test_secret_456',
             'account_id': 'acc_789',
         }, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        self.user.refresh_from_db()
-        self.assertEqual(decrypt(self.user.broker_api_key), 'test_key_123')
-        self.assertEqual(decrypt(self.user.broker_api_secret), 'test_secret_456')
-        self.assertEqual(self.user.broker_account_id, 'acc_789')
-        mock_adapter.connect.assert_called_once()
-        mock_adapter.disconnect.assert_called_once()
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
+        mock_resolve.assert_not_called()
 
     def test_llm_query_no_api_key(self):
-        response = self.client.post(reverse('api_llm_query'), {
-            'query_type': 'market_analysis',
-            'prompt': 'Analyze EUR/USD',
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('response', data)
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse('api_llm_query')
 
     def test_llm_query_rag_without_docs(self):
-        response = self.client.post(reverse('api_llm_query'), {
-            'query_type': 'rag_query',
-            'prompt': 'What is a good trading strategy?',
-        }, content_type='application/json')
-        self.assertEqual(response.status_code, 200)
+        from django.urls import NoReverseMatch
+        with self.assertRaises(NoReverseMatch):
+            reverse('api_llm_query')
 
 
 class RateLimitTests(TestCase):
@@ -732,18 +734,19 @@ class BrokerServiceTests(TestCase):
         self.assertFalse(service.is_configured())
 
     def test_configured(self):
+        import secrets
         service = BrokerService(
-            api_key='test_key',
-            api_secret='test_secret',
-            endpoint='https://api.test.com',
-            account_id='acc_123',
+            api_key=secrets.token_hex(8),
+            api_secret=secrets.token_hex(8),
+            endpoint='https://broker.invalid',
+            account_id=secrets.token_hex(4),
         )
         self.assertTrue(service.is_configured())
 
     def test_not_configured_with_placeholder(self):
         service = BrokerService(
             api_key='your-trading-api-key',
-            endpoint='https://api.test.com',
+            endpoint='https://broker.invalid',
         )
         self.assertFalse(service.is_configured())
 
@@ -812,7 +815,8 @@ class TwoFactorDecoratorTests(TestCase):
         self.assertRedirects(response, reverse('verify_2fa'))
 
 
-class ProfileViewTests(TestCase):
+@override_settings(DEBUG=True)
+class SettingsProfileViewTests(TestCase):
     def setUp(self):
         self.user = User.objects.create_user(
             email='profile@test.com', username='profile', password='SecurePass1!', broker='XM'
@@ -821,8 +825,8 @@ class ProfileViewTests(TestCase):
 
     def test_update_email(self):
         response = self.client.post(reverse('settings_profile'), {
+            'update_profile': '1',
             'email': 'updated@test.com',
-            'broker': 'Deriv',
         })
         self.assertRedirects(response, reverse('settings_profile'), fetch_redirect_response=False)
         self.user.refresh_from_db()
@@ -830,11 +834,11 @@ class ProfileViewTests(TestCase):
 
     def test_update_broker(self):
         response = self.client.post(reverse('settings_profile'), {
+            'update_profile': '1',
             'email': 'profile@test.com',
-            'broker': 'IC Markets',
         })
         self.user.refresh_from_db()
-        self.assertEqual(self.user.broker, 'IC Markets')
+        self.assertEqual(self.user.broker, 'XM')
 
 
 class PasswordResetViewTests(TestCase):
@@ -865,7 +869,8 @@ class PasswordResetViewTests(TestCase):
         response = self.client.post(reverse('password_reset_request'), {
             'email': 'nonexistent@test.com',
         })
-        self.assertRedirects(response, reverse('password_reset_verify'), fetch_redirect_response=False)
+        self.assertRedirects(response, reverse('password_reset_request'), fetch_redirect_response=False)
+        self.assertFalse(EmailOTP.objects.filter(purpose='password_reset').exists())
 
     def test_password_reset_verify_valid_code(self):
         from django.core import mail
@@ -954,10 +959,11 @@ class PasswordResetViewTests(TestCase):
         self.assertTrue('verification code' in content.lower() or 'too many' in content.lower())
 
 
+@override_settings(EMAIL_BACKEND='django.core.mail.backends.locmem.EmailBackend')
 class PasswordResetAPIViewTests(TestCase):
     def setUp(self):
-        from django.core import mail
-        mail.outbox.clear()
+        from django.core.cache import cache
+        cache.clear()
         self.user = User.objects.create_user(
             email='apireset@test.com', username='apiresetuser', password='OldPass123!'
         )
@@ -981,13 +987,17 @@ class PasswordResetAPIViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIn('If an account', response.json().get('status', ''))
 
-    def test_api_password_reset_verify_valid(self):
+    @patch('trading_app.api_views.send_otp_email')
+    def test_api_password_reset_verify_valid(self, send_email):
+        delivered_codes = []
+        send_email.side_effect = lambda user, code, **kwargs: delivered_codes.append(code) or True
         # The reset_token is stored in the session by the request endpoint
-        self.client.post(reverse('api_password_reset_request'), {
+        request_response = self.client.post(reverse('api_password_reset_request'), {
             'email': 'apireset@test.com',
         }, content_type='application/json')
-        from django.core import mail
-        code = mail.outbox[-1].body.split('code is: ')[1].splitlines()[0]
+        self.assertEqual(request_response.status_code, 200)
+        self.assertEqual(len(delivered_codes), 1)
+        code = delivered_codes[0]
 
         response = self.client.post(reverse('api_password_reset_verify'), {
             'reset_token': self.client.session['password_reset_token'],
@@ -1160,7 +1170,8 @@ class EmailValidationTests(TestCase):
         self.assertIn('Disposable email', str(form.errors.get('email', '')))
 
 
-class ProfileViewTests(TestCase):
+@override_settings(DEBUG=True)
+class ProfilePageViewTests(TestCase):
     def setUp(self):
         from django.core.cache import cache
         cache.clear()
@@ -1169,6 +1180,9 @@ class ProfileViewTests(TestCase):
             broker='Deriv',
         )
         self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
 
     def test_profile_page_loads(self):
         response = self.client.get(reverse('profile_page'))
@@ -1179,14 +1193,13 @@ class ProfileViewTests(TestCase):
         response = self.client.post(reverse('profile_page'), {
             'update_profile': '1',
             'email': 'updatedprofile@test.com',
-            'broker': 'IC Markets',
             'phone': '+1234567890',
             'bio': 'A crypto trader',
         })
         self.assertRedirects(response, reverse('profile_page'))
         self.user.refresh_from_db()
         self.assertEqual(self.user.email, 'updatedprofile@test.com')
-        self.assertEqual(self.user.broker, 'IC Markets')
+        self.assertEqual(self.user.broker, 'Deriv')
         self.assertEqual(self.user.phone, '+1234567890')
         self.assertEqual(self.user.bio, 'A crypto trader')
 
@@ -1295,28 +1308,25 @@ class ModifyTradeViewTests(TestCase):
             entry_price=Decimal('1.08000'), status='OPEN', order_type='MARKET',
         )
 
-    def test_modify_trade_sl_tp(self):
+    def test_modify_trade_sl_tp_is_disabled(self):
         response = self.client.post(
             reverse('api_modify_trade', args=[self.trade.id]),
             {'stop_loss': '1.07000', 'take_profit': '1.09000'},
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
-        self.trade.refresh_from_db()
-        self.assertEqual(self.trade.stop_loss, Decimal('1.07000'))
-        self.assertEqual(self.trade.take_profit, Decimal('1.09000'))
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
 
-    def test_modify_trade_only_sl(self):
+    def test_modify_trade_only_sl_is_disabled(self):
         response = self.client.post(
             reverse('api_modify_trade', args=[self.trade.id]),
             {'stop_loss': '1.07500'},
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
-        self.trade.refresh_from_db()
-        self.assertEqual(self.trade.stop_loss, Decimal('1.07500'))
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
 
-    def test_modify_closed_trade_404(self):
+    def test_modify_closed_trade_is_disabled(self):
         self.trade.status = 'CLOSED'
         self.trade.save()
         response = self.client.post(
@@ -1324,9 +1334,9 @@ class ModifyTradeViewTests(TestCase):
             {'stop_loss': '1.07000'},
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 410)
 
-    def test_modify_other_users_trade_404(self):
+    def test_modify_other_users_trade_is_disabled(self):
         other = User.objects.create_user(
             email='other@test.com', username='other', password='Pass123!'
         )
@@ -1339,7 +1349,7 @@ class ModifyTradeViewTests(TestCase):
             {'stop_loss': '1.07000'},
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 404)
+        self.assertEqual(response.status_code, 410)
 
 
 class BrokerStatusViewTests(TestCase):
@@ -1354,11 +1364,11 @@ class BrokerStatusViewTests(TestCase):
         self.assertEqual(response.status_code, 200)
         data = response.json()
         self.assertFalse(data['configured'])
-        self.assertIn('broker_list', data)
+        self.assertFalse(data['execution_enabled'])
 
     @patch('trading_app.api_views._resolve_adapter')
     @patch('trading_app.api_views.build_credentials')
-    def test_broker_status_paper_mode(self, mock_creds, mock_resolve):
+    def test_broker_status_ignores_paper_mode_and_secrets(self, mock_creds, mock_resolve):
         self.user.paper_mode = True
         self.user.broker_api_key = encrypt('test')
         self.user.broker = 'Deriv'
@@ -1366,13 +1376,13 @@ class BrokerStatusViewTests(TestCase):
         response = self.client.get(reverse('api_broker_status'))
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertTrue(data['configured'])
-        self.assertTrue(data['paper_mode'])
+        self.assertFalse(data['configured'])
+        self.assertFalse(data['execution_enabled'])
         mock_resolve.assert_not_called()
 
     @patch('trading_app.api_views._resolve_adapter')
     @patch('trading_app.api_views.build_credentials')
-    def test_broker_status_live_connected(self, mock_creds, mock_resolve):
+    def test_broker_status_never_connects_to_order_account(self, mock_creds, mock_resolve):
         mock_adapter = MagicMock()
         mock_resolve.return_value = mock_adapter
         mock_creds.return_value = {}
@@ -1383,7 +1393,8 @@ class BrokerStatusViewTests(TestCase):
         response = self.client.get(reverse('api_broker_status'))
         self.assertEqual(response.status_code, 200)
         data = response.json()
-        self.assertTrue(data['health']['reachable'])
+        self.assertFalse(data['configured'])
+        mock_resolve.assert_not_called()
 
 
 class BrokerHealthCheckViewTests(TestCase):
@@ -1395,27 +1406,25 @@ class BrokerHealthCheckViewTests(TestCase):
 
     @patch('trading_app.api_views._resolve_adapter')
     @patch('trading_app.api_views.build_credentials')
-    def test_broker_health_check_healthy(self, mock_creds, mock_resolve):
+    def test_broker_health_check_is_disabled(self, mock_creds, mock_resolve):
         mock_adapter = MagicMock()
         mock_resolve.return_value = mock_adapter
         mock_creds.return_value = {}
         response = self.client.post(reverse('api_broker_health'))
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data['status'], 'healthy')
-        self.assertIn('latency_ms', data)
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
+        mock_resolve.assert_not_called()
 
     @patch('trading_app.api_views._resolve_adapter')
     @patch('trading_app.api_views.build_credentials')
-    def test_broker_health_check_unhealthy(self, mock_creds, mock_resolve):
+    def test_broker_health_check_does_not_connect(self, mock_creds, mock_resolve):
         mock_adapter = MagicMock()
         mock_adapter.connect.side_effect = Exception('Connection refused')
         mock_resolve.return_value = mock_adapter
         mock_creds.return_value = {}
         response = self.client.post(reverse('api_broker_health'))
-        self.assertEqual(response.status_code, 503)
-        data = response.json()
-        self.assertEqual(data['status'], 'unhealthy')
+        self.assertEqual(response.status_code, 410)
+        mock_resolve.assert_not_called()
 
 
 class RiskConfigViewTests(TestCase):
@@ -1561,12 +1570,8 @@ class BacktestViewTests(TestCase):
             {'symbol': 'EUR/USD'},
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertIn('total_trades', data)
-        self.assertIn('final_balance', data)
-        self.assertIn('win_rate', data)
-        self.assertEqual(data['symbol'], 'EUR/USD')
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
 
     def test_backtest_custom_params(self):
         response = self.client.post(
@@ -1580,9 +1585,8 @@ class BacktestViewTests(TestCase):
             },
             content_type='application/json',
         )
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertEqual(data['symbol'], 'GBP/USD')
+        self.assertEqual(response.status_code, 410)
+        self.assertFalse(response.json()['execution_enabled'])
 
 
 class TickerSubscribeViewTests(TestCase):
@@ -1653,7 +1657,7 @@ class CredentialEncryptTests(TestCase):
     def test_decrypt_garbage_returns_input(self):
         from .services.credential_encrypt import decrypt
         garbage = 'this_is_not_encrypted'
-        self.assertEqual(decrypt(garbage), garbage)
+        self.assertEqual(decrypt(garbage), '')
 
     def test_encrypt_different_each_time(self):
         from .services.credential_encrypt import encrypt
@@ -1678,16 +1682,16 @@ class AdapterResolverTests(TestCase):
 
     def test_get_adapter_for_broker_binance(self):
         from .services.adapter_resolver import get_adapter_for_broker
-        from .trading_bot.binance_adapter import BinanceAdapter
         adapter = get_adapter_for_broker('Binance')
-        self.assertIsInstance(adapter, BinanceAdapter)
+        from .trading_bot.deriv_adapter import DerivAdapter
+        self.assertIsInstance(adapter, DerivAdapter)
 
     @patch('trading_app.services.adapter_resolver.config', side_effect=lambda k, default='': default)
-    def test_get_adapter_for_unknown_falls_back_to_paper(self, mock_config):
+    def test_get_adapter_for_unknown_never_falls_back_to_paper(self, mock_config):
         from .services.adapter_resolver import get_adapter_for_broker
-        from .trading_bot.paper_broker import PaperBrokerAdapter
+        from .trading_bot.deriv_adapter import DerivAdapter
         adapter = get_adapter_for_broker('UnknownBroker')
-        self.assertIsInstance(adapter, PaperBrokerAdapter)
+        self.assertIsInstance(adapter, DerivAdapter)
 
     def test_build_credentials_with_user_keys(self):
         from .services.adapter_resolver import build_credentials
@@ -1696,10 +1700,7 @@ class AdapterResolverTests(TestCase):
         user.broker_api_secret = encrypt('my_secret')
         user.broker_account_id = 'acc_123'
         creds = build_credentials(user)
-        self.assertEqual(creds['token'], 'my_key')
-        self.assertEqual(creds['api_key'], 'my_key')
-        self.assertEqual(creds['api_secret'], 'my_secret')
-        self.assertEqual(creds['account_id'], 'acc_123')
+        self.assertEqual(creds, {})
 
     @patch('trading_app.services.adapter_resolver.config', side_effect=lambda k, default='': default)
     def test_build_credentials_no_user_keys(self, mock_config):
@@ -1709,9 +1710,7 @@ class AdapterResolverTests(TestCase):
         user.broker_api_secret = ''
         user.broker_account_id = ''
         creds = build_credentials(user)
-        self.assertEqual(creds['token'], '')
-        self.assertEqual(creds['api_key'], '')
-        self.assertEqual(creds['api_secret'], '')
+        self.assertEqual(creds, {})
 
 
 # ---------------------------------------------------------------------------
@@ -1769,13 +1768,9 @@ class CeleryTaskTests(TestCase):
             entry_price=Decimal('1.08000'), stop_loss=Decimal('1.07000'),
             status='OPEN', order_type='MARKET', is_live=False,
         )
-        with patch('trading_app.tasks.CacheService') as mock_cache:
-            mock_cache.get_market_data.return_value = {'price': '1.06500'}
-            check_paper_positions()
+        check_paper_positions()
         trade.refresh_from_db()
-        self.assertEqual(trade.status, 'CLOSED')
-        self.assertIsNotNone(trade.pnl)
-        self.assertTrue(trade.pnl < 0)
+        self.assertEqual(trade.status, 'OPEN')
 
     def test_check_paper_positions_tp_hit(self):
         from .tasks import check_paper_positions
@@ -1784,13 +1779,9 @@ class CeleryTaskTests(TestCase):
             entry_price=Decimal('1.08000'), take_profit=Decimal('1.07000'),
             status='OPEN', order_type='MARKET', is_live=False,
         )
-        with patch('trading_app.tasks.CacheService') as mock_cache:
-            mock_cache.get_market_data.return_value = {'price': '1.06500'}
-            check_paper_positions()
+        check_paper_positions()
         trade.refresh_from_db()
-        self.assertEqual(trade.status, 'CLOSED')
-        self.assertIsNotNone(trade.pnl)
-        self.assertTrue(trade.pnl > 0)
+        self.assertEqual(trade.status, 'OPEN')
 
     def test_send_otp_email_task(self):
         from .tasks import send_otp_email_task
@@ -1814,39 +1805,75 @@ class TickerBridgeTests(TestCase):
     def setUp(self):
         from .services.ticker_bridge import TickerBridge
         TickerBridge._active_subscriptions.clear()
-        TickerBridge._paper_prices.clear()
-        TickerBridge._live_unreachable.clear()
 
     def test_sanitize_group_name(self):
         from .services.ticker_bridge import TickerBridge
         self.assertEqual(TickerBridge._sanitize_group_name('EUR/USD'), 'EUR_USD')
         self.assertEqual(TickerBridge._sanitize_group_name('Volatility 75 Index'), 'Volatility_75_Index')
 
-    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
-    def test_ensure_subscription_paper(self, mock_paper):
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_ensure_subscription_uses_live_ticker(self, mock_live):
         from .services.ticker_bridge import TickerBridge
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         self.assertIn('EUR/USD', TickerBridge._active_subscriptions)
-        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'paper')
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'connecting')
         self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 1)
+        mock_live.assert_called_once()
 
-    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
-    def test_ensure_subscription_increments_refcount(self, mock_paper):
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_ensure_subscription_increments_refcount(self, mock_live):
         from .services.ticker_bridge import TickerBridge
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 2)
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'connecting')
+        mock_live.assert_called_once()
 
-    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
-    def test_remove_subscription_decrements(self, mock_paper):
+    @patch('trading_app.services.ticker_bridge.TickerBridge._send_unavailable')
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_unavailable_subscription_restarts_deriv_ticker(self, mock_live, _send_unavailable):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD')
+        old_generation = TickerBridge._active_subscriptions['EUR/USD']['generation']
+        TickerBridge._mark_unavailable('EUR/USD', old_generation)
+
+        TickerBridge.ensure_subscription('EUR/USD')
+
+        entry = TickerBridge._active_subscriptions['EUR/USD']
+        self.assertEqual(entry['mode'], 'connecting')
+        self.assertEqual(entry['refcount'], 2)
+        self.assertGreater(entry['generation'], old_generation)
+        self.assertEqual(mock_live.call_count, 2)
+        mock_live.assert_called_with('EUR/USD', {}, entry['generation'])
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._send_unavailable')
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_stale_ticker_finalizer_cannot_mark_restarted_subscription_unavailable(
+        self, mock_live, _send_unavailable,
+    ):
+        from .services.ticker_bridge import TickerBridge
+        TickerBridge.ensure_subscription('EUR/USD')
+        old_generation = TickerBridge._active_subscriptions['EUR/USD']['generation']
+        TickerBridge._mark_unavailable('EUR/USD', old_generation)
+        TickerBridge.ensure_subscription('EUR/USD')
+        new_generation = TickerBridge._active_subscriptions['EUR/USD']['generation']
+
+        TickerBridge._mark_unavailable('EUR/USD', old_generation)
+
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'connecting')
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['generation'], new_generation)
+        self.assertEqual(mock_live.call_count, 2)
+
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_remove_subscription_decrements(self, mock_live):
         from .services.ticker_bridge import TickerBridge
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         TickerBridge.remove_subscription('EUR/USD')
         self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['refcount'], 1)
 
-    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
-    def test_remove_subscription_removes_at_zero(self, mock_paper):
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_remove_subscription_removes_at_zero(self, mock_live):
         from .services.ticker_bridge import TickerBridge
         TickerBridge.ensure_subscription('EUR/USD', user=None)
         TickerBridge.remove_subscription('EUR/USD')
@@ -1857,12 +1884,13 @@ class TickerBridgeTests(TestCase):
         TickerBridge.remove_subscription('NONEXISTENT')
         self.assertNotIn('NONEXISTENT', TickerBridge._active_subscriptions)
 
-    @patch('trading_app.services.ticker_bridge.TickerBridge._check_deriv_reachable', return_value=False)
-    @patch('trading_app.services.ticker_bridge.TickerBridge._start_paper_ticker')
-    def test_fallback_to_paper_when_deriv_unreachable(self, mock_paper, mock_reach):
+    @patch('trading_app.services.ticker_bridge.TickerBridge._send_unavailable')
+    @patch('trading_app.services.ticker_bridge.TickerBridge._start_live_ticker')
+    def test_deriv_unavailable_never_starts_paper_fallback(self, mock_live, send_unavailable):
         from .services.ticker_bridge import TickerBridge
         user = MagicMock()
-        user.broker_api_key = encrypt('fake_token')
         TickerBridge.ensure_subscription('EUR/USD', user=user)
-        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'paper')
-        mock_paper.assert_called_once()
+        self.assertEqual(TickerBridge._active_subscriptions['EUR/USD']['mode'], 'connecting')
+        mock_live.assert_called_once()
+        self.assertFalse(hasattr(TickerBridge, '_start_paper_ticker'))
+        send_unavailable.assert_not_called()

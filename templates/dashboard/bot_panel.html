@@ -96,10 +96,25 @@ function runSignalScan(){
   var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
   var timeframe = Number(document.getElementById('bot-timeframe')?.value || 300);
   var ss = document.getElementById('scanStatus');
-  if(ss) ss.textContent = '> Scanning ' + pair + '...\n';
+  var searchStarted = Date.now();
+  var searchTimer = null;
+  window.lastProposedSignal = null;
+  if(typeof clearChartOverlay === 'function') clearChartOverlay();
+  var signalEmpty = document.getElementById('signal-body-empty');
+  var signalContent = document.getElementById('signal-body-content');
+  var signalState = document.getElementById('signal-state-badge');
+  if(signalEmpty) signalEmpty.style.display = 'block';
+  if(signalContent) signalContent.style.display = 'none';
+  if(signalState){ signalState.textContent = 'SEARCHING'; signalState.className = 'signal-state-badge'; }
+  if(ss) ss.textContent = '> Searching ' + pair + ' for live 4-of-5 analysis...\n';
+  if(typeof AbortController !== 'undefined'){
+    window.currentAnalysisController = new AbortController();
+    searchTimer = setTimeout(function(){ window.currentAnalysisController.abort(); }, 185000);
+  }
 
   fetch('/api/analyze-signal/', {
     method: 'POST',
+    signal: window.currentAnalysisController ? window.currentAnalysisController.signal : undefined,
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
     body: JSON.stringify({query_type: 'market_analysis', prompt: pair, granularity: timeframe}),
   })
@@ -110,17 +125,36 @@ function runSignalScan(){
     });
   })
   .then(function(data){
-    if(ss && data.analysis_duration_ms != null){
-      ss.textContent += '> Analysis completed in ' + data.analysis_duration_ms + ' ms.\n';
+    var timings = (data.analysis && data.analysis.timings) || {};
+    var elapsed = timings.total_ms || data.analysis_duration_ms || (Date.now() - searchStarted);
+    if(ss){
+      ss.textContent += '> Analysis completed in ' + elapsed.toFixed(0) + ' ms.\n';
+      ss.textContent += '> Deriv ' + (timings.live_candle_retrieval_ms || timings.deriv_timeframes_ms || 0).toFixed(0) +
+        ' ms | Strategies ' + (timings.strategy_ms || 0).toFixed(0) +
+        ' ms | ML ' + (timings.ml_ms || 0).toFixed(0) +
+        ' ms | Consensus ' + (timings.consensus_ms || 0).toFixed(0) +
+        ' ms | Database ' + (timings.database_ms || 0).toFixed(0) + ' ms.\n';
     }
     if(data.decision === 'WAIT' && data.wait_expires_at){
       botWaitExpiresAt = new Date(data.wait_expires_at).getTime();
     }
     if(ss && data.trial && data.trial.status === 'trial'){
-      ss.textContent += '> Trial signals remaining: ' + data.trial.signals_remaining + '/50.\n';
+      ss.textContent += '> Trial signals remaining: ' + data.trial.signals_remaining + '/10.\n';
+    }
+    if(ss && data.analysis){
+      var consensus = data.analysis.consensus || {};
+      ss.textContent += '> Strategy agreement: ' + (consensus.directional_votes || 0) + '/5 groups (' +
+        (consensus.buy_votes || 0) + ' BUY, ' + (consensus.sell_votes || 0) + ' SELL, ' +
+        (consensus.neutral_or_insufficient_votes || 0) + ' neutral/insufficient).\n';
     }
     if(data.decision === 'WAIT' || !data.signal || data.signal.signal_type === 'HOLD'){
+      window.lastProposedSignal = null;
+      if(typeof clearChartOverlay === 'function') clearChartOverlay();
+      if(signalContent) signalContent.style.display = 'none';
+      if(signalEmpty) signalEmpty.style.display = 'block';
+      if(signalState){ signalState.textContent = 'WAIT'; signalState.className = 'signal-state-badge'; }
       if(ss) ss.textContent += '> WAIT: ' + (data.reason || data.message || 'No actionable signal.') + '\n';
+      displayWaitResult(data.analysis, data.reason || data.message || 'No actionable signal.', elapsed);
       if(ss && data.wait_seconds_remaining != null){
         ss.textContent += '> Re-evaluating market in ' + data.wait_seconds_remaining + ' seconds.\n';
       }
@@ -137,7 +171,7 @@ function runSignalScan(){
           current_price: s.entry_price,
           stop_loss: s.stop_loss,
           take_profit: s.take_profit,
-        }, s);
+        }, s, data.analysis, elapsed);
         if(ss) ss.textContent += '> Prediction: ' + s.signal_type + ' (confidence: ' + s.confidence + '%) — pending, signal unchanged.\n';
         return;
       }
@@ -151,7 +185,7 @@ function runSignalScan(){
         current_price: s.entry_price,
         stop_loss: s.stop_loss,
         take_profit: s.take_profit,
-      }, s);
+      }, s, data.analysis, elapsed);
       if(ss) ss.textContent += '> Signal generated: ' + s.signal_type + ' (confidence: ' + s.confidence + '%)\n';
       if(ss) ss.textContent += '> Entry: ' + s.entry_price + ' | SL: ' + s.stop_loss + ' | TP: ' + s.take_profit + '\n';
       return;
@@ -159,11 +193,19 @@ function runSignalScan(){
     if(ss) ss.textContent += '> Approved signal is missing verified entry/stop/target evidence; displaying WAIT.\n';
   })
   .catch(function(err){
+    window.lastProposedSignal = null;
+    if(typeof clearChartOverlay === 'function') clearChartOverlay();
+    if(signalContent) signalContent.style.display = 'none';
+    if(signalEmpty) signalEmpty.style.display = 'block';
+    if(signalState){ signalState.textContent = 'WAIT'; signalState.className = 'signal-state-badge'; }
     var ss = document.getElementById('scanStatus');
-    if(ss) ss.textContent += '> Scan error: ' + err.message + '\n';
+    if(ss) ss.textContent += '> WAIT: ' + (err.name === 'AbortError' ? 'Server analysis request exceeded client wait limit.' : err.message) + '\n';
+    displayWaitResult(null, err.name === 'AbortError' ? 'Analysis request timed out' : err.message, Date.now() - searchStarted);
     if(typeof showToast === 'function') showToast(err.message, 'error');
   })
   .then(function(){
+    if(searchTimer) clearTimeout(searchTimer);
+    window.currentAnalysisController = null;
     if(botScanInterval){
       fetch('/api/bot/control/', {
         method: 'POST',
@@ -192,7 +234,35 @@ function runSignalScan(){
   });
 }
 
-function displaySignal(proposal, signalData){
+function strategyEvidenceMarkup(analysis){
+  var consensus = analysis && analysis.consensus ? analysis.consensus : {};
+  var votes = (consensus.directional_votes || 0) + '/5 groups (' +
+    (consensus.buy_votes || 0) + ' BUY, ' + (consensus.sell_votes || 0) + ' SELL, ' +
+    (consensus.neutral_or_insufficient_votes || 0) + ' neutral/insufficient)';
+  var strategies = analysis && Array.isArray(analysis.strategies) ? analysis.strategies : [];
+  var rows = strategies.map(function(item){
+    var confidence = Number(item.confidence);
+    var confidenceText = Number.isFinite(confidence) ? ' ' + Math.round(confidence * 100) + '%' : '';
+    var detail = (item.reasons || []).slice(0, 2).join('; ') || item.error || (item.conditions || []).slice(0, 2).join('; ');
+    return '<div><strong>' + escapeHtml(String(item.name || 'Strategy')) + ':</strong> ' +
+      escapeHtml(String(item.bias || 'neutral').toUpperCase() + confidenceText) +
+      (detail ? '<div style="color:var(--text3)">' + escapeHtml(detail) + '</div>' : '') + '</div>';
+  }).join('');
+  return '<div style="display:grid;gap:5px;margin-top:8px"><div><strong>Agreement:</strong> ' +
+    escapeHtml(votes) + '</div>' + (rows || '<div>Strategy evidence unavailable</div>') + '</div>';
+}
+
+function displayWaitResult(analysis, reason, elapsed){
+  var sigEl = document.getElementById('bot-latest-signal');
+  if(!sigEl) return;
+  var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
+  sigEl.innerHTML = '<div style="margin-bottom:8px"><strong>WAIT</strong> <span style="color:var(--accent)">' +
+    escapeHtml(pair) + '</span></div><div>' + escapeHtml(reason) + '</div>' +
+    '<div style="margin-top:6px"><strong>Analysis duration:</strong> ' + escapeHtml(String(elapsed)) + ' ms</div>' +
+    strategyEvidenceMarkup(analysis);
+}
+
+function displaySignal(proposal, signalData, analysis, elapsed){
   var sigEl = document.getElementById('bot-latest-signal');
   if(!sigEl) return;
   var pair = document.getElementById('bot-market') ? document.getElementById('bot-market').value : 'EUR/USD';
@@ -211,8 +281,9 @@ function displaySignal(proposal, signalData){
     '<div><span style="color:var(--text3)">SL:</span> ' + escapeHtml(String(proposal.stop_loss)) + '</div>' +
     '<div><span style="color:var(--text3)">TP:</span> ' + escapeHtml(String(proposal.take_profit)) + '</div>' +
     '<div><span style="color:var(--text3)">Confidence:</span> ' + confidence + '%</div>' +
-    '<div><span style="color:var(--text3)">Time:</span> ' + timeStr + '</div>' +
-    '</div>';
+    '<div><span style="color:var(--text3)">Generated:</span> ' + timeStr + '</div>' +
+    '<div><span style="color:var(--text3)">Analysis duration:</span> ' + escapeHtml(String(elapsed)) + ' ms</div>' +
+    '</div>' + strategyEvidenceMarkup(analysis);
 
   if(typeof updateChartOverlay === 'function'){
     updateChartOverlay(proposal);

@@ -8,14 +8,14 @@
     <div class="plan-name">Trial</div>
     <div class="plan-price"><sup>$</sup>0<span>/24 hrs</span></div>
     <ul class="plan-features">
-      <li>Limited market analysis</li><li>3 signals/day</li><li>Dashboard access</li>
+      <li>24 hours from activation</li><li>Up to 10 generated signals</li><li>Dashboard access</li>
     </ul>
-    <button class="btn-outline" disabled style="opacity:.5">Current Plan</button>
+    <button class="btn-outline" id="subscription-trial-activate" type="button" onclick="activateFreeTrial()">Activate Free Access</button>
   </div>
   <div class="plan-card featured">
     <div class="plan-tag">⭐ MOST POPULAR</div>
     <div class="plan-name">Basic</div>
-    <div class="plan-price">KES<span> per month</span></div>
+    <div class="plan-price" id="basic-subscription-price">Checking M-Pesa price...</div>
     <ul class="plan-features">
       <li>Live market analysis</li><li>Unlimited signals</li><li>TP & SL recommendations</li><li>Full dashboard</li><li>Email notifications</li>
     </ul>
@@ -67,6 +67,21 @@ function requestSubscriptionCheckout(){
     }
   });
 }
+
+fetch('/api/subscription/', {credentials: 'same-origin', headers: {'X-Requested-With': 'XMLHttpRequest'}})
+  .then(function(response){ if(!response.ok) throw new Error('Price unavailable'); return response.json(); })
+  .then(function(data){
+    var price = document.getElementById('basic-subscription-price');
+    if(price){
+      var amount = Number(data.basic_amount_kes);
+      price.textContent = Number.isFinite(amount) && amount > 0 ?
+        'KES ' + amount.toLocaleString() + ' / month' : 'M-Pesa price not configured';
+    }
+  })
+  .catch(function(){
+    var price = document.getElementById('basic-subscription-price');
+    if(price) price.textContent = 'M-Pesa price unavailable';
+  });
 
 function pollDarajaPaymentStatus(paymentId, statusButton, checkoutButton){
   var attempts = 0;

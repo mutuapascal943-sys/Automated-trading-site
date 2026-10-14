@@ -1,51 +1,51 @@
 {
   "EURUSD": {
-    "deriv": "EUR/USD",
+    "deriv": "frxEURUSD",
     "binance": "EURUSDT",
     "paper": "EURUSD"
   },
   "GBPUSD": {
-    "deriv": "GBP/USD",
+    "deriv": "frxGBPUSD",
     "binance": "GBPUSDT",
     "paper": "GBPUSD"
   },
   "USDJPY": {
-    "deriv": "USD/JPY",
+    "deriv": "frxUSDJPY",
     "binance": "USDJPY",
     "paper": "USDJPY"
   },
   "AUDUSD": {
-    "deriv": "AUD/USD",
+    "deriv": "frxAUDUSD",
     "binance": "AUDUSDT",
     "paper": "AUDUSD"
   },
   "USDCAD": {
-    "deriv": "USD/CAD",
+    "deriv": "frxUSDCAD",
     "binance": "USDCAD",
     "paper": "USDCAD"
   },
   "USDCHF": {
-    "deriv": "USD/CHF",
+    "deriv": "frxUSDCHF",
     "binance": "USDCHF",
     "paper": "USDCHF"
   },
   "NZDUSD": {
-    "deriv": "NZD/USD",
+    "deriv": "frxNZDUSD",
     "binance": "NZDUSDT",
     "paper": "NZDUSD"
   },
   "BTCUSD": {
-    "deriv": "BTC/USD",
+    "deriv": "cryBTCUSD",
     "binance": "BTCUSDT",
     "paper": "BTCUSD"
   },
   "ETHUSD": {
-    "deriv": "ETH/USD",
+    "deriv": "cryETHUSD",
     "binance": "ETHUSDT",
     "paper": "ETHUSD"
   },
   "XAUUSD": {
-    "deriv": "XAU/USD",
+    "deriv": "frxXAUUSD",
     "binance": "XAUUSDT",
     "paper": "XAUUSD"
   },

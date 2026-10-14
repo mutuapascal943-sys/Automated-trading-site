@@ -10,8 +10,11 @@
   let changes = {};
   let histData = [];
   let marketCategories = {};
+  let staleMarkets = {};
+  window.staleMarkets = staleMarkets;
   let currentMarketCategory = 'all';
   let currentMarketSearch = '';
+  let currentDashboardSubscription = {};
 
   var wsConnections = {};
   var botChartInstance = null;
@@ -81,24 +84,34 @@
   }
 
   /* ── WebSocket Market Stream ── */
+  var reconnectAttempts = {};
+
   function getMarketWS(symbol, retainedListeners) {
     var normalised = symbol.replace(/\//g, '-');
     if (wsConnections[normalised] && wsConnections[normalised].readyState === WebSocket.OPEN) {
       return wsConnections[normalised];
     }
+    if (wsConnections[normalised] && wsConnections[normalised]._reconnectTimer) {
+      clearTimeout(wsConnections[normalised]._reconnectTimer);
+    }
+
     var protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     var url = protocol + '//' + window.location.host + '/ws/market/' + normalised + '/';
     var ws = new WebSocket(url);
     ws._symbol = symbol;
     ws._normalised = normalised;
     ws._listeners = retainedListeners || [];
+    ws._reconnectTimer = null;
+
     ws.onmessage = function(e) {
       var data;
       try { data = JSON.parse(e.data); } catch(_) { return; }
       if (data.type === 'tick') {
+        reconnectAttempts[normalised] = 0;
         pairs[data.symbol] = data.price;
         ws._listeners.forEach(function(cb) { cb(data); });
-      } else if (data.type === 'status') {
+      } else if (data.type === 'status' || data.type === 'connected') {
+        reconnectAttempts[normalised] = 0;
         ws._listeners.forEach(function(cb) { cb(data); });
       }
     };
@@ -109,15 +122,34 @@
     };
     ws.onclose = function() {
       var ns = this._normalised;
-      this._listeners.forEach(function(cb) {
+      ws._listeners.forEach(function(cb) {
         cb({type: 'status', status: 'unavailable', symbol: symbol, message: 'Live market data unavailable'});
       });
       if (wsConnections[ns] === this) delete wsConnections[ns];
-      setTimeout(function() { getMarketWS(symbol, ws._listeners); }, 3000);
+      if (window._isUnloading) return;
+
+      var attempts = reconnectAttempts[ns] || 0;
+      attempts++;
+      reconnectAttempts[ns] = attempts;
+      var delay = Math.min(30000, 1000 * Math.pow(1.5, attempts));
+
+      if (ws._reconnectTimer) clearTimeout(ws._reconnectTimer);
+      ws._reconnectTimer = setTimeout(function() {
+        getMarketWS(symbol, ws._listeners);
+      }, delay);
     };
     wsConnections[normalised] = ws;
     return ws;
   }
+
+  window.addEventListener('beforeunload', function() {
+    window._isUnloading = true;
+    Object.keys(wsConnections).forEach(function(ns) {
+      var ws = wsConnections[ns];
+      if (ws && ws._reconnectTimer) clearTimeout(ws._reconnectTimer);
+      if (ws) ws.close();
+    });
+  });
 
   function addWSListener(symbol, cb) {
     var ws = getMarketWS(symbol);
@@ -220,28 +252,101 @@
     grid.innerHTML = keys.map(function(k){
       var p = pairs[k];
       var available = Number.isFinite(p);
-      var pStr = available ? (p > 100 ? p.toFixed(2) : p.toFixed(5)) : 'Live market data unavailable';
+      var isStale = (staleMarkets && staleMarkets[k]);
+      var pStr = available ? (p > 100 ? p.toFixed(2) : p.toFixed(5)) : (isStale && p != null ? (p > 100 ? p.toFixed(2) : p.toFixed(5)) : 'Live market data unavailable');
       var cls = (changes[k] || 0) >= 0 ? 'up' : 'down';
       var sign = (changes[k] || 0) >= 0 ? '+' : '';
       var changeVal = (changes[k] || 0).toFixed(2);
       var cat = marketCategories[k] || '';
       var safeK = escapeHtml(k);
       var safeCat = escapeHtml(cat);
+      var staleBadge = isStale ? ' <span class="market-category-badge" style="background:rgba(245,194,122,0.2);color:#f5c27a;">Stale</span>' : '';
       return '<div class="market-card ' + cls + '" onclick="navigateToBot(\'' + safeK + '\')">' +
-        '<div class="market-pair">' + safeK + '<span class="market-category-badge">' + safeCat + '</span></div>' +
+        '<div class="market-pair">' + safeK + staleBadge + '<span class="market-category-badge">' + safeCat + '</span></div>' +
         '<div class="market-price-row">' +
         '<span class="market-price">' + pStr + '</span>' +
-        '<span class="market-change ' + cls + '">' + (available ? sign + changeVal + '%' : '') + '</span></div>' +
+        '<span class="market-change ' + cls + '">' + (available || isStale ? sign + changeVal + '%' : '') + '</span></div>' +
         '<div class="market-details">' +
         '<div class="mkt-detail"><span class="mkt-detail-label">Bid</span><span class="mkt-detail-value">--</span></div>' +
         '<div class="mkt-detail"><span class="mkt-detail-label">Ask</span><span class="mkt-detail-value">--</span></div>' +
         '<div class="mkt-detail"><span class="mkt-detail-label">Spread</span><span class="mkt-detail-value">--</span></div>' +
         '<div class="mkt-detail"><span class="mkt-detail-label">Day Range</span><span class="mkt-detail-value">--</span></div>' +
         '</div></div>';
-    }).join('');
+    }).join('') || '<div class="market-empty" role="status">Live Deriv market list unavailable</div>';
+  }
+
+  function loadLiveMarketList(){
+    var grid = document.getElementById('markets-grid');
+    if(grid && !Object.keys(pairs).length){
+      grid.innerHTML = '<div class="market-empty" role="status">Loading live markets from Deriv...</div>';
+    }
+    return fetch('/api/markets/', {
+      credentials: 'same-origin',
+      headers: {'X-Requested-With': 'XMLHttpRequest'},
+    })
+    .then(function(response){
+      return response.json().then(function(data){
+        if(!response.ok) throw new Error(data.error || 'Live Deriv market list unavailable');
+        return data;
+      });
+    })
+    .then(function(data){
+      var categories = marketCategories;
+      var markets = Array.isArray(data.markets) ? data.markets : [];
+      if(!markets.length) throw new Error('Deriv returned no supported active markets');
+      var oldPairs = {...pairs};
+      var oldChanges = {...changes};
+      pairs = {};
+      changes = {};
+      marketCategories = {};
+      markets.forEach(function(market){
+        pairs[market.name] = oldPairs[market.name] !== undefined ? oldPairs[market.name] : null;
+        changes[market.name] = oldChanges[market.name] !== undefined ? oldChanges[market.name] : 0;
+        marketCategories[market.name] = categories[market.name] || 'indices';
+        staleMarkets[market.name] = false;
+      });
+      window.pairs = pairs;
+
+      var select = document.getElementById('bot-market');
+      if(select){
+        var previous = select.value;
+        select.innerHTML = markets.map(function(market){
+          return '<option value="' + escapeHtml(market.name) + '">' + escapeHtml(market.display_name || market.name) + '</option>';
+        }).join('');
+        select.value = pairs[previous] !== undefined ? previous : markets[0].name;
+      }
+      populateMarkets();
+      startPriceTicker();
+      refreshMarketSnapshots();
+      updateMarketSummary();
+      return markets;
+    })
+    .catch(function(error){
+      if(!Object.keys(pairs).length){
+        initData();
+        if(grid){
+          grid.innerHTML = '<div class="market-empty" role="status">Live Deriv market list unavailable: ' + escapeHtml(error.message) + '. Showing default markets.</div>';
+        }
+      } else {
+        // Preserve existing pairs, mark them stale
+        Object.keys(pairs).forEach(function(k){
+          staleMarkets[k] = true;
+        });
+        populateMarkets();
+      }
+      updateMarketSummary();
+      var select = document.getElementById('bot-market');
+      if(select && !select.options.length) select.innerHTML = '<option value="">Live Deriv market list unavailable</option>';
+      var status = document.getElementById('scanStatus');
+      if(status) status.textContent = '> ' + error.message;
+      return [];
+    });
   }
 
   function refreshMarketSnapshots(){
+    if(!Object.keys(pairs).length){
+      initData();
+    }
     Object.keys(pairs).forEach(function(symbol){
       fetch('/api/chart/candles/?symbol=' + encodeURIComponent(symbol) + '&granularity=900&count=2', {
         headers: {'X-Requested-With': 'XMLHttpRequest'},
@@ -257,11 +362,14 @@
         var latest = Number(candles[candles.length - 1].close);
         pairs[symbol] = latest;
         changes[symbol] = previous ? (latest - previous) / previous * 100 : 0;
+        staleMarkets[symbol] = false;
         updateMarketCards();
       })
       .catch(function(){
-        pairs[symbol] = null;
-        changes[symbol] = 0;
+        // Preserve last known price, mark as stale
+        if(pairs[symbol] !== undefined && pairs[symbol] !== null){
+          staleMarkets[symbol] = true;
+        }
         updateMarketCards();
       });
     });
@@ -1131,14 +1239,25 @@
 
       setText('hero-signals', data.total_signals || 0);
 
-      setText('dash-win-rate', (data.weekly_win_rate || 0) + '%');
+      setText('dash-win-rate', (data.win_rate || 0) + '%');
       setText('dash-signals', data.total_signals || 0);
+      setText('dash-correct-signals', data.win_trades || 0);
+      setText('dash-missed-signals', data.loss_trades || 0);
       var winRateDelta = document.getElementById('dash-win-rate-delta');
       if(winRateDelta){
-        winRateDelta.textContent = 'This week: ' + (data.weekly_win_rate || 0) +
-          '% (' + (data.weekly_resolved_signals || 0) + ' resolved)';
+        winRateDelta.textContent = 'All time: ' + (data.win_trades || 0) + ' wins, ' +
+          (data.loss_trades || 0) + ' losses';
       }
       var subscription = data.subscription || {};
+      currentDashboardSubscription = subscription;
+      ['dashboard-start-bot', 'dashboard-activate-bot'].forEach(function(id){
+        var actionButton = document.getElementById(id);
+        if(actionButton) actionButton.disabled = false;
+      });
+      var trialActivationButton = document.getElementById('subscription-trial-activate');
+      if(trialActivationButton){
+        trialActivationButton.hidden = subscription.status !== 'trial_not_started';
+      }
       var botAccess = data.bot_access || {has_access: subscription.has_access, status: subscription.status};
       var trialTitle = document.getElementById('trial-title');
       var trialTimer = document.getElementById('trial-timer');
@@ -1147,9 +1266,10 @@
           subscription.status === 'admin_bypass' ? 'Access Granted' :
           subscription.status === 'admin_denied' ? 'Access Disabled' :
           subscription.status === 'trial_limit_reached' ? 'Trial Signal Limit Reached' :
-          subscription.status === 'trial' ? 'Free Trial Active' : 'Trial Expired';
+          subscription.status === 'trial' ? 'Free Trial Active' :
+          subscription.status === 'trial_not_started' ? 'Free Access Available' : 'Trial Expired';
       }
-      if(trialTimer && subscription.seconds_remaining != null){
+      if(trialTimer && subscription.status !== 'trial_not_started' && subscription.seconds_remaining != null){
         trialSeconds = Math.max(0, subscription.seconds_remaining);
         var h = Math.floor(trialSeconds / 3600);
         var m = Math.floor((trialSeconds % 3600) / 60);
@@ -1160,8 +1280,9 @@
       var signalAllowance = document.getElementById('trial-signal-count');
       if(signalAllowance){
         signalAllowance.textContent = subscription.status === 'trial' ?
-          '· ' + subscription.signals_remaining + ' of 50 signals remaining' :
-          subscription.status === 'trial_limit_reached' ? '· 50 trial signals used' : '';
+          '· ' + subscription.signals_remaining + ' of 10 signals remaining' :
+          subscription.status === 'trial_limit_reached' ? '· 10 trial signals used' :
+          subscription.status === 'trial_not_started' ? '· 10 free signals available' : '';
       }
       var botButton = document.getElementById('bot-toggle-btn');
       if(botButton){
@@ -1172,7 +1293,8 @@
       ['dashboard-start-bot', 'dashboard-activate-bot'].forEach(function(id){
         var actionButton = document.getElementById(id);
         if(!actionButton) return;
-        actionButton.textContent = botAccess.status === 'admin_denied' ? 'Contact Support' :
+        actionButton.textContent = subscription.status === 'trial_not_started' ? 'Activate Free Access' :
+          botAccess.status === 'admin_denied' ? 'Contact Support' :
           botAccess.has_access === false ? 'Activate Subscription' :
           id === 'dashboard-start-bot' ? 'Start Bot' : 'Activate Bot';
       });
@@ -1187,6 +1309,35 @@
       return;
     }
     navigateToPanel('bot');
+  };
+  window.activateFreeTrial = function(){
+    var button = document.getElementById('dashboard-activate-bot');
+    if(button) button.disabled = true;
+    fetch('/api/subscription/activate-trial/', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
+      body: JSON.stringify({}),
+    })
+    .then(function(response){
+      return response.json().then(function(data){
+        if(!response.ok) throw new Error(data.error || 'Free access could not be activated.');
+        return data;
+      });
+    })
+    .then(function(data){
+      currentDashboardSubscription = data.access || {};
+      fetchDashboardStats();
+      navigateToPanel('markets');
+    })
+    .catch(function(error){ if(typeof showToast === 'function') showToast(error.message, 'error'); })
+    .finally(function(){ if(button) button.disabled = false; });
+  };
+  window.handleDashboardAction = function(){
+    if(currentDashboardSubscription.status === 'trial_not_started'){
+      window.activateFreeTrial();
+      return;
+    }
+    window.openBotOrSubscription();
   };
 
   function initAnalyticsCharts(){
@@ -1473,11 +1624,8 @@
       navigateToPanel('dashboard');
     }
     startTrialTimer();
-    startPriceTicker();
     populateHistory();
-    populateMarkets();
-    refreshMarketSnapshots();
-    updateMarketSummary();
+    loadLiveMarketList();
     fetchDashboardStats();
     restoreBotMarket();
     restoreBotStatus();

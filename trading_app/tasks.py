@@ -12,7 +12,6 @@ from .services.cache_service import CacheService
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
 from .models import EmailOTP, Trade, User, TradingSignal, PredictionRecord, RiskConfig, Notification
 from .serializers import TradeCreateSerializer, TradingSignalSerializer
-from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
@@ -428,7 +427,7 @@ def _resolve_prediction(pred) -> bool:
 
     user = pred.user
     if user is None or user.paper_mode:
-         # Resolve only from real Deriv candles, including for paper-mode users.
+        # Prediction labels always use real Deriv candles, regardless of account mode.
         candles = _fetch_real_outcome_candles(pred)
         if candles and _apply_prediction_outcome(pred, sorted(candles, key=lambda c: c.timestamp)):
             return True
@@ -541,7 +540,7 @@ def _fetch_real_outcome_candles(pred):
         loop = asyncio.new_event_loop()
         try:
             rows = loop.run_until_complete(
-                _fetch_all(symbol, gran, count, int(time.time()), config("DERIV_APP_ID", default="1089"))
+                _fetch_all(symbol, gran, count, int(time.time()), config("DERIV_APP_ID", default=""))
             )
         finally:
             loop.close()

@@ -2,7 +2,7 @@ from datetime import timedelta
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from django.test import TestCase, override_settings
+from django.test import Client, TestCase, override_settings
 from django.utils import timezone
 from django.core.cache import cache
 from rest_framework.test import APIClient
@@ -26,19 +26,58 @@ class SubscriptionAccessTests(TestCase):
         self.assertTrue(subscription_status(self.user)['has_access'])
         self.assertEqual(subscription_status(self.user)['status'], 'trial')
 
-    def test_new_users_get_trial_start_automatically(self):
+    def test_new_users_must_activate_trial_explicitly(self):
         new_user = User.objects.create_user(
             email='new-trial@example.com', username='new-trial', password='Testpass123',
         )
-        self.assertIsNotNone(new_user.trial_started_at)
-        self.assertTrue(subscription_status(new_user)['has_access'])
+        self.assertIsNone(new_user.trial_started_at)
+        self.assertFalse(subscription_status(new_user)['has_access'])
+        self.assertEqual(subscription_status(new_user)['status'], 'trial_not_started')
+
+    def test_free_trial_activation_starts_once_and_does_not_reset(self):
+        from datetime import timedelta
+        from django.urls import reverse
+
+        unactivated = User.objects.create_user(
+            email='activate-trial@example.com', username='activate-trial',
+            password='Testpass123', trial_started_at=None,
+        )
+        self.client.force_authenticate(user=unactivated)
+        self.assertEqual(subscription_status(unactivated)['status'], 'trial_not_started')
+
+        response = self.client.post(reverse('api_activate_free_trial'))
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['access']['status'], 'trial')
+        unactivated.refresh_from_db()
+        first_start = unactivated.trial_started_at
+        self.assertIsNotNone(first_start)
+
+        second_response = self.client.post(reverse('api_activate_free_trial'))
+        unactivated.refresh_from_db()
+        self.assertEqual(second_response.status_code, 200)
+        self.assertEqual(unactivated.trial_started_at, first_start)
+        self.assertEqual(subscription_status(unactivated)['expires_at'], first_start + timedelta(hours=24))
+
+    @patch('trading_app.views._issue_email_otp', return_value=True)
+    def test_registration_does_not_start_free_trial_before_user_activation(self, _issue_otp):
+        from django.urls import reverse
+
+        response = Client().post(reverse('register'), {
+            'email': 'signup-trial@example.com',
+            'password1': 'Testpass123!',
+            'password2': 'Testpass123!',
+        })
+        self.assertEqual(response.status_code, 302)
+        registered = User.objects.get(email='signup-trial@example.com')
+        self.assertIsNone(registered.trial_started_at)
+        self.assertEqual(subscription_status(registered)['status'], 'trial_not_started')
 
     def test_expired_trial_is_blocked(self):
         self.user.trial_started_at = timezone.now() - timedelta(hours=25)
         self.user.save(update_fields=['trial_started_at'])
         self.assertFalse(subscription_status(self.user)['has_access'])
 
-    def test_trial_access_ends_after_fifty_actionable_signals(self):
+    def test_trial_access_ends_after_ten_actionable_signals(self):
         self.user.trial_started_at = timezone.now()
         self.user.save(update_fields=['trial_started_at'])
         TradingSignal.objects.bulk_create([
@@ -46,12 +85,12 @@ class SubscriptionAccessTests(TestCase):
                 user=self.user, symbol='EUR/USD', signal_type='BUY',
                 confidence=70, source='SYSTEM',
             )
-            for _ in range(50)
+            for _ in range(10)
         ])
         access = subscription_status(self.user)
         self.assertFalse(access['has_access'])
         self.assertEqual(access['status'], 'trial_limit_reached')
-        self.assertEqual(access['signals_used'], 50)
+        self.assertEqual(access['signals_used'], 10)
         self.assertEqual(access['signals_remaining'], 0)
 
     def test_expired_user_can_load_dashboard_and_subscription_status(self):
@@ -65,6 +104,31 @@ class SubscriptionAccessTests(TestCase):
         self.assertFalse(dashboard.json()['subscription']['has_access'])
         self.assertEqual(subscription.status_code, 200)
         self.assertEqual(subscription.json()['access']['status'], 'expired')
+
+    @override_settings(DARAJA_BASIC_AMOUNT_KES=1000)
+    def test_subscription_status_exposes_configured_kes_price_without_conversion(self):
+        response = self.client.get('/api/subscription/')
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()['payment_currency'], 'KES')
+        self.assertEqual(response.json()['basic_amount_kes'], 1000)
+
+    def test_dashboard_signal_statistics_are_user_scoped(self):
+        other_user = User.objects.create_user(
+            email='other-stats@example.com', username='other-stats', password='Testpass123',
+        )
+        for owner, outcome in ((self.user, 'WIN'), (self.user, 'LOSS'), (other_user, 'WIN')):
+            TradingSignal.objects.create(
+                user=owner, symbol='EUR/USD', signal_type='BUY', confidence=75,
+                source='SYSTEM', outcome=outcome, outcome_resolved_at=timezone.now(),
+            )
+
+        response = self.client.get('/api/dashboard/stats/')
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload['total_signals'], 2)
+        self.assertEqual(payload['win_trades'], 1)
+        self.assertEqual(payload['loss_trades'], 1)
+        self.assertEqual(payload['win_rate'], 50)
 
     def test_paid_subscription_has_access_until_expiry(self):
         Subscription.objects.create(
@@ -391,9 +455,13 @@ class SubscriptionAccessTests(TestCase):
         fetch_candles.return_value = (
             [object()], {key: candle_dicts for key in ('H4', 'M15', 'M5', 'M1')}, None,
         )
-        vote = StrategyResult('test_vote', 'bullish', 0.8, (), (), {}, 0.1)
-        for evaluator in (sr_eval, momentum_eval, ict_eval, fib_eval):
-            evaluator.return_value = vote
+        for evaluator, name in (
+            (sr_eval, 'Support/Resistance'),
+            (momentum_eval, 'Momentum'),
+            (ict_eval, 'ICT'),
+            (fib_eval, 'Fibonacci'),
+        ):
+            evaluator.return_value = StrategyResult(name, 'bullish', 0.8, (), (), {}, 0.1)
 
         with patch('trading_app.api_views._candles_to_dicts', return_value=candle_dicts), \
             patch('trading_app.strategies.choch.evaluate', return_value=StrategyResult('CHoCH', 'bullish', 0.8, (), (), {}, 0.1)), \
@@ -424,20 +492,16 @@ class SubscriptionAccessTests(TestCase):
         self.assertEqual(response.status_code, 410)
         self.assertFalse(response.json()['execution_enabled'])
 
-    @override_settings(MOCK_SUBSCRIPTIONS_ENABLED=True)
+    @override_settings(
+        DARAJA_CONSUMER_KEY='test_key',
+        DARAJA_CONSUMER_SECRET='test_secret',
+        DARAJA_SHORTCODE='174379',
+        DARAJA_PASSKEY='test_passkey',
+        DARAJA_CALLBACK_URL='https://example.com/callback/',
+        DARAJA_BASIC_AMOUNT_KES=1000,
+    )
     @patch('trading_app.payments.daraja.initiate_stk_push', side_effect=__import__('trading_app.payments.daraja', fromlist=['DarajaError']).DarajaError('sandbox unavailable'))
-    def test_mock_checkout_setting_cannot_activate_subscription(self, _stk):
-        response = self.client.post('/api/subscription/checkout/', {
-            'tier': 'BASIC', 'phone_number': '0712345678',
-        }, format='json')
-        self.assertEqual(response.status_code, 502)
-        self.assertNotEqual(response.json().get('status'), 'mock_activated')
-        subscription = Subscription.objects.filter(user=self.user).first()
-        self.assertTrue(subscription is None or subscription.tier == 'FREE')
-
-    @override_settings(MOCK_SUBSCRIPTIONS_ENABLED=False)
-    @patch('trading_app.payments.daraja.initiate_stk_push', side_effect=__import__('trading_app.payments.daraja', fromlist=['DarajaError']).DarajaError('sandbox unavailable'))
-    def test_checkout_requires_provider_when_mock_is_disabled(self, _stk):
+    def test_checkout_requires_provider_confirmation(self, _stk):
         response = self.client.post('/api/subscription/checkout/', {
             'tier': 'BASIC', 'phone_number': '0712345678',
         }, format='json')

@@ -13,6 +13,7 @@ class User(AbstractUser):
         default=False,
         help_text='Admin grant for bot access without an active paid subscription or trial',
     )
+    subscription_bypass_expires_at = models.DateTimeField(null=True, blank=True)
     bot_bypass = models.BooleanField(
         default=False,
         help_text='Admin grant for bot access independent of subscription access',
@@ -22,7 +23,7 @@ class User(AbstractUser):
         help_text='Admin revocation of bot access, including during an active trial or subscription',
     )
     balance = models.DecimalField(max_digits=14, decimal_places=2, default=Decimal('12430.00'))
-    trial_started_at = models.DateTimeField(null=True, blank=True, default=timezone.now)
+    trial_started_at = models.DateTimeField(null=True, blank=True)
     broker_api_key = models.CharField(max_length=500, blank=True, default='')
     broker_api_secret = models.CharField(max_length=500, blank=True, default='')
     broker_account_id = models.CharField(max_length=100, blank=True, default='')
@@ -70,6 +71,12 @@ class RiskConfig(models.Model):
     max_open_positions = models.IntegerField(default=5, help_text='Max simultaneous open positions')
     auto_execute = models.BooleanField(default=True, help_text='Auto-execute signals without manual confirmation')
     trading_enabled = models.BooleanField(default=True, help_text='Master toggle for all trading')
+    min_confluence_count = models.IntegerField(default=3, help_text='Minimum confluence count required for signal')
+    min_reward_risk = models.DecimalField(max_digits=4, decimal_places=2, default=Decimal('2.0'), help_text='Minimum reward-to-risk ratio')
+    ema_fast_period = models.IntegerField(default=20, help_text='Fast EMA period for bias filter')
+    ema_slow_period = models.IntegerField(default=40, help_text='Slow EMA period for bias filter')
+    news_blackout_enabled = models.BooleanField(default=True, help_text='Enable high-impact news blackout window')
+    spread_buffer_pips = models.DecimalField(max_digits=5, decimal_places=2, default=Decimal('0.5'), help_text='Spread buffer added to stop-loss/entry')
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -265,7 +272,7 @@ class PaymentTransaction(models.Model):
     merchant_request_id = models.CharField(max_length=100, blank=True, default='')
     checkout_request_id = models.CharField(max_length=100, unique=True, null=True, blank=True)
     mpesa_receipt_number = models.CharField(max_length=32, unique=True, null=True, blank=True)
-    result_code = models.CharField(max_length=20, blank=True, default='')
+    result_code = models.CharField(max_length=50, blank=True, default='')
     result_description = models.CharField(max_length=255, blank=True, default='')
     status = models.CharField(max_length=12, choices=STATUS_CHOICES, default=STATUS_INITIATED)
     created_at = models.DateTimeField(auto_now_add=True)

@@ -59,6 +59,22 @@ class _FakeAdapterWebSocket:
 
 
 class DerivPublicFeedTests(TestCase):
+    def test_adapter_parses_live_active_symbol_response(self):
+        adapter = DerivAdapter(app_id='test-app')
+        response = {'active_symbols': [
+            {'symbol': 'frxEURUSD', 'display_name': 'EUR/USD', 'market': ' forex '},
+            {'symbol': 'R_75', 'display_name': 'Volatility 75 Index', 'market': 'synthetic_index'},
+        ]}
+        with patch.object(adapter, '_call_api', return_value='pending') as call_api, \
+                patch.object(adapter, '_await_future', return_value=response) as await_future:
+            symbols = adapter.get_active_symbols(timeout=7)
+
+        call_api.assert_called_once_with('active_symbols', {
+            'active_symbols': 'brief', 'product_type': 'basic',
+        })
+        await_future.assert_called_once_with('pending', timeout=7)
+        self.assertEqual([item['symbol'] for item in symbols], ['frxEURUSD', 'R_75'])
+
     def test_adapter_credentials_ignore_account_and_market_tokens(self):
         user = type('User', (), {
             'broker_api_key': 'account-key',

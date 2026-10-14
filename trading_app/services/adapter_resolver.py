@@ -7,7 +7,7 @@ from trading_app.trading_bot.deriv_adapter import DerivAdapter
 
 def get_adapter_for_broker(broker_name: str = "") -> DerivAdapter:
     """Return the supported read-only market-data adapter."""
-    return DerivAdapter(app_id=config("DERIV_APP_ID", default="1089"))
+    return DerivAdapter(app_id=config("DERIV_APP_ID", default=""))
 
 
 def build_credentials(user) -> dict[str, str]:

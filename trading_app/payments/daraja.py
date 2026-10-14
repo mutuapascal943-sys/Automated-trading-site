@@ -66,8 +66,19 @@ class DarajaConfig:
         return SANDBOX_BASE_URL if self.environment == 'sandbox' else PRODUCTION_BASE_URL
 
     def validate(self, require_product_price: bool = False) -> None:
-        if not all((self.consumer_key, self.consumer_secret, self.shortcode, self.passkey, self.callback_url)):
-            raise DarajaError('Daraja is not fully configured.')
+        required = {
+            'DARAJA_CONSUMER_KEY': self.consumer_key,
+            'DARAJA_CONSUMER_SECRET': self.consumer_secret,
+            'DARAJA_SHORTCODE': self.shortcode,
+            'DARAJA_PASSKEY': self.passkey,
+            'DARAJA_CALLBACK_URL': self.callback_url,
+        }
+        missing = [name for name, value in required.items() if not value]
+        if missing:
+            raise DarajaError(
+                'Daraja is not fully configured. Missing environment variables: '
+                + ', '.join(missing) + '.'
+            )
         if require_product_price and self.basic_amount_kes <= 0:
             raise DarajaError('The server-side BASIC subscription KES price is not configured.')
         if self.transaction_type not in {'CustomerPayBillOnline', 'CustomerBuyGoodsOnline'}:

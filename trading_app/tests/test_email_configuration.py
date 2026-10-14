@@ -5,6 +5,21 @@ from trading_app.services.email_diagnostics import email_configuration_status
 
 
 class EmailConfigurationTests(SimpleTestCase):
+    def test_debug_uses_smtp_when_credentials_are_configured(self):
+        configured = build_email_settings(
+            True, host='smtp.example.org', port=587, use_tls=True,
+            username='mail-user', password='configured-password',
+            from_email='security@example.org',
+        )
+        self.assertEqual(configured['EMAIL_BACKEND'], 'django.core.mail.backends.smtp.EmailBackend')
+
+    def test_debug_without_smtp_credentials_uses_smtp_backend(self):
+        configured = build_email_settings(
+            True, host='smtp.example.org', port=587, use_tls=True,
+            username='', password='', from_email='security@example.org',
+        )
+        self.assertEqual(configured['EMAIL_BACKEND'], 'django.core.mail.backends.smtp.EmailBackend')
+
     def test_production_selector_always_chooses_smtp_with_env_values(self):
         configured = build_email_settings(
             False, host='smtp.example.org', port=587, use_tls=True,

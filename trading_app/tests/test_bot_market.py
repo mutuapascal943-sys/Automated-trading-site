@@ -18,6 +18,41 @@ class BotMarketAPITests(TestCase):
         self.client = APIClient()
         self.client.force_authenticate(user=self.user)
 
+    @patch('trading_app.api_views._resolve_adapter')
+    def test_live_market_list_contains_only_deriv_active_supported_markets(self, resolve_adapter):
+        from django.core.cache import cache
+        cache.clear()
+        adapter = resolve_adapter.return_value
+        adapter._connected = True
+        adapter.get_active_symbols.return_value = [
+            {'symbol': 'frxEURUSD', 'display_name': 'EUR/USD'},
+            {'symbol': 'R_75', 'display_name': 'Volatility 75 Index'},
+            {'symbol': 'UNKNOWN', 'display_name': 'Unknown Market'},
+        ]
+
+        response = self.client.get('/api/markets/')
+
+        self.assertEqual(response.status_code, 200, response.content)
+        self.assertEqual(response.json()['source'], 'deriv_live')
+        self.assertEqual(
+            [market['name'] for market in response.json()['markets']],
+            ['EUR/USD', 'Volatility 75 Index'],
+        )
+        adapter.get_active_symbols.assert_called_once_with(timeout=10)
+        adapter.disconnect.assert_called_once()
+
+    @patch('trading_app.api_views._resolve_adapter')
+    def test_live_market_list_fails_closed_when_deriv_unavailable(self, resolve_adapter):
+        from django.core.cache import cache
+        cache.clear()
+        resolve_adapter.return_value.get_active_symbols.side_effect = TimeoutError('offline')
+        resolve_adapter.return_value._connected = True
+
+        response = self.client.get('/api/markets/')
+
+        self.assertEqual(response.status_code, 503)
+        self.assertEqual(response.json()['error'], 'Live Deriv market list unavailable.')
+
     def test_get_default_market(self):
         r = self.client.get('/api/bot/market/')
         self.assertEqual(r.status_code, 200, r.content)
@@ -104,3 +139,34 @@ class BotMarketAPITests(TestCase):
         c = APIClient()
         r = c.get('/api/bot/market/')
         self.assertEqual(r.status_code, 403)
+
+    @patch('trading_app.api_views._resolve_adapter')
+    def test_live_markets_cache_and_stale_fallback(self, resolve_adapter):
+        from django.core.cache import cache
+        cache.clear()
+        adapter = resolve_adapter.return_value
+        adapter._connected = True
+        adapter.get_active_symbols.return_value = [
+            {'symbol': 'frxEURUSD', 'display_name': 'EUR/USD'},
+        ]
+
+        # 1. First request fetches live and caches
+        response1 = self.client.get('/api/markets/')
+        self.assertEqual(response1.status_code, 200)
+        self.assertEqual(response1.json()['source'], 'deriv_live')
+
+        # 2. Second request returns cached response without calling adapter again
+        adapter.get_active_symbols.reset_mock()
+        response2 = self.client.get('/api/markets/')
+        self.assertEqual(response2.status_code, 200)
+        self.assertEqual(response2.json()['source'], 'deriv_live_cached')
+        adapter.get_active_symbols.assert_not_called()
+
+        # 3. Clear primary cache, simulate adapter failure -> should fall back to stale cache
+        cache.delete('deriv_active_markets_v7')
+        adapter.get_active_symbols.side_effect = TimeoutError('offline')
+        response3 = self.client.get('/api/markets/')
+        self.assertEqual(response3.status_code, 200)
+        self.assertEqual(response3.json()['source'], 'deriv_stale_cached')
+        self.assertTrue(len(response3.json()['markets']) > 0)
+        cache.clear()

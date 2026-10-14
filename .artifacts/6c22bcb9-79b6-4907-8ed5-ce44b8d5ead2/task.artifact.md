@@ -1,0 +1,7 @@
+- `[ ]` Task 1: Update RiskConfig model and migrations for centralized parameters (min confluence, R:R, EMA periods, news blackout).
+- `[ ]` Task 2: Implement Confluence Scorer (0-5 factors) and minimum confluence gate.
+- `[ ]` Task 3: Implement reward:risk ratio check (>= 1:2) and spread buffer integration in risk/SL-TP calculator.
+- `[ ]` Task 4: Enhance economic news blackout check in `choch.py`.
+- `[ ]` Task 5: Enforce strict rule-engine rejection override over ML confidence in signal generation pipeline (`api_views.py`).
+- `[ ]` Task 6: Add unit tests covering scenarios 1-7 (momentum/structure conflict, confluence threshold, unmitigated zone limit block, R:R ratio, news blackout, ML rule override, spread buffer).
+- `[ ]` Task 7: Run verification tests (`python manage.py test`).

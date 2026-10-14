@@ -26,7 +26,6 @@ TEST_DARAJA_SETTINGS = {
     'DARAJA_CALLBACK_URL': 'https://example.invalid/api/payments/daraja/callback/',
     'DARAJA_ENVIRONMENT': 'sandbox',
     'DARAJA_BASIC_AMOUNT_KES': 1500,
-    'MOCK_SUBSCRIPTIONS_ENABLED': True,
 }
 
 
@@ -382,8 +381,8 @@ class DarajaSubscriptionAPITests(TestCase):
         self.assertEqual(payment.status, PaymentTransaction.STATUS_PENDING)
         self.assertEqual(self.subscription.tier, 'FREE')
 
-    def test_production_mock_checkout_flag_does_not_grant_access(self):
-        with override_settings(MOCK_SUBSCRIPTIONS_ENABLED=True):
+    def test_checkout_failure_does_not_grant_access(self):
+        with patch('trading_app.payments.daraja.initiate_stk_push', side_effect=daraja.DarajaError('unavailable')):
             response = self.client.post(reverse('api_subscription_checkout'), {
                 'tier': 'BASIC', 'phone_number': '0712345678',
             }, format='json')

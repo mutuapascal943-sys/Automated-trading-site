@@ -1,4 +1,6 @@
 from datetime import timedelta
+import threading
+import time
 from decimal import Decimal
 from contextlib import ExitStack, contextmanager
 import secrets
@@ -54,14 +56,18 @@ class AnalysisVerificationTests(TestCase):
     def _live_adapter(self):
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
-            SimpleNamespace(
+        def get_candles(symbol, granularity, count, timeout=None, **kwargs):
+            interval_end = int(timezone.now().timestamp())
+            interval_end -= interval_end % granularity
+            return [SimpleNamespace(
                 symbol=symbol, open=Decimal('101.0'), high=Decimal('102.0'),
                 low=Decimal('100.0'), close=Decimal('101.5'), volume=Decimal('25'),
-                timestamp=timezone.now() - timedelta(seconds=10), granularity=granularity,
-            ) for _ in range(count)
-        ]
-        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
+                timestamp=timezone.datetime.fromtimestamp(
+                    interval_end - granularity * (count - index), tz=timezone.get_current_timezone(),
+                ), granularity=granularity,
+            ) for index in range(count)]
+        adapter.get_candles.side_effect = get_candles
+        adapter.subscribe_ticks.side_effect = lambda symbol, callback, **kwargs: callback(SimpleNamespace(
             symbol=symbol, timestamp=timezone.now(),
         ))
         return adapter
@@ -220,20 +226,24 @@ class AnalysisVerificationTests(TestCase):
         self.assertEqual(body['analysis']['verification_mode'], 'read_only')
         self.assertEqual(body['analysis']['bias'], 'bullish')
         self.assertGreater(body['analysis']['confidence'], 0)
-        self.assertEqual(body['analysis']['consensus']['directional_votes'], 6)
-        self.assertEqual(body['analysis']['consensus']['buy_votes'], 6)
+        self.assertEqual(body['analysis']['consensus']['directional_votes'], 5)
+        self.assertEqual(body['analysis']['consensus']['buy_votes'], 5)
         self.assertEqual(body['analysis']['consensus']['sell_votes'], 0)
         strategy_names = {item['name'] for item in body['analysis']['strategies']}
         self.assertTrue({
-            'Fibonacci', 'ICT', 'Momentum', 'Support/Resistance', 'CHoCH', 'Technical/SMC',
+            'Fibonacci', 'ICT + CHoCH', 'Momentum', 'Support/Resistance', 'Technical/SMC',
         } <= strategy_names)
+        self.assertEqual(body['analysis']['consensus']['group_count'], 5)
+        self.assertEqual(body['analysis']['consensus']['minimum_votes'], 4)
         for evaluator in fixtures['evaluators'].values():
             evaluator.assert_called_once()
         self.assertEqual(fixtures['analyze'].call_count, 1)
         fixtures['consensus'].assert_called_once()
         choch_evaluate = fixtures['evaluators']['CHoCH']
-        choch_result = next(item for item in body['analysis']['strategies'] if item['name'] == 'CHoCH')
-        self.assertEqual(choch_result['bias'], 'bullish')
+        ict_choch_result = next(item for item in body['analysis']['strategies'] if item['name'] == 'ICT + CHoCH')
+        self.assertEqual(ict_choch_result['bias'], 'bullish')
+        self.assertIn('ICT fixture vote', ict_choch_result['reasons'])
+        self.assertIn('CHoCH fixture vote', ict_choch_result['reasons'])
         choch_context = choch_evaluate.call_args.args[0]
         self.assertEqual(set(choch_context.multi_timeframe), {'H4', 'M15', 'M5', 'M1'})
         self.assertEqual(
@@ -241,7 +251,7 @@ class AnalysisVerificationTests(TestCase):
             {'H4': 200, 'M15': 200, 'M5': 200, 'M1': 200},
         )
         signal_data = body['signal']
-        self.assertEqual(body['decision'], 'BUY')
+        self.assertEqual(body['decision'], 'BUY', body)
         self.assertEqual(signal_data['signal_type'], 'BUY')
         self.assertEqual(Decimal(signal_data['entry_price']), Decimal('101.50000'))
         self.assertEqual(Decimal(signal_data['stop_loss']), Decimal('100.50000'))
@@ -262,6 +272,66 @@ class AnalysisVerificationTests(TestCase):
         self.risk.refresh_from_db()
         self.assertTrue(self.risk.auto_execute)
         self.assertTrue(self.risk.trading_enabled)
+
+    @override_settings(
+        TRADING_ANALYSIS_VERIFICATION_ENABLED=True,
+        MIN_STRATEGY_VOTES=3,
+        STRATEGY_CONSENSUS_THRESHOLD=0.7,
+    )
+    def test_four_of_five_core_groups_allows_direction_with_one_neutral_group(self):
+        adapter = self._live_adapter()
+        with self._pipeline_fixtures(adapter, choch_bias='neutral') as fixtures:
+            response = self._post_verification(persist=False)
+
+        self.assertEqual(response.status_code, 200, response.content)
+        body = response.json()
+        self.assertEqual(body['decision'], 'BUY', body)
+        self.assertFalse(body['persisted'])
+        self.assertEqual(body['analysis']['consensus']['group_count'], 5)
+        self.assertEqual(body['analysis']['consensus']['buy_votes'], 4)
+        self.assertEqual(body['analysis']['consensus']['neutral_or_insufficient_votes'], 1)
+        self.assertFalse(body['analysis']['consensus']['contradiction'])
+        self._assert_execution_not_reached(fixtures)
+
+    @override_settings(
+        TRADING_ANALYSIS_VERIFICATION_ENABLED=True,
+        MIN_STRATEGY_VOTES=3,
+        STRATEGY_CONSENSUS_THRESHOLD=0.7,
+    )
+    def test_ml_contradiction_vetoes_four_of_five_strategy_confluence(self):
+        adapter = self._live_adapter()
+        opposing_ml = SimpleNamespace(
+            bias='bearish', confidence=0.95, model_info='bounded fixture',
+            features={}, probability=0.02, horizon=4,
+        )
+        with self._pipeline_fixtures(adapter, choch_bias='neutral') as fixtures:
+            with patch('trading_app.api_views._predict_from_existing_candles', return_value=opposing_ml):
+                response = self._post_verification(persist=False)
+
+        body = response.json()
+        self.assertEqual(body['decision'], 'WAIT')
+        self.assertEqual(body['analysis']['consensus']['buy_votes'], 4)
+        self.assertFalse(body['analysis']['ml_compatible'])
+        self._assert_execution_not_reached(fixtures)
+
+    @override_settings(
+        TRADING_ANALYSIS_VERIFICATION_ENABLED=True,
+        MIN_STRATEGY_VOTES=3,
+        STRATEGY_CONSENSUS_THRESHOLD=0.7,
+    )
+    def test_ml_stage_timing_is_reported(self):
+        import time as time_module
+
+        adapter = self._live_adapter()
+        def delayed_ml(*_args, **_kwargs):
+            time_module.sleep(0.025)
+            return None
+        with self._pipeline_fixtures(adapter, choch_bias='neutral'):
+            with patch('trading_app.api_views._predict_from_existing_candles', side_effect=delayed_ml):
+                response = self._post_verification(persist=False)
+        timings = response.json()['analysis']['timings']
+        self.assertGreaterEqual(timings['ml_ms'], 20)
+        self.assertGreaterEqual(timings['total_ms'], timings['ml_ms'])
 
     @override_settings(
         TRADING_ANALYSIS_VERIFICATION_ENABLED=True,
@@ -318,14 +388,14 @@ class AnalysisVerificationTests(TestCase):
 
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+        adapter.get_candles.side_effect = lambda symbol, granularity, count, **kwargs: [
             SimpleNamespace(
                 symbol=symbol, open=Decimal('101'), high=Decimal('102'), low=Decimal('100'),
                 close=Decimal('101.5'), volume=Decimal('25'),
                 timestamp=timezone.now() - timedelta(seconds=10), granularity=granularity,
             ) for _ in range(count)
         ]
-        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
+        adapter.subscribe_ticks.side_effect = lambda symbol, callback, **kwargs: callback(SimpleNamespace(
             symbol=symbol, timestamp=timezone.now(),
         ))
         with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
@@ -340,12 +410,73 @@ class AnalysisVerificationTests(TestCase):
         adapter.connect.assert_called_once_with({})
         adapter.disconnect.assert_called_once()
 
+    def test_verification_timeframe_requests_are_concurrent_on_single_connection(self):
+        from trading_app.api_views import _fetch_verification_candles
+
+        adapter = self._live_adapter()
+        lock = threading.Lock()
+        entered = 0
+        all_entered = threading.Event()
+
+        def delayed_get_candles(symbol, granularity, count, **_kwargs):
+            nonlocal entered
+            with lock:
+                entered += 1
+                if entered == 4:
+                    all_entered.set()
+            if not all_entered.wait(timeout=0.5):
+                raise TimeoutError('Timeframe requests were serialized')
+            interval_end = int(time.time())
+            interval_end -= interval_end % granularity
+            return [SimpleNamespace(
+                symbol=symbol, open=Decimal('101.0'), high=Decimal('102.0'),
+                low=Decimal('100.0'), close=Decimal('101.5'), volume=Decimal('25'),
+                timestamp=timezone.datetime.fromtimestamp(
+                    interval_end - granularity, tz=timezone.get_current_timezone(),
+                ), granularity=granularity,
+            ) for _ in range(count)]
+
+        adapter.get_candles.side_effect = delayed_get_candles
+        timings = {}
+        with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
+            raw, mtf, error = _fetch_verification_candles(
+                self.user, self.user.selected_market, 300,
+                deadline=time.perf_counter() + 5, timings=timings,
+            )
+        self.assertIsNone(error)
+        self.assertEqual(len(raw), 200)
+        self.assertEqual(set(mtf), {'H4', 'M15', 'M5', 'M1'})
+        self.assertLess(timings['deriv_timeframes_ms'], 500)
+        adapter.connect.assert_called_once()
+        adapter.disconnect.assert_called_once()
+
+    def test_expired_analysis_deadline_returns_wait_without_persisting(self):
+        from django.test import RequestFactory
+        from django.core.cache import cache
+        from trading_app.api_views import _run_analysis_pipeline, AnalysisDeadlineExceeded
+
+        request = RequestFactory().post('/api/analyze-signal/')
+        request.user = self.user
+        from django.contrib.sessions.middleware import SessionMiddleware
+        SessionMiddleware(lambda req: None).process_request(request)
+        request.session.save()
+        request.data = {'symbol': self.user.selected_market, 'granularity': 300}
+        request.query_params = {}
+        request.META = {}
+        cache.set(f'bot_status_{self.user.pk}', {'status': 'running', 'market': self.user.selected_market})
+        with patch('trading_app.api_views._fetch_verification_candles', side_effect=AnalysisDeadlineExceeded()):
+            response = _run_analysis_pipeline(request, verification_mode=False)
+        self.assertEqual(response.data['decision'], 'WAIT')
+        self.assertIn('180-second', response.data['reason'])
+        self.assertIsNone(response.data['signal'])
+        self.assertFalse(TradingSignal.objects.filter(user=self.user).exists())
+
     def test_verification_rejects_stale_data(self):
         from trading_app.api_views import _fetch_verification_candles
 
         adapter = MagicMock()
         adapter._connected = True
-        adapter.get_candles.side_effect = lambda symbol, granularity, count: [
+        adapter.get_candles.side_effect = lambda symbol, granularity, count, **kwargs: [
             SimpleNamespace(
                 symbol=symbol, open=Decimal('101'), high=Decimal('102'), low=Decimal('100'),
                 close=Decimal('101.5'), volume=Decimal('25'),
@@ -353,7 +484,7 @@ class AnalysisVerificationTests(TestCase):
                 granularity=granularity,
             ) for _ in range(count)
         ]
-        adapter.subscribe_ticks.side_effect = lambda symbol, callback: callback(SimpleNamespace(
+        adapter.subscribe_ticks.side_effect = lambda symbol, callback, **kwargs: callback(SimpleNamespace(
             symbol=symbol, timestamp=timezone.now(),
         ))
         with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
@@ -385,7 +516,7 @@ class AnalysisVerificationTests(TestCase):
         from trading_app.api_views import _fetch_verification_candles
 
         adapter = self._live_adapter()
-        def send_bad_tick(symbol, callback):
+        def send_bad_tick(symbol, callback, **kwargs):
             callback(SimpleNamespace(symbol='frxGBPUSD', timestamp=timezone.now()))
             callback(SimpleNamespace(symbol=symbol, timestamp=timezone.now() - timedelta(seconds=120)))
         adapter.subscribe_ticks.side_effect = send_bad_tick
@@ -442,19 +573,17 @@ class AnalysisVerificationTests(TestCase):
         adapter.get_candles.assert_not_called()
         adapter.disconnect.assert_called_once()
 
-    def test_verification_never_uses_simulated_market_as_live_fallback(self):
+    def test_verification_never_uses_fabricated_candles_as_live_fallback(self):
         from trading_app.api_views import _fetch_verification_candles
 
         adapter = self._live_adapter()
         adapter.subscribe_ticks.side_effect = RuntimeError('no current tick')
-        with patch('trading_app.api_views._resolve_adapter', return_value=adapter), \
-                patch('trading_app.trading_bot.simulated_market.SimulatedMarket.get_candles') as simulated_candles:
+        with patch('trading_app.api_views._resolve_adapter', return_value=adapter):
             raw, mtf, error = _fetch_verification_candles(self.user, self.user.selected_market, 300)
 
         self.assertEqual(raw, [])
         self.assertEqual(mtf, {})
         self.assertIn('unavailable', error.lower())
-        simulated_candles.assert_not_called()
         adapter.get_candles.assert_not_called()
 
     @override_settings(TRADING_ANALYSIS_VERIFICATION_ENABLED=True)
@@ -565,7 +694,8 @@ class AnalysisVerificationTests(TestCase):
         self.assertEqual(body['decision'], 'WAIT')
         self.assertIsNone(body['signal'])
         self.assertGreater(body['wait_seconds_remaining'], 0)
-        self.assertEqual(body['analysis']['consensus']['reason'], 'No consensus')
+        self.assertTrue(body['analysis']['consensus']['contradiction'])
+        self.assertEqual(body['analysis']['consensus']['reason'], 'Strong contradictory strategy evidence')
         self.assertFalse(self.user.analysis_wait_cycles.exists())
         self.assertEqual(
             (timezone.datetime.fromisoformat(body['wait_expires_at']) - timezone.datetime.fromisoformat(body['wait_started_at'])).total_seconds(),
@@ -670,6 +800,7 @@ class AnalysisVerificationTests(TestCase):
                 self.assertEqual(response.json()['decision'], expected)
                 AnalysisWaitCycle.objects.filter(user=self.user).delete()
 
+    @override_settings(DEBUG=True, TRADING_ANALYSIS_VERIFICATION_ENABLED=True)
     def test_ml_direction_alone_cannot_override_conflicting_strategies(self):
         adapter = self._live_adapter()
         bearish_ml = SimpleNamespace(

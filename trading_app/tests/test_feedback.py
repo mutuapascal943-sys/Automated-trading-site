@@ -1,6 +1,7 @@
 from datetime import datetime
 from datetime import timezone as dt_tz
 from decimal import Decimal
+from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
@@ -8,7 +9,7 @@ from django.utils import timezone
 
 from trading_app.models import PredictionRecord
 from trading_app.tasks import (
-    _apply_prediction_outcome, _fetch_paper_prediction_candles, _record_prediction,
+    _apply_prediction_outcome, _fetch_real_outcome_candles, _record_prediction,
 )
 from trading_app.ml.inference import MLSignal
 from trading_app.trading_bot.interface import Candle
@@ -88,10 +89,18 @@ class FeedbackResolutionTests(TestCase):
         candles = [_candle(base + i * 900, 1.10) for i in range(3)]
         self.assertFalse(_apply_prediction_outcome(pred, candles))
 
-    def test_paper_candles_fetch(self):
+    @patch('trading_app.ml.data_collector._fetch_all')
+    def test_prediction_history_uses_deriv_candles(self, fetch_all):
         pred = self._pred()
-        candles = _fetch_paper_prediction_candles(pred)
-        self.assertGreater(len(candles), 0)
+        epoch = int(timezone.now().timestamp())
+        fetch_all.return_value = [{
+            'open': '1.1', 'high': '1.2', 'low': '1.0', 'close': '1.15',
+            'volume': 1, 'time': epoch,
+        }]
+        candles = _fetch_real_outcome_candles(pred)
+        self.assertEqual(len(candles), 1)
+        self.assertEqual(candles[0].symbol, pred.symbol)
+        fetch_all.assert_called_once()
 
     def test_record_prediction_holds_until_resolved(self):
         base = int(timezone.now().timestamp())

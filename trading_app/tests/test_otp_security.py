@@ -116,3 +116,125 @@ class OTPEmailSecurityTests(TestCase):
         response = client.get(reverse('api_subscription'))
         self.assertEqual(response.status_code, 403)
         self.assertEqual(response.json()['status'], 'verification_required')
+
+
+class TOTPSecurityTests(TestCase):
+    def setUp(self):
+        cache.clear()
+        self.user = User.objects.create_user(
+            email='totp-security@example.com', username='totp-security', password='SecurePass123!',
+        )
+        self.client = APIClient()
+
+    def tearDown(self):
+        cache.clear()
+
+    def test_totp_setup_view_generates_qr_and_secret(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
+
+        response = self.client.get(reverse('setup_authenticator'))
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('qr_code_b64', response.context)
+        self.assertIn('secret_key_b32', response.context)
+        self.assertFalse(response.context['is_active'])
+
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.get(user=self.user, name='default')
+        self.assertFalse(device.confirmed)
+
+    def test_totp_setup_view_confirms_valid_token(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
+
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.create(user=self.user, name='default', confirmed=False)
+        from django_otp.oath import TOTP
+        import time
+        totp = TOTP(key=bytes.fromhex(device.key), step=30, digits=6)
+        totp.time = time.time()
+        valid_code = str(totp.token()).zfill(6)
+
+        response = self.client.post(reverse('setup_authenticator'), {'otp_code': valid_code})
+        self.assertRedirects(response, reverse('profile_page'))
+
+        device.refresh_from_db()
+        self.assertTrue(device.confirmed)
+        self.user.refresh_from_db()
+        self.assertTrue(self.user.two_factor_enabled)
+
+    def test_totp_setup_view_rejects_invalid_token(self):
+        self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
+
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.create(user=self.user, name='default', confirmed=False)
+        response = self.client.post(reverse('setup_authenticator'), {'otp_code': '000000'})
+        self.assertEqual(response.status_code, 200)
+        self.assertFalse(device.confirmed)
+
+    def test_totp_login_verification_flow(self):
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.create(user=self.user, name='default', confirmed=True)
+        self.user.two_factor_enabled = True
+        self.user.save(update_fields=['two_factor_enabled'])
+
+        response = self.client.post(reverse('login'), {
+            'username': self.user.email, 'password': 'SecurePass123!',
+        })
+        self.assertRedirects(response, reverse('verify_2fa'))
+
+        from django_otp.oath import TOTP
+        import time
+        totp = TOTP(key=bytes.fromhex(device.key), step=30, digits=6)
+        totp.time = time.time()
+        valid_code = str(totp.token()).zfill(6)
+
+        verified = self.client.post(reverse('verify_2fa'), {'otp_code': valid_code})
+        self.assertRedirects(verified, reverse('dashboard'))
+        self.assertTrue(self.client.session.get('2fa_verified'))
+
+    def test_totp_disable_requires_password(self):
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.create(user=self.user, name='default', confirmed=True)
+        self.user.two_factor_enabled = True
+        self.user.save(update_fields=['two_factor_enabled'])
+
+        self.client.force_login(self.user)
+        session = self.client.session
+        session['2fa_verified'] = True
+        session.save()
+
+        fail = self.client.post(reverse('disable_authenticator'), {'password': 'WrongPassword!'})
+        self.assertTrue(TOTPDevice.objects.filter(user=self.user).exists())
+
+        success = self.client.post(reverse('disable_authenticator'), {'password': 'SecurePass123!'})
+        self.assertFalse(TOTPDevice.objects.filter(user=self.user).exists())
+
+    def test_api_setup_totp_endpoint(self):
+        self.client.force_login(self.user)
+        get_res = self.client.get(reverse('api_setup_totp'))
+        self.assertEqual(get_res.status_code, 200)
+        self.assertEqual(get_res.json()['status'], 'unconfirmed')
+        self.assertIn('provisioning_uri', get_res.json())
+        self.assertIn('qr_code_base64', get_res.json())
+
+        from django_otp.plugins.otp_totp.models import TOTPDevice
+        device = TOTPDevice.objects.get(user=self.user, name='default')
+        from django_otp.oath import TOTP
+        import time
+        totp = TOTP(key=bytes.fromhex(device.key), step=30, digits=6)
+        totp.time = time.time()
+        valid_code = str(totp.token()).zfill(6)
+
+        post_res = self.client.post(reverse('api_setup_totp'), {'code': valid_code})
+        self.assertEqual(post_res.status_code, 200)
+        self.assertEqual(post_res.json()['status'], 'verified')
+        device.refresh_from_db()
+        self.assertTrue(device.confirmed)

@@ -30,7 +30,11 @@ Thumbs.db
 
 # Environment
 .env
+.env.*
 *.env.local
+.credential_salt
+*.pem
+*.key
 
 logs/
 *.log

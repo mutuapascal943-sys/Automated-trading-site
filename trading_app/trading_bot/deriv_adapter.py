@@ -64,7 +64,7 @@ ERROR_MAP: dict[str, type] = {
 class DerivAdapter(BrokerAdapter):
     WS_URL = "wss://api.derivws.com/trading/v1/options/ws/public"
 
-    def __init__(self, app_id: str = "1089") -> None:
+    def __init__(self, app_id: str = "") -> None:
         if websockets is None:
             raise ImportError("websockets package is required for DerivAdapter")
 
@@ -93,7 +93,18 @@ class DerivAdapter(BrokerAdapter):
         if self._loop and self._ws:
             asyncio.run_coroutine_threadsafe(self._disconnect_ws(), self._loop)
 
-    def get_candles(self, symbol: str, granularity: int, count: int) -> list[Candle]:
+    def get_active_symbols(self, timeout: float = 10) -> list[dict[str, Any]]:
+        future = self._call_api('active_symbols', {
+            'active_symbols': 'brief',
+            'product_type': 'basic',
+        })
+        result = self._await_future(future, timeout=timeout)
+        symbols = result.get('active_symbols')
+        if not isinstance(symbols, list):
+            raise ConnectionLost('Deriv returned an invalid active-symbol response')
+        return [item for item in symbols if isinstance(item, dict)]
+
+    def get_candles(self, symbol: str, granularity: int, count: int, timeout: float = 30) -> list[Candle]:
         deriv_gran = GRANULARITY_MAP.get(granularity)
         if deriv_gran is None:
             raise ValueError(f"Unsupported granularity: {granularity}s")
@@ -107,7 +118,7 @@ class DerivAdapter(BrokerAdapter):
             "granularity": granularity,
             "count": count,
         })
-        result = self._await_future(future)
+        result = self._await_future(future, timeout=timeout)
 
         candles = []
         for entry in result.get("candles", []):
@@ -123,12 +134,12 @@ class DerivAdapter(BrokerAdapter):
             ))
         return candles
 
-    def subscribe_ticks(self, symbol: str, on_tick: TickCallback) -> None:
+    def subscribe_ticks(self, symbol: str, on_tick: TickCallback, timeout: float = 30) -> None:
         with self._lock:
             self._tick_subscribers.setdefault(symbol, []).append(on_tick)
 
         future = self._call_api("ticks", {"ticks": symbol, "subscribe": 1})
-        result = self._await_future(future)
+        result = self._await_future(future, timeout=timeout)
         sub_id = result.get("subscription", {}).get("id")
         if sub_id:
             with self._lock:
@@ -251,11 +262,22 @@ class DerivAdapter(BrokerAdapter):
         self._loop.run_until_complete(self._ws_loop())
 
     async def _ws_loop(self) -> None:
+        attempt = 0
         while self._running:
             try:
                 async with websockets.connect(self._ws_url, ping_interval=30, ping_timeout=10) as ws:
                     self._ws = ws
                     self._connected = True
+                    attempt = 0
+
+                    with self._lock:
+                        sub_symbols = list(self._tick_subscribers.keys())
+                    for sym in sub_symbols:
+                        try:
+                            await self._async_call("ticks", {"ticks": sym, "subscribe": 1})
+                        except Exception:
+                            logger.exception("Failed to restore subscription for %s", sym)
+
                     async for raw in ws:
                         try:
                             await self._handle_message(raw)
@@ -265,7 +287,9 @@ class DerivAdapter(BrokerAdapter):
                 self._connected = False
                 logger.warning("WebSocket disconnected: %s", e)
                 if self._running:
-                    await asyncio.sleep(self._backoff())
+                    delay = min(1 * (2 ** attempt), 60)
+                    attempt += 1
+                    await asyncio.sleep(delay)
 
     async def _disconnect_ws(self) -> None:
         if self._ws:

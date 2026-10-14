@@ -4,7 +4,8 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from threading import Event, Lock
 from unittest import TestCase
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
+from django.core.cache import cache
 
 from trading_app.strategies.base import CandleContext, StrategyResult, prepare_context
 from trading_app.strategies.consensus import combine
@@ -228,9 +229,61 @@ class ConsensusTests(TestCase):
         results = [self._result('a', 'bullish'), self._result('b', 'bearish'), self._result('c', 'neutral')]
         result = combine(results, threshold=0.70, minimum_votes=2)
         self.assertEqual(result.bias, 'neutral')
-        self.assertEqual(result.reason, 'No consensus')
+        self.assertEqual(result.reason, 'Strong contradictory strategy evidence')
+        self.assertTrue(result.contradiction)
         low_votes = combine([self._result('only', 'bullish')], threshold=0.70, minimum_votes=3)
         self.assertEqual(low_votes.bias, 'neutral')
+
+    def test_five_group_vote_matrix_requires_four_aligned_groups(self):
+        for direction in ('bullish', 'bearish'):
+            expected = 'bullish' if direction == 'bullish' else 'bearish'
+            opposite = 'bearish' if direction == 'bullish' else 'bullish'
+            for count in range(6):
+                with self.subTest(direction=direction, aligned=count):
+                    results = [self._result(f'group-{index}', direction) for index in range(count)]
+                    results += [self._result(f'neutral-{index}', 'neutral') for index in range(5 - count)]
+                    result = combine(results, threshold=0.70, minimum_votes=4, expected_groups=5)
+                    if count >= 4:
+                        self.assertEqual(result.bias, expected)
+                    else:
+                        self.assertEqual(result.bias, 'neutral')
+
+    def test_one_strong_opposing_group_vetoes_four_aligned_groups(self):
+        results = [self._result(f'buy-{index}', 'bullish') for index in range(4)]
+        results.append(StrategyResult('strong-sell', 'bearish', 0.90, (), (), {}, 0.1))
+        result = combine(results, threshold=0.70, minimum_votes=4, expected_groups=5)
+        self.assertEqual(result.bias, 'neutral')
+        self.assertTrue(result.contradiction)
+
+    def test_missing_or_failed_group_fails_closed(self):
+        four = [self._result(f'group-{index}', 'bullish') for index in range(4)]
+        missing = combine(four, threshold=0.70, minimum_votes=4, expected_groups=5)
+        self.assertEqual(missing.bias, 'neutral')
+        self.assertTrue(missing.missing_groups)
+
+        failed = four + [StrategyResult('failed', 'neutral', 0.0, (), (), {}, 0.1, error='failed')]
+        result = combine(failed, threshold=0.70, minimum_votes=4, expected_groups=5)
+        self.assertEqual(result.bias, 'neutral')
+        self.assertIn('failed', result.missing_groups)
+
+    def test_neutral_group_does_not_count_as_aligned_vote(self):
+        results = [self._result(f'buy-{index}', 'bullish') for index in range(3)]
+        results += [self._result('neutral', 'neutral'), self._result('insufficient', 'insufficient_data')]
+        result = combine(results, threshold=0.70, minimum_votes=4, expected_groups=5)
+        self.assertEqual(result.bias, 'neutral')
+        self.assertEqual(result.buy_votes, 3)
+        self.assertEqual(result.neutral_votes, 2)
+
+    def test_ict_and_choch_are_one_group_and_require_alignment(self):
+        from trading_app.api_views import _combine_ict_choch
+
+        aligned = _combine_ict_choch(self._result('ICT', 'bullish'), self._result('CHoCH', 'bullish'))
+        self.assertEqual(aligned.name, 'ICT + CHoCH')
+        self.assertEqual(aligned.bias, 'bullish')
+        opposed = _combine_ict_choch(self._result('ICT', 'bullish'), self._result('CHoCH', 'bearish'))
+        self.assertEqual(opposed.bias, 'neutral')
+        self.assertIn('conflicting_ict_choch', opposed.conditions)
+        self.assertGreaterEqual(opposed.confidence, 0.75)
 
     def test_runner_runs_independent_evaluators_concurrently_and_shares_context(self):
         context = object()
@@ -273,3 +326,69 @@ class CandleReuseTests(TestCase):
         self.assertIs(context.candles, candles)
         self.assertIn('rsi_14', context.current)
         self.assertGreaterEqual(context.preprocessing_ms, 0)
+
+
+class AuditScenariosTests(TestCase):
+    def test_scenario_1_momentum_bullish_structure_bearish(self):
+        res1 = StrategyResult('Momentum', 'bullish', 0.8, (), (), {}, 0.0)
+        res2 = StrategyResult('Support/Resistance', 'bearish', 0.8, (), (), {}, 0.0)
+        res3 = StrategyResult('Fibonacci', 'bearish', 0.8, (), (), {}, 0.0)
+        res4 = StrategyResult('ICT + CHoCH', 'bearish', 0.8, (), (), {}, 0.0)
+        combo = combine([res1, res2, res3, res4], threshold=0.6, minimum_votes=3, expected_groups=4)
+        self.assertEqual(combo.bias, 'neutral')
+
+    def test_scenario_2_confluence_threshold(self):
+        from trading_app.strategies.confluence import evaluate_confluence
+        context = MagicMock()
+        context.current = {'close': 100.0}
+        context.support = 100.0
+        context.resistance = 110.0
+        context.zone_tolerance = 0.1
+        context.levels = {'retracement_0.618': 100.0, 'retracement_0.786': 100.2}
+        context.conditions = ('liquidity_sweep', 'fvg')
+
+        conf_success = evaluate_confluence(context, min_confluence=3)
+        self.assertTrue(conf_success.passed)
+
+        context_low = MagicMock()
+        context_low.current = {'close': 150.0}
+        context_low.support = None
+        context_low.resistance = None
+        context_low.zone_tolerance = 0.1
+        context_low.levels = {}
+        context_low.conditions = ()
+
+        conf_low = evaluate_confluence(context_low, min_confluence=3)
+        self.assertFalse(conf_low.passed)
+
+    def test_scenario_3_unmitigated_zone_limit_block(self):
+        res = evaluate_choch(CandleContext(
+            multi_timeframe={'H4': _bars([100]*10), 'M15': _bars([100]*10), 'M5': _bars([100]*10), 'M1': _bars([100]*10)},
+            candles=_bars([100]*10), featured=[],
+            current={'close': 100.1, 'high': 100.2, 'low': 100.0},
+            previous={'close': 100.0, 'high': 100.1, 'low': 99.9},
+            support=100.0, resistance=110.0, zone_tolerance=0.5, preprocessing_ms=0.0,
+            support_touches=1, resistance_touches=1,
+        ))
+        self.assertIn('unmitigated_zone_limit_entry', res.conditions)
+
+    def test_scenario_4_reward_risk_ratio(self):
+        from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+        candles = _bars([100, 101, 102, 103, 104])
+        proposal = compute_sl_tp(candles, 'BUY', confidence=0.8, current_price=104.0, min_reward_risk=2.0)
+        sl_dist = float(104.0 - float(proposal.stop_loss))
+        tp_dist = float(float(proposal.take_profit) - 104.0)
+        self.assertGreaterEqual(tp_dist / sl_dist, 2.0)
+
+    def test_scenario_5_news_blackout(self):
+        cache.set('news_blackout_EUR_USD', True)
+        status = check_news_window('EUR/USD', 'M1')
+        self.assertEqual(status['status'], 'red')
+        cache.delete('news_blackout_EUR_USD')
+
+    def test_scenario_7_spread_buffer(self):
+        from trading_app.trading_bot.sl_tp_calculator import compute_sl_tp
+        candles = _bars([100, 101, 102, 103, 104])
+        proposal1 = compute_sl_tp(candles, 'BUY', confidence=0.8, current_price=104.0, spread_buffer_pips=0.0)
+        proposal2 = compute_sl_tp(candles, 'BUY', confidence=0.8, current_price=104.0, spread_buffer_pips=10.0)
+        self.assertLess(float(proposal2.stop_loss), float(proposal1.stop_loss))

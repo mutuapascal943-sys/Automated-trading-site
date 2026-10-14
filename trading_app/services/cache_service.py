@@ -31,6 +31,8 @@ class CacheService:
     @staticmethod
     def set_candles(symbol: str, granularity: int, candles: list, timeout: int | None = None) -> None:
         key = f'{CacheService.CANDLE_CACHE_PREFIX}{symbol}_{granularity}'
+        if len(candles) > 500:
+            candles = candles[-500:]
         cache.set(key, candles, timeout=timeout or CacheService.CANDLE_CACHE_TIMEOUT)
 
     @staticmethod

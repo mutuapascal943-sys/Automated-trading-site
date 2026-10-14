@@ -22,7 +22,7 @@ from .decorators import two_factor_required
 from .services.email_service import send_otp_email
 from .services.otp_service import OTPResult, can_request_otp, consume_otp, invalidate_otp, issue_otp
 from .services.cache_service import CacheService
-from .services.admin_access import is_authorized_admin
+from .services.admin_access import has_verified_admin_session, is_authorized_admin
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +43,7 @@ def register_view(request):
                 username = f'{base_username}{counter}'
                 counter += 1
             user.username = username
-            user.trial_started_at = timezone.now()
+            user.trial_started_at = None
             user.save()
             request.session['registration_user_id'] = user.id
             if _issue_email_otp(request, user, 'email_verify', scope='issue'):
@@ -82,6 +82,10 @@ def _otp_error_message(result: OTPResult) -> str:
     }.get(result, 'Verification failed. Please request a new code.')
 
 
+def _is_admin_path(path: str) -> bool:
+    return path.startswith('/admin/') and not path.startswith('//') and '\\' not in path
+
+
 def _complete_login(request, user, remember_me: bool = False, rate_key: str | None = None):
     login(request, user)
     request.session['2fa_verified'] = True
@@ -95,13 +99,14 @@ def _complete_login(request, user, remember_me: bool = False, rate_key: str | No
         CacheService.reset_rate_limit(rate_key)
     create_notification(user, 'New Login', 'New sign-in to your account from a web browser.', 'account')
     admin_return_to = request.session.pop('admin_return_to', '')
-    if is_authorized_admin(user) and admin_return_to.startswith('/admin/') and not remember_me:
-        return redirect(admin_return_to)
+    destination = reverse('dashboard')
+    if is_authorized_admin(user):
+        destination = admin_return_to if _is_admin_path(admin_return_to) else reverse('owner_admin:owner_dashboard')
     if not remember_me:
-        return redirect('dashboard')
+        return redirect(destination)
     token = secrets.token_hex(32)
     RememberMeToken.objects.create(user=user, token=token, expires_at=timezone.now() + timedelta(days=30))
-    response = HttpResponseRedirect(reverse('dashboard'))
+    response = HttpResponseRedirect(destination)
     response.set_signed_cookie('remember_me', token, max_age=30 * 24 * 3600,
                                secure=not settings.DEBUG, httponly=True, samesite='Lax')
     return response
@@ -109,6 +114,9 @@ def _complete_login(request, user, remember_me: bool = False, rate_key: str | No
 
 def login_view(request):
     if request.user.is_authenticated:
+        next_path = request.GET.get('next', '')
+        if has_verified_admin_session(request):
+            return redirect(next_path if _is_admin_path(next_path) else reverse('owner_admin:owner_dashboard'))
         return redirect('dashboard')
     form = LoginForm()
     if request.method == 'POST':
@@ -121,7 +129,7 @@ def login_view(request):
             user = form.get_user()
             remember_me = request.POST.get('remember_me') == 'on'
             next_path = request.POST.get('next', request.GET.get('next', ''))
-            if next_path.startswith('/admin/'):
+            if _is_admin_path(next_path):
                 request.session['admin_return_to'] = next_path
             if user.two_factor_enabled or is_authorized_admin(user):
                 request.session['pending_2fa_user_id'] = user.id
@@ -189,6 +197,8 @@ def setup_2fa_view(request):
 
 
 def verify_2fa_view(request):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+
     pending_user_id = request.session.get('pending_2fa_user_id')
     pending_login = not request.user.is_authenticated
     if pending_login:
@@ -200,25 +210,100 @@ def verify_2fa_view(request):
         user = request.user
     if not user.two_factor_enabled and not is_authorized_admin(user):
         return redirect('dashboard')
+
+    totp_device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
     otp_form = OTPForm()
 
     if request.method == 'POST':
         otp_form = OTPForm(request.POST)
         if otp_form.is_valid():
-            result = consume_otp(user, '2fa', otp_form.cleaned_data['otp_code'])
-            if result == OTPResult.VERIFIED:
+            code = otp_form.cleaned_data['otp_code']
+            verified = False
+            if totp_device and totp_device.verify_token(code):
+                verified = True
+            elif consume_otp(user, '2fa', code) == OTPResult.VERIFIED:
+                verified = True
+
+            if verified:
                 remember_me = request.session.get('pending_2fa_remember_me', False)
                 return _complete_login(request, user, remember_me=remember_me)
-            otp_form.add_error('otp_code', _otp_error_message(result))
+            otp_form.add_error('otp_code', 'Invalid or expired verification code. Please check your code and try again.')
     else:
-        if pending_user_id and not EmailOTP.objects.filter(user=user, purpose='2fa', is_used=False, expires_at__gt=timezone.now()).exists():
+        if pending_user_id and not totp_device and not EmailOTP.objects.filter(user=user, purpose='2fa', is_used=False, expires_at__gt=timezone.now()).exists():
             _issue_email_otp(request, user, '2fa', scope='resend')
 
     return render(request, 'registration/verify_2fa.html', {
         'otp_form': otp_form,
         'user_email': user.email,
         'pending_login': pending_login,
+        'has_totp': bool(totp_device),
     })
+
+
+@login_required
+def setup_authenticator_view(request):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+    import qrcode
+    import io
+    import base64
+
+    user = request.user
+    existing_device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
+    if existing_device:
+        return render(request, 'registration/setup_authenticator.html', {
+            'is_active': True,
+            'device_name': existing_device.name or 'Google Authenticator',
+        })
+
+    device, _ = TOTPDevice.objects.get_or_create(user=user, name='default', confirmed=False)
+    otp_form = OTPForm()
+
+    if request.method == 'POST':
+        otp_form = OTPForm(request.POST)
+        if otp_form.is_valid():
+            code = otp_form.cleaned_data['otp_code']
+            if device.verify_token(code):
+                device.confirmed = True
+                device.save()
+                user.two_factor_enabled = True
+                user.save(update_fields=['two_factor_enabled'])
+                request.session['2fa_verified'] = True
+                create_notification(user, 'Two-Factor Authentication', 'Google Authenticator (TOTP) enabled successfully.', 'account')
+                messages.success(request, 'Google Authenticator enabled successfully!')
+                return redirect('profile_page')
+            else:
+                otp_form.add_error('otp_code', 'Invalid code. Please check your Google Authenticator app and try again.')
+
+    # Generate QR Code image
+    qr_img = qrcode.make(device.config_url)
+    buf = io.BytesIO()
+    qr_img.save(buf, format='PNG')
+    qr_code_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+
+    # Convert hex key to Base32 secret string for manual entry
+    secret_key_b32 = base64.b32encode(bytes.fromhex(device.key)).decode('utf-8')
+
+    return render(request, 'registration/setup_authenticator.html', {
+        'otp_form': otp_form,
+        'qr_code_b64': qr_code_b64,
+        'secret_key_b32': secret_key_b32,
+        'is_active': False,
+    })
+
+
+@login_required
+def disable_authenticator_view(request):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+
+    if request.method == 'POST':
+        password = request.POST.get('password', '')
+        if not request.user.check_password(password):
+            messages.error(request, 'Incorrect password. Google Authenticator was not disabled.')
+            return redirect('setup_authenticator')
+        TOTPDevice.objects.filter(user=request.user).delete()
+        messages.success(request, 'Google Authenticator has been disabled.')
+        create_notification(request.user, 'Two-Factor Authentication', 'Google Authenticator disabled.', 'account')
+    return redirect('profile_page')
 
 
 @login_required

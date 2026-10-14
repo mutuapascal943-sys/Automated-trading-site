@@ -1,6 +1,8 @@
 import os
+import sys
 from pathlib import Path
-from decouple import Config, RepositoryEnv, config
+from urllib.parse import parse_qs, unquote, urlparse
+from decouple import config
 from trading_app.email_config import build_email_settings
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -12,10 +14,12 @@ if not SECRET_KEY:
         'Generate one with: python -c "from django.core.management.utils import get_random_secret_key; print(get_random_secret_key())"'
     )
 
-DEBUG = config('DJANGO_DEBUG', default=False, cast=bool)
-MOCK_SUBSCRIPTIONS_ENABLED = config(
-    'MOCK_SUBSCRIPTIONS_ENABLED', default=DEBUG, cast=bool,
-)
+DEBUG = config('DJANGO_DEBUG', default=config('DEBUG', default=False, cast=bool), cast=bool)
+ADMIN_EMAIL = config('ADMIN_EMAIL', default='manesapascal@gmail.com')
+# Optional Deriv application ID (the public read-only feed does not require one).
+DERIV_APP_ID = config('DERIV_APP_ID', default='')
+DERIV_WS_PUBLIC_URL = config('DERIV_WS_PUBLIC_URL', default='wss://api.derivws.com/trading/v1/options/ws/public')
+MARKET_DATA_MODE = config('MARKET_DATA_MODE', default='live')
 STRATEGY_CONSENSUS_THRESHOLD = config(
     'STRATEGY_CONSENSUS_THRESHOLD', default=0.70, cast=float,
 )
@@ -32,8 +36,8 @@ DARAJA_ENVIRONMENT = config('DARAJA_ENVIRONMENT', default='sandbox').lower()
 DARAJA_BASIC_AMOUNT_KES = config('DARAJA_BASIC_AMOUNT_KES', default=0, cast=int)
 DARAJA_TRANSACTION_TYPE = config('DARAJA_TRANSACTION_TYPE', default='CustomerPayBillOnline')
 
-ALLOWED_HOSTS = config('DJANGO_ALLOWED_HOSTS', default='localhost,127.0.0.1').split(',')
-
+_allowed_hosts_raw = config('DJANGO_ALLOWED_HOSTS', default=config('ALLOWED_HOSTS', default='localhost,127.0.0.1'))
+ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_raw.split(',') if host.strip()]
 INSTALLED_APPS = [
     'daphne',
     'channels',
@@ -45,6 +49,9 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'rest_framework',
     'corsheaders',
+    'django_otp',
+    'django_otp.plugins.otp_totp',
+    'two_factor',
     'trading_app',
 ]
 
@@ -55,6 +62,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django_otp.middleware.OTPMiddleware',
     'trading_app.decorators.TwoFactorSessionMiddleware',
     'trading_app.middleware.dev_verification_session.DevVerificationSessionScopeMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
@@ -114,41 +122,46 @@ else:
         },
     }
 
+
 # Database - supports SQLite (dev) and PostgreSQL (prod)
 DATABASE_URL = config('DATABASE_URL', default='sqlite:///db.sqlite3')
-if DATABASE_URL.startswith('postgres'):
-    import re
-    match = re.match(r'postgres://(.+):(.+)@(.+):(\d+)/(.+)', DATABASE_URL)
-    if match:
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.postgresql',
-                'NAME': match.group(5),
-                'USER': match.group(1),
-                'PASSWORD': match.group(2),
-                'HOST': match.group(3),
-                'PORT': match.group(4),
-                'CONN_MAX_AGE': 600,
-                'OPTIONS': {
-                    'pool': True,
-                },
-            }
-        }
-    else:
-        DATABASES = {
-            'default': {
-                'ENGINE': 'django.db.backends.sqlite3',
-                'NAME': BASE_DIR / 'db.sqlite3',
-            }
-        }
+
+if 'test' in sys.argv:
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.sqlite3',
+            'NAME': BASE_DIR / 'db.sqlite3',
+        },
+    }
+elif DATABASE_URL.startswith(('postgres://', 'postgresql://')):
+    parsed_database_url = urlparse(DATABASE_URL)
+    database_options = parse_qs(parsed_database_url.query)
+
+    DATABASES = {
+        'default': {
+            'ENGINE': 'django.db.backends.postgresql',
+            'NAME': unquote(parsed_database_url.path.lstrip('/')),
+            'USER': unquote(parsed_database_url.username or ''),
+            'PASSWORD': unquote(parsed_database_url.password or ''),
+            'HOST': parsed_database_url.hostname or '',
+            'PORT': str(parsed_database_url.port or 5432),
+            'CONN_MAX_AGE': 600,
+            'OPTIONS': {
+                **(
+                    {'sslmode': database_options['sslmode'][0]}
+                    if database_options.get('sslmode')
+                    else {}
+                ),
+            },
+        },
+    }
 else:
     DATABASES = {
         'default': {
             'ENGINE': 'django.db.backends.sqlite3',
             'NAME': BASE_DIR / 'db.sqlite3',
-        }
+        },
     }
-
 # Cache - Redis for production, local-memory for development
 CACHE_URL = config('CACHE_URL', default='')
 _use_cache_redis = False
@@ -206,12 +219,14 @@ if _use_cache_redis:
 else:
     SESSION_ENGINE = 'django.contrib.sessions.backends.db'
 
-AUTH_PASSWORD_HASHERS = [
+PASSWORD_HASHERS = [
     'django.contrib.auth.hashers.BCryptPasswordHasher',
     'django.contrib.auth.hashers.PBKDF2PasswordHasher',
     'django.contrib.auth.hashers.PBKDF2SHA1PasswordHasher',
     'django.contrib.auth.hashers.Argon2PasswordHasher',
 ]
+if 'test' in sys.argv:
+    PASSWORD_HASHERS = ['django.contrib.auth.hashers.MD5PasswordHasher']
 
 AUTH_USER_MODEL = 'trading_app.User'
 
@@ -260,19 +275,33 @@ SECURE_HSTS_INCLUDE_SUBDOMAINS = not DEBUG
 SECURE_HSTS_PRELOAD = not DEBUG
 
 # Email Configuration
-_email_env = Config(RepositoryEnv(str(BASE_DIR / '.env')))
+_email_port = config('EMAIL_PORT', default=587, cast=int)
+EMAIL_USE_SSL = config('EMAIL_USE_SSL', default=(_email_port == 465), cast=bool)
+EMAIL_USE_TLS = config('EMAIL_USE_TLS', default=(_email_port == 587), cast=bool)
+if EMAIL_USE_SSL and EMAIL_USE_TLS:
+    raise ValueError('EMAIL_USE_SSL and EMAIL_USE_TLS cannot both be True.')
+
+_email_host_user = config('EMAIL_HOST_USER', default='')
+_default_from_email = config('DEFAULT_FROM_EMAIL', default='')
+if not _email_host_user or not _default_from_email:
+    logger.warning('Email host user or default from email is not configured in environment.')
+
 globals().update(build_email_settings(
-    DEBUG,
-    host=_email_env('EMAIL_HOST', default='smtp.gmail.com'),
-    port=_email_env('EMAIL_PORT', default=587, cast=int),
-    use_tls=_email_env('EMAIL_USE_TLS', default=True, cast=bool),
-    username=_email_env('EMAIL_HOST_USER', default=''),
-    password=_email_env('EMAIL_HOST_PASSWORD', default=''),
-    from_email=_email_env('DEFAULT_FROM_EMAIL', default='ATS Application <noreply@atsapplication.com>'),
-    file_backend=_email_env('EMAIL_FILE_BACKEND', default=False, cast=bool),
+    host=config('EMAIL_HOST', default='smtp.gmail.com'),
+    port=_email_port,
+    use_tls=EMAIL_USE_TLS,
+    use_ssl=EMAIL_USE_SSL,
+    username=_email_host_user,
+    password=config('EMAIL_HOST_PASSWORD', default=''),
+    from_email=_default_from_email or _email_host_user,
+    file_backend=config('EMAIL_FILE_BACKEND', default=False, cast=bool),
     base_dir=BASE_DIR,
 ))
 
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+
+if not globals().get('DEFAULT_FROM_EMAIL'):
+    globals().pop('DEFAULT_FROM_EMAIL', None)
 # OTP Settings
 OTP_EXPIRY_SECONDS = config('OTP_EXPIRY_SECONDS', default=300, cast=int)
 
@@ -303,8 +332,13 @@ REST_FRAMEWORK = {
 
 # CORS
 CORS_ALLOWED_ORIGINS = [
-    'http://localhost:8000',
-    'http://127.0.0.1:8000',
+    origin.strip() for origin in config(
+        'CORS_ALLOWED_ORIGINS',
+        default='http://localhost:8000,http://127.0.0.1:8000',
+    ).split(',') if origin.strip()
+]
+CSRF_TRUSTED_ORIGINS = [
+    origin.strip() for origin in config('CSRF_TRUSTED_ORIGINS', default='').split(',') if origin.strip()
 ]
 CORS_ALLOW_CREDENTIALS = True
 

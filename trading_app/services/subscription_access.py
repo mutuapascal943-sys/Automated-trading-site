@@ -4,7 +4,7 @@ from django.utils import timezone
 
 
 TRIAL_DURATION = timedelta(hours=24)
-TRIAL_SIGNAL_LIMIT = 50
+TRIAL_SIGNAL_LIMIT = 10
 
 
 def subscription_status(user) -> dict:
@@ -17,13 +17,14 @@ def subscription_status(user) -> dict:
             'expires_at': None,
             'seconds_remaining': 0,
         }
-    if user.subscription_bypass:
+    bypass_expires_at = user.subscription_bypass_expires_at
+    if user.subscription_bypass and (bypass_expires_at is None or bypass_expires_at > now):
         return {
             'has_access': True,
             'status': 'admin_bypass',
             'tier': 'ADMIN',
-            'expires_at': None,
-            'seconds_remaining': None,
+            'expires_at': bypass_expires_at,
+            'seconds_remaining': int((bypass_expires_at - now).total_seconds()) if bypass_expires_at else None,
         }
 
     subscription = getattr(user, 'subscription', None)
@@ -54,6 +55,16 @@ def subscription_status(user) -> dict:
             created_at__gte=user.trial_started_at,
         ).count()
     signals_remaining = max(0, TRIAL_SIGNAL_LIMIT - signals_used)
+    if trial_ends_at is None:
+        return {
+            'has_access': False,
+            'status': 'trial_not_started',
+            'tier': 'FREE',
+            'expires_at': None,
+            'seconds_remaining': 0,
+            'signals_used': 0,
+            'signals_remaining': TRIAL_SIGNAL_LIMIT,
+        }
     if trial_ends_at and trial_ends_at > now and signals_remaining > 0:
         return {
             'has_access': True,

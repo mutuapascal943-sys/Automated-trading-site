@@ -84,6 +84,15 @@
         <button type="submit" class="btn-primary">Save Profile →</button>
       </form>
 
+      <div class="form-divider" style="margin:20px 0 12px">Security & 2FA</div>
+      <div style="background:rgba(59,130,246,0.04);border:1px solid rgba(59,130,246,0.12);border-radius:10px;padding:16px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between">
+        <div>
+          <strong style="font-size:14px;color:var(--text1)">Google Authenticator (TOTP)</strong>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px">Use an authenticator app for instant 6-digit verification codes.</div>
+        </div>
+        <a href="{% url 'setup_authenticator' %}" class="btn-primary" style="width:auto;padding:8px 16px;font-size:12px;text-decoration:none">Manage Authenticator</a>
+      </div>
+
       <div class="form-divider">or</div>
       <a href="{% url 'dashboard' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Back to Dashboard</a>
     </div>

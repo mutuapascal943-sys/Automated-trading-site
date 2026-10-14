@@ -7,16 +7,20 @@ from django.http import JsonResponse
 from rest_framework.permissions import BasePermission
 
 
-ADMIN_EMAIL = 'manesapascal@gmail.com'
+from decouple import config
+
+
+ADMIN_EMAIL = getattr(settings, 'ADMIN_EMAIL', config('ADMIN_EMAIL', default='manesapascal@gmail.com'))
 
 
 def is_authorized_admin(user):
+    admin_email = getattr(settings, 'ADMIN_EMAIL', config('ADMIN_EMAIL', default='manesapascal@gmail.com'))
     return bool(
         user.is_authenticated
         and user.is_active
         and user.is_staff
         and user.is_superuser
-        and user.email.casefold() == ADMIN_EMAIL
+        and user.email.casefold() == admin_email.casefold()
     )
 
 

@@ -1,8 +1,12 @@
+import sys
 import secrets
 import time
 import logging
 import decimal
-from concurrent.futures import ThreadPoolExecutor, as_completed
+import inspect
+import threading
+import math
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeoutError
 from functools import wraps
 from decimal import Decimal
 from django.shortcuts import get_object_or_404
@@ -29,7 +33,6 @@ from .services.credential_encrypt import encrypt, decrypt
 from .services.adapter_resolver import get_adapter_for_broker, build_credentials
 from .ml.symbols import deriv_symbol_for
 from .services.ticker_bridge import TickerBridge
-from .trading_bot.paper_broker import PaperBrokerAdapter
 from .trading_bot.risk_engine import RiskEngine, PositionSizing
 from .trading_bot.interface import OrderRequest as RiskOrderRequest
 from .trading_bot.logging_utils import ConsoleAuditLogger
@@ -38,6 +41,18 @@ from .services.admin_access import AuthorizedAdminPermission
 
 User = get_user_model()
 logger = logging.getLogger(__name__)
+ANALYSIS_DEADLINE_SECONDS = 180
+
+
+class AnalysisDeadlineExceeded(TimeoutError):
+    pass
+
+
+def _remaining_analysis_seconds(deadline: float) -> float:
+    remaining = deadline - time.perf_counter()
+    if remaining <= 0:
+        raise AnalysisDeadlineExceeded('Analysis exceeded its 180-second deadline.')
+    return remaining
 audit = ConsoleAuditLogger()
 
 
@@ -103,6 +118,10 @@ class SignalViewSet(viewsets.ModelViewSet):
 
 def _subscription_access_response(user):
     from trading_app.services.subscription_access import bot_access_status
+    from trading_app.services.dev_verification_auth import is_dev_verification_user
+
+    if is_dev_verification_user(user):
+        return None
 
     access = bot_access_status(user)
     if access['has_access']:
@@ -181,6 +200,128 @@ def market_data_view(request):
         'timestamp': latest.timestamp.isoformat(),
         'source': source,
     })
+
+
+_market_fetch_lock = threading.Lock()
+
+
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def live_markets_view(request):
+    from trading_app.management.commands.train_all_models import MARKET_SYMBOLS
+    from django.core.cache import cache
+
+    cache_key = 'deriv_active_markets_v7'
+    stale_cache_key = cache_key + '_stale'
+
+    cached_markets = cache.get(cache_key)
+    if cached_markets:
+        return Response({'source': 'deriv_live_cached', 'is_stale': False, 'markets': cached_markets})
+
+    with _market_fetch_lock:
+        cached_markets = cache.get(cache_key)
+        if cached_markets:
+            return Response({'source': 'deriv_live_cached', 'is_stale': False, 'markets': cached_markets})
+
+        adapter = _resolve_adapter(request.user)
+        connected = False
+        active_symbols = []
+        fetch_error = False
+        try:
+            adapter.connect(build_credentials(request.user))
+            connected = True
+            connection_deadline = time.monotonic() + 3
+            while not adapter._connected:
+                if time.monotonic() >= connection_deadline:
+                    raise TimeoutError('Deriv WebSocket connection timed out')
+                time.sleep(0.05)
+            active_symbols = adapter.get_active_symbols(timeout=10)
+        except Exception as exc:
+            logger.warning('Deriv market-list request failed (%s)', type(exc).__name__)
+            fetch_error = True
+        finally:
+            if connected:
+                try:
+                    adapter.disconnect()
+                except Exception:
+                    logger.warning('Deriv market-list disconnect failed')
+
+        active_codes = {
+            item.get('symbol') for item in active_symbols
+            if isinstance(item.get('symbol'), str)
+        }
+        markets = []
+        for label in MARKET_SYMBOLS:
+            deriv_symbol = deriv_symbol_for_market(label)
+            if active_codes and deriv_symbol not in active_codes:
+                continue
+            display_name = next(
+                (item.get('display_name') for item in active_symbols if isinstance(item.get('symbol'), str) and (item.get('symbol').lower() == deriv_symbol.lower() or deriv_symbol.lower() in item.get('symbol').lower())),
+                label,
+            )
+            markets.append({
+                'name': label,
+                'symbol': deriv_symbol,
+                'display_name': display_name,
+            })
+
+        if not fetch_error and markets:
+            cache.set(cache_key, markets, 300)
+            cache.set(stale_cache_key, markets, 86400)
+            return Response({'source': 'deriv_live', 'is_stale': False, 'markets': markets})
+
+        # Fallback to stale backup if available
+        stale_markets = cache.get(stale_cache_key)
+        if stale_markets:
+            return Response({'source': 'deriv_stale_cached', 'is_stale': True, 'markets': stale_markets})
+
+        if fetch_error:
+            return Response(
+                {'error': 'Live Deriv market list unavailable.'},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+
+        return Response(
+            {'error': 'Deriv returned no supported active markets.'},
+            status=status.HTTP_503_SERVICE_UNAVAILABLE,
+        )
+
+        active_codes = {
+            item.get('symbol') for item in active_symbols
+            if isinstance(item.get('symbol'), str)
+        }
+        markets = []
+        for label in MARKET_SYMBOLS:
+            deriv_symbol = deriv_symbol_for_market(label)
+            if active_codes and deriv_symbol not in active_codes:
+                continue
+            display_name = next(
+                (item.get('display_name') for item in active_symbols if isinstance(item.get('symbol'), str) and (item.get('symbol').lower() == deriv_symbol.lower() or deriv_symbol.lower() in item.get('symbol').lower())),
+                label,
+            )
+            markets.append({
+                'name': label,
+                'symbol': deriv_symbol,
+                'display_name': display_name,
+            })
+
+        if markets:
+            cache.set(cache_key, markets, 300)
+            cache.set(stale_cache_key, markets, 86400)
+            return Response({'source': 'deriv_live', 'is_stale': False, 'markets': markets})
+
+        # Fallback to stale backup if available
+        stale_markets = cache.get(stale_cache_key)
+        if stale_markets:
+            return Response({'source': 'deriv_stale_cached', 'is_stale': True, 'markets': stale_markets})
+
+        # Ultimate fallback to standard genuine supported MARKET_SYMBOLS (marked stale) so page never 503s
+        fallback_markets = [{
+            'name': label,
+            'symbol': deriv_symbol_for_market(label),
+            'display_name': label,
+        } for label in MARKET_SYMBOLS]
+        return Response({'source': 'deriv_fallback', 'is_stale': True, 'markets': fallback_markets})
 
 
 # ---------------------------------------------------------------------------
@@ -317,6 +458,73 @@ def broker_health_check_view(request):
     return _execution_disabled_response()
 
 
+@api_view(['GET'])
+@permission_classes([permissions.IsAuthenticated])
+def market_health_view(request):
+    from datetime import datetime, timezone
+    symbol = request.GET.get('symbol', request.user.selected_market or 'EUR/USD')
+    try:
+        granularity = int(request.GET.get('granularity', 300))
+    except (TypeError, ValueError):
+        granularity = 300
+
+    candles = CacheService.get_candles(symbol, granularity) or []
+    market_data = CacheService.get_market_data(symbol) or {}
+
+    rejection_reasons = []
+    stale = False
+    candle_gap = False
+    abnormal_price = False
+    connection_down = False
+
+    now = timezone.now()
+    last_dt = None
+    if not candles and not market_data:
+        connection_down = True
+        rejection_reasons.append("Connection down or no active feed")
+
+    if candles:
+        latest = candles[-1]
+        epoch = latest.get('time') or latest.get('epoch') or (latest.timestamp.timestamp() if hasattr(latest, 'timestamp') else 0)
+        last_dt = datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch else now
+        age = (now - last_dt).total_seconds()
+        max_age = max(granularity * 3, 300)
+        if age > max_age:
+            stale = True
+            rejection_reasons.append(f"Feed is stale (age: {age:.1f}s)")
+
+        for i in range(1, len(candles)):
+            prev = candles[i-1]
+            curr = candles[i]
+            p_t = prev.get('time') or prev.get('epoch', 0)
+            c_t = curr.get('time') or curr.get('epoch', 0)
+            if c_t - p_t > granularity * 1.5:
+                candle_gap = True
+                rejection_reasons.append(f"Candle gap exists between {p_t} and {c_t}")
+                break
+
+        for c in candles:
+            close = float(c.get('close', 0))
+            if close <= 0 or not math.isfinite(close):
+                abnormal_price = True
+                rejection_reasons.append(f"Abnormal price detected: {close}")
+                break
+
+    status_val = "healthy" if not rejection_reasons else "degraded"
+    return Response({
+        "symbol": symbol,
+        "granularity": granularity,
+        "status": status_val,
+        "connection": "down" if connection_down else "connected",
+        "stale": stale,
+        "candle_gap": candle_gap,
+        "abnormal_price": abnormal_price,
+        "connection_down": connection_down,
+        "rejection_reasons": rejection_reasons,
+        "last_update": last_dt.isoformat() if last_dt else None,
+    })
+
+
 # ---------------------------------------------------------------------------
 # Risk Configuration
 # ---------------------------------------------------------------------------
@@ -378,14 +586,22 @@ def _run_analysis_pipeline(request, verification_mode: bool):
     if granularity not in GRANULARITY_MAP:
         return Response({'error': 'Unsupported granularity'}, status=status.HTTP_400_BAD_REQUEST)
     analysis_started = time.perf_counter()
+    analysis_deadline = analysis_started + ANALYSIS_DEADLINE_SECONDS
     stage_timings: dict[str, float] = {}
+    stage_timings.update({
+        'deriv_connect_ms': 0.0, 'tick_ms': 0.0,
+        'h4_ms': 0.0, 'm15_ms': 0.0, 'm5_ms': 0.0, 'm1_ms': 0.0,
+        'strategy_ms': 0.0, 'ml_ms': 0.0, 'consensus_ms': 0.0,
+        'database_ms': 0.0,
+    })
     try:
         from trading_app.models import AnalysisWaitCycle
         from datetime import timedelta
 
         candle_started = time.perf_counter()
         raw_candles, mtf, live_error = _fetch_verification_candles(
-            request.user, symbol, granularity,
+            request.user, symbol, granularity, deadline=analysis_deadline,
+            timings=stage_timings,
         )
         if live_error:
             return _wait_response(
@@ -413,6 +629,7 @@ def _run_analysis_pipeline(request, verification_mode: bool):
 
         from trading_app.trading_bot.technical_analyzer import analyze_technical
         from trading_app.strategies import choch, fibonacci, ict, momentum, support_resistance
+        from trading_app.strategies.base import StrategyResult
         from trading_app.strategies.consensus import combine
         from trading_app.strategies.runner import run_parallel
         analysis_box = {}
@@ -432,38 +649,68 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             analysis_box['analysis'] = analyze_technical(symbol, candles, trade_history=recent_trades)
             return round((time.perf_counter() - started) * 1000, 3)
 
-        core_futures = {}
-        executor = ThreadPoolExecutor(max_workers=4)
-        try:
-            core_futures[executor.submit(run_technical)] = 'technical_smc'
-            strategy_future = executor.submit(run_parallel, shared_context, {
+        def run_strategies():
+            started = time.perf_counter()
+            results, evaluator_timings = run_parallel(shared_context, {
                 'fibonacci': fibonacci.evaluate,
                 'ict': ict.evaluate,
                 'momentum': momentum.evaluate,
                 'support_resistance': support_resistance.evaluate,
                 'choch': choch.evaluate,
             })
+            return results, evaluator_timings, round((time.perf_counter() - started) * 1000, 3)
+
+        def run_ml():
+            started = time.perf_counter()
+            result = _predict_from_existing_candles(
+                candles, shared_context.featured, symbol, granularity,
+            )
+            return result, round((time.perf_counter() - started) * 1000, 3)
+
+        core_futures = {}
+        executor = ThreadPoolExecutor(max_workers=6)
+        analysis_parallel_started = time.perf_counter()
+        ml_signal = None
+        try:
+            core_futures[executor.submit(run_technical)] = 'technical_smc'
+            strategy_future = executor.submit(run_strategies)
             core_futures[strategy_future] = 'strategy_evaluators'
+            ml_future = executor.submit(run_ml)
+            core_futures[ml_future] = 'ml_prediction'
 
             strategy_results = []
-            for future in as_completed(core_futures):
+            future_deadline = min(analysis_deadline, analysis_parallel_started + 120)
+            for future in as_completed(core_futures, timeout=_remaining_analysis_seconds(future_deadline)):
                 stage = core_futures[future]
-                started = time.perf_counter()
                 if stage == 'technical_smc':
                     stage_timings[stage + '_ms'] = future.result()
                 elif stage == 'strategy_evaluators':
-                    strategy_results, strategy_timings = future.result()
+                    raw_strategy_results, strategy_timings, strategy_wall_ms = future.result()
+                    stage_timings['strategy_ms'] = strategy_wall_ms
                     stage_timings.update({f'{name}_ms': value for name, value in strategy_timings.items()})
+                    by_name = {result.name: result for result in raw_strategy_results}
+                    strategy_results = [
+                        by_name.get('Momentum') or _missing_strategy_result('Momentum'),
+                        by_name.get('Support/Resistance') or _missing_strategy_result('Support/Resistance'),
+                        by_name.get('Fibonacci') or _missing_strategy_result('Fibonacci'),
+                        _combine_ict_choch(by_name.get('ICT'), by_name.get('CHoCH')),
+                    ]
+                elif stage == 'ml_prediction':
+                    ml_signal, stage_timings['ml_ms'] = future.result()
+                    stage_timings['ml_prediction_ms'] = stage_timings['ml_ms']
+            stage_timings['analysis_parallel_ms'] = round((time.perf_counter() - analysis_parallel_started) * 1000, 3)
         except Exception:
-            executor.shutdown(wait=True, cancel_futures=True)
+            executor.shutdown(wait=False, cancel_futures=True)
             raise
         analysis = analysis_box['analysis']
         strategy_results.append(_technical_strategy_result(analysis, stage_timings.get('technical_smc_ms', 0)))
         consensus_started = time.perf_counter()
+        _remaining_analysis_seconds(analysis_deadline)
         consensus = combine(
             strategy_results,
             threshold=settings.STRATEGY_CONSENSUS_THRESHOLD,
-            minimum_votes=settings.MIN_STRATEGY_VOTES,
+            minimum_votes=4,
+            expected_groups=5,
         )
         stage_timings['consensus_ms'] = round((time.perf_counter() - consensus_started) * 1000, 3)
 
@@ -479,19 +726,14 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         )
         strategy_confluence_ready = (
             consensus.bias != 'neutral'
-            and all(result.bias == consensus.bias for result in strategy_results)
-            and consensus.total_directional_votes >= settings.MIN_STRATEGY_VOTES
+            and consensus.total_directional_votes >= 4
             and consensus.agreement >= settings.STRATEGY_CONSENSUS_THRESHOLD
             and actionable_levels_ready
             and candle_fresh
             and all(mtf_freshness.values())
         )
-        ml_started = time.perf_counter()
-        ml_signal = _predict_from_existing_candles(
-            candles, shared_context.featured, symbol, granularity,
-        )
-        stage_timings['ml_prediction_ms'] = round((time.perf_counter() - ml_started) * 1000, 3)
-        executor.shutdown(wait=True)
+        _remaining_analysis_seconds(analysis_deadline)
+        executor.shutdown(wait=False)
 
         ml_compatible = bool(
             ml_signal is None
@@ -501,11 +743,14 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         bias = consensus.bias if strategy_confluence_ready and ml_compatible else 'neutral'
         confidence = int(consensus.confidence * 100)
         total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
+        stage_timings['total_ms'] = total_analysis_ms
         stage_timings['total_analysis_ms'] = total_analysis_ms
         analysis_metrics = {
             'bias': bias,
             'confidence': confidence,
             'rationale': analysis.rationale if bias != 'neutral' else 'No consensus',
+            'selected_market': symbol,
+            'analysis_timestamp': timezone.now().isoformat(),
             'rsi': analysis.rsi,
             'sma_short': analysis.sma_short,
             'sma_long': analysis.sma_long,
@@ -514,11 +759,15 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             'consensus': {
                 'buy_votes': consensus.buy_votes,
                 'sell_votes': consensus.sell_votes,
+                'neutral_or_insufficient_votes': consensus.neutral_votes,
+                'group_count': consensus.group_count,
                 'directional_votes': consensus.total_directional_votes,
                 'agreement': consensus.agreement,
                 'threshold': settings.STRATEGY_CONSENSUS_THRESHOLD,
-                'minimum_votes': settings.MIN_STRATEGY_VOTES,
+                'minimum_votes': 4,
                 'reason': consensus.reason,
+                'contradiction': consensus.contradiction,
+                'missing_groups': list(consensus.missing_groups),
                 'contributors': list(consensus.contributing_strategies),
             },
             'strategies': [result.as_dict() for result in strategy_results],
@@ -536,9 +785,11 @@ def _run_analysis_pipeline(request, verification_mode: bool):
 
         # Record the ML prediction so the Analytics/History panels and the
         # feedback loop capture every manual scan. The prediction is held
-        # until it resolves as correct/missed — a new one is only recorded
+        # until it resolves as correct/missed â€” a new one is only recorded
         # once the current prediction for this symbol has been decided.
+        _remaining_analysis_seconds(analysis_deadline)
         if not verification_mode:
+            database_started = time.perf_counter()
             try:
                 from trading_app.tasks import _record_prediction, CANDLE_GRANULARITY
                 if ml_signal is not None and granularity == CANDLE_GRANULARITY and ml_signal.bias in ('bullish', 'bearish'):
@@ -549,8 +800,12 @@ def _run_analysis_pipeline(request, verification_mode: bool):
                     )
             except Exception as e:
                 logger.warning(f'ML prediction skipped for manual scan {symbol}: {e}')
+            finally:
+                stage_timings['database_ms'] += round((time.perf_counter() - database_started) * 1000, 3)
 
+        _remaining_analysis_seconds(analysis_deadline)
         if not verification_mode and bias != 'neutral':
+            database_started = time.perf_counter()
             existing = TradingSignal.objects.filter(
                 user=request.user, symbol=symbol,
                 signal_type='BUY' if bias == 'bullish' else 'SELL',
@@ -561,7 +816,11 @@ def _run_analysis_pipeline(request, verification_mode: bool):
                 take_profit__isnull=False,
                 evidence_at__gte=timezone.now() - timedelta(seconds=max(granularity * 2, 120)),
             ).order_by('-evidence_at').first()
+            stage_timings['database_ms'] += round((time.perf_counter() - database_started) * 1000, 3)
             if existing:
+                stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+                stage_timings['total_analysis_ms'] = stage_timings['total_ms']
+                analysis_metrics['timings'] = stage_timings
                 return Response({
                     'decision': existing.signal_type,
                     'signal': TradingSignalSerializer(existing).data,
@@ -579,6 +838,9 @@ def _run_analysis_pipeline(request, verification_mode: bool):
                 reasons.append(consensus.reason)
             if not ml_compatible:
                 reasons.append('ML prediction is unavailable or contradicts strategy confluence')
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+            stage_timings['total_analysis_ms'] = stage_timings['total_ms']
+            analysis_metrics['timings'] = stage_timings
             return _wait_response(
                 request.user, symbol, granularity, '; '.join(reasons) or 'Confluence is incomplete',
                 analysis=analysis_metrics, verification_mode=verification_mode,
@@ -588,6 +850,9 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             analysis_metrics['bias'] = 'neutral'
             analysis_metrics['confidence'] = 0
             analysis_metrics['rationale'] = 'No consensus: required Entry, Stop Loss, or Take Profit is unavailable'
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+            stage_timings['total_analysis_ms'] = stage_timings['total_ms']
+            analysis_metrics['timings'] = stage_timings
             return _wait_response(
                 request.user, symbol, granularity,
                 'Required entry, stop-loss, or take-profit evidence is unavailable',
@@ -612,6 +877,9 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         persist_signal = not verification_mode or request.data.get('persist') is True
         if not persist_signal:
             signal = TradingSignal(**signal_values)
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+            stage_timings['total_analysis_ms'] = stage_timings['total_ms']
+            analysis_metrics['timings'] = stage_timings
             return Response({
                 'decision': signal.signal_type,
                 'signal': TradingSignalSerializer(signal).data,
@@ -619,15 +887,24 @@ def _run_analysis_pipeline(request, verification_mode: bool):
                 'persisted': False,
             })
 
-        signal = TradingSignal.objects.create(**signal_values)
-        AnalysisWaitCycle.objects.filter(
-            user=request.user, symbol=symbol, granularity=granularity,
-        ).delete()
+        _remaining_analysis_seconds(analysis_deadline)
+        from django.db import transaction
+        database_started = time.perf_counter()
+        with transaction.atomic():
+            signal = TradingSignal.objects.create(**signal_values)
+            AnalysisWaitCycle.objects.filter(
+                user=request.user, symbol=symbol, granularity=granularity,
+            ).delete()
+            _remaining_analysis_seconds(analysis_deadline)
+        stage_timings['database_ms'] += round((time.perf_counter() - database_started) * 1000, 3)
         audit.log_signal(symbol, signal.signal_type, confidence, {
             'signal_id': signal.id, 'rationale': signal.reasoning,
         })
 
         if verification_mode:
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+            stage_timings['total_analysis_ms'] = stage_timings['total_ms']
+            analysis_metrics['timings'] = stage_timings
             return Response({
                 'decision': signal.signal_type,
                 'signal': TradingSignalSerializer(signal).data,
@@ -636,6 +913,7 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             })
 
         total_analysis_ms = round((time.perf_counter() - analysis_started) * 1000, 3)
+        stage_timings['total_ms'] = total_analysis_ms
         stage_timings['total_analysis_ms'] = total_analysis_ms
         analysis_metrics['timings'] = stage_timings
         return Response({
@@ -646,6 +924,14 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         })
 
     except Exception as e:
+        if isinstance(e, (AnalysisDeadlineExceeded, FuturesTimeoutError)):
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
+            stage_timings['deadline_exceeded'] = True
+            return _wait_response(
+                request.user, symbol, granularity, 'Analysis exceeded the 180-second time limit; no signal was generated.',
+                analysis={'timings': stage_timings, 'bias': 'neutral', 'confidence': 0},
+                verification_mode=verification_mode,
+            )
         logger.error('Analysis failed: %s', e, exc_info=True)
         from trading_app.services.system_events import record_system_event
         record_system_event('ANALYSIS_FAILED', request.data.get('symbol', ''))
@@ -751,6 +1037,12 @@ def _predict_from_existing_candles(candles, featured_candles, symbol: str, granu
     )
 
 
+def _timed_ml_prediction(candles, featured_candles, symbol: str, granularity: int):
+    started = time.perf_counter()
+    result = _predict_from_existing_candles(candles, featured_candles, symbol, granularity)
+    return result, round((time.perf_counter() - started) * 1000, 3)
+
+
 def _candles_are_fresh(candles, granularity: int) -> bool:
     if not candles:
         return False
@@ -774,6 +1066,51 @@ def _technical_strategy_result(analysis, processing_time_ms: float):
         'Technical/SMC', bias, float(analysis.confidence),
         (str(analysis.rationale),) if bias != 'neutral' else (),
         ('existing_candlestick_smc_rules',), levels, processing_time_ms,
+    )
+
+
+def _missing_strategy_result(name: str):
+    from trading_app.strategies.base import StrategyResult
+
+    return StrategyResult(
+        name, 'insufficient_data', 0.0, (), (), {}, 0.0,
+        error='Strategy result missing',
+    )
+
+
+def _combine_ict_choch(ict_result, choch_result):
+    from trading_app.strategies.base import StrategyResult
+
+    if ict_result is None or choch_result is None:
+        missing = 'ICT' if ict_result is None else 'CHoCH'
+        return StrategyResult(
+            'ICT + CHoCH', 'insufficient_data', 0.0, (), (), {}, 0.0,
+            error=f'{missing} sub-evaluation missing',
+        )
+    timings = ict_result.processing_time_ms + choch_result.processing_time_ms
+    reasons = ict_result.reasons + choch_result.reasons
+    conditions = ict_result.conditions + choch_result.conditions
+    levels = {**ict_result.levels, **choch_result.levels}
+    if ict_result.error or choch_result.error:
+        return StrategyResult(
+            'ICT + CHoCH', 'insufficient_data', 0.0, reasons, conditions, levels, timings,
+            error='ICT or CHoCH sub-evaluation failed',
+        )
+    if ict_result.bias in ('bullish', 'bearish') and choch_result.bias == ict_result.bias:
+        return StrategyResult(
+            'ICT + CHoCH', ict_result.bias,
+            min(ict_result.confidence, choch_result.confidence),
+            reasons, conditions, levels, timings,
+        )
+    contradictory = (
+        ict_result.bias in ('bullish', 'bearish')
+        and choch_result.bias in ('bullish', 'bearish')
+        and ict_result.bias != choch_result.bias
+    )
+    return StrategyResult(
+        'ICT + CHoCH', 'neutral', 1.0 if contradictory else 0.0, reasons,
+        conditions + (('conflicting_ict_choch',) if contradictory else ()),
+        levels, timings,
     )
 
 
@@ -845,7 +1182,7 @@ def stake_config_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Signal Propose — bot-calculated SL/TP before execution
+# Signal Propose â€” bot-calculated SL/TP before execution
 # ---------------------------------------------------------------------------
 
 @api_view(['POST'])
@@ -924,6 +1261,57 @@ def verify_otp_view(request):
     }[result]}, status=status.HTTP_400_BAD_REQUEST)
 
 
+@api_view(['GET', 'POST'])
+@permission_classes([permissions.IsAuthenticated])
+def setup_totp_api_view(request):
+    from django_otp.plugins.otp_totp.models import TOTPDevice
+    import qrcode
+    import io
+    import base64
+
+    user = request.user
+    existing_device = TOTPDevice.objects.filter(user=user, confirmed=True).first()
+    if existing_device and request.method == 'GET':
+        return Response({
+            'status': 'totp_active',
+            'is_active': True,
+            'message': 'Google Authenticator (TOTP) is active.',
+        })
+
+    device, _ = TOTPDevice.objects.get_or_create(user=user, name='default', confirmed=False)
+
+    if request.method == 'POST':
+        code = str(request.data.get('code', '')).strip()
+        if not code or len(code) != 6:
+            return Response({'error': 'A 6-digit code is required.'}, status=status.HTTP_400_BAD_REQUEST)
+
+        if device.verify_token(code):
+            device.confirmed = True
+            device.save()
+            user.two_factor_enabled = True
+            user.save(update_fields=['two_factor_enabled'])
+            request.session['2fa_verified'] = True
+            return Response({
+                'status': 'verified',
+                'message': 'Google Authenticator enabled successfully.',
+            })
+        return Response({'error': 'Invalid authenticator code. Check your app and try again.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    qr_img = qrcode.make(device.config_url)
+    buf = io.BytesIO()
+    qr_img.save(buf, format='PNG')
+    qr_code_b64 = base64.b64encode(buf.getvalue()).decode('utf-8')
+    secret_key_b32 = base64.b32encode(bytes.fromhex(device.key)).decode('utf-8')
+
+    return Response({
+        'status': 'unconfirmed',
+        'is_active': False,
+        'provisioning_uri': device.config_url,
+        'secret_key_base32': secret_key_b32,
+        'qr_code_base64': f'data:image/png;base64,{qr_code_b64}',
+    })
+
+
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def subscription_view(request):
@@ -936,7 +1324,24 @@ def subscription_view(request):
     access = subscription_status(request.user)
     payload = SubscriptionSerializer(sub).data
     payload['access'] = _serialize_subscription_status(access)
+    payload['payment_currency'] = 'KES'
+    payload['basic_amount_kes'] = settings.DARAJA_BASIC_AMOUNT_KES
     return Response(payload)
+
+
+@api_view(['POST'])
+@permission_classes([permissions.IsAuthenticated])
+def activate_free_trial_view(request):
+    if request.user.trial_started_at is None:
+        request.user.trial_started_at = timezone.now()
+        request.user.save(update_fields=['trial_started_at'])
+
+    from trading_app.services.subscription_access import subscription_status
+
+    return Response({
+        'activated': request.user.trial_started_at is not None,
+        'access': _serialize_subscription_status(subscription_status(request.user)),
+    })
 
 
 @api_view(['POST'])
@@ -1402,74 +1807,6 @@ def mark_all_notifications_read(request):
 def run_backtest_view(request):
     return _execution_disabled_response()
 
-    from .trading_bot.backtest import run_backtest, BacktestResult
-    from .trading_bot.interface import Candle, OrderRequest
-
-    symbol = request.data.get('symbol', 'EUR/USD')
-    try:
-        initial_balance = Decimal(str(request.data.get('initial_balance', 10000)))
-        days = min(int(request.data.get('days', 30)), 90)
-        stop_loss_pct = Decimal(str(request.data.get('stop_loss_pct', '2')))
-        take_profit_pct = Decimal(str(request.data.get('take_profit_pct', '4')))
-    except (ValueError, TypeError, decimal.InvalidOperation):
-        return Response({'error': 'Invalid parameter value'}, status=status.HTTP_400_BAD_REQUEST)
-
-    paper = PaperBrokerAdapter(initial_balance=initial_balance)
-    paper.connect({})
-
-    try:
-        adapter = _resolve_adapter(request.user)
-        creds = build_credentials(request.user)
-        adapter.connect(creds)
-        raw_candles = adapter.get_candles(symbol, 3600, days * 24)
-        adapter.disconnect()
-    except Exception:
-        raw_candles = []
-
-    if not raw_candles:
-        return Response({'error': 'Live market data unavailable'}, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-
-    paper.seed_candles(raw_candles)
-
-    def sma_strategy(candle, positions, balance):
-        if positions:
-            return None
-        candles_list = paper._candle_store.get(symbol, [])
-        if len(candles_list) < 20:
-            return None
-        recent = candles_list[-20:]
-        sma = sum(c.close for c in recent) / len(recent)
-        if candle.close > sma * Decimal('1.002'):
-            return OrderRequest(
-                symbol=symbol, side='buy', order_type='market',
-                volume=Decimal('0.1'),
-                stop_loss=candle.close * (Decimal('1') - stop_loss_pct / Decimal('100')),
-                take_profit=candle.close * (Decimal('1') + take_profit_pct / Decimal('100')),
-            )
-        elif candle.close < sma * Decimal('0.998'):
-            return OrderRequest(
-                symbol=symbol, side='sell', order_type='market',
-                volume=Decimal('0.1'),
-                stop_loss=candle.close * (Decimal('1') + stop_loss_pct / Decimal('100')),
-                take_profit=candle.close * (Decimal('1') - take_profit_pct / Decimal('100')),
-            )
-        return None
-
-    result = run_backtest(paper, raw_candles, sma_strategy, initial_balance=initial_balance)
-
-    return Response({
-        'symbol': symbol,
-        'total_trades': result.total_trades,
-        'winning_trades': result.winning_trades,
-        'losing_trades': result.losing_trades,
-        'total_pnl': str(result.total_pnl),
-        'final_balance': str(result.final_balance),
-        'max_drawdown': str(result.max_drawdown),
-        'peak_equity': str(result.peak_equity),
-        'win_rate': round(result.winning_trades / result.total_trades * 100, 1) if result.total_trades > 0 else 0,
-        'equity_curve': [str(e) for e in result.equity_curve],
-    })
-
 
 # ---------------------------------------------------------------------------
 # Ticker subscription (WebSocket bridge control)
@@ -1501,7 +1838,7 @@ def ticker_unsubscribe_view(request):
 
 
 # ---------------------------------------------------------------------------
-# ML Model Export — serves latest trained model for MQL5 EA
+# ML Model Export â€” serves latest trained model for MQL5 EA
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
@@ -1574,7 +1911,7 @@ def model_download_view(request, filename):
     ml_output = Path(settings.BASE_DIR) / "ml_output"
     file_path = (ml_output / filename).resolve()
 
-    # Prevent path traversal — must run before file existence check
+    # Prevent path traversal â€” must run before file existence check
     try:
         file_path.relative_to(ml_output.resolve())
     except ValueError:
@@ -1677,6 +2014,7 @@ def admin_overview_view(request):
             'subscription_started_at': subscription.started_at.isoformat() if subscription else None,
             'subscription_expires_at': access['expires_at'].isoformat() if access['expires_at'] else None,
             'subscription_bypass': user.subscription_bypass,
+            'subscription_bypass_expires_at': user.subscription_bypass_expires_at.isoformat() if user.subscription_bypass_expires_at else None,
             'bot_bypass': user.bot_bypass,
             'bot_access': bot_access_status(user),
             'subscription_access_denied': user.subscription_access_denied,
@@ -1701,6 +2039,11 @@ def admin_overview_view(request):
         cache_status = 'error'
 
     signals = TradingSignal.objects.select_related('user').order_by('-created_at')[:100]
+    system_signals = TradingSignal.objects.filter(signal_type__in=('BUY', 'SELL'))
+    system_signal_total = system_signals.count()
+    system_signal_wins = system_signals.filter(outcome='WIN').count()
+    system_signal_losses = system_signals.filter(outcome='LOSS').count()
+    system_signal_resolved = system_signal_wins + system_signal_losses
     payments = PaymentTransaction.objects.select_related('user', 'subscription').order_by('-created_at')[:100]
     from trading_app.models import SystemEvent
     system_events = SystemEvent.objects.all()[:100]
@@ -1732,6 +2075,14 @@ def admin_overview_view(request):
             'reasoning': signal.reasoning,
             'created_at': signal.created_at.isoformat(),
         } for signal in signals],
+        'system_signal_performance': {
+            'total_signals': system_signal_total,
+            'resolved_signals': system_signal_resolved,
+            'pending_signals': system_signals.filter(outcome='PENDING').count(),
+            'wins': system_signal_wins,
+            'losses': system_signal_losses,
+            'win_rate': round(system_signal_wins / system_signal_resolved * 100, 1) if system_signal_resolved else 0,
+        },
         'payments': [{
             'id': payment.pk,
             'user_id': payment.user_id,
@@ -1825,6 +2176,7 @@ def admin_user_detail_view(request, user_id):
             'started_at': subscription.started_at.isoformat() if subscription else None,
             'expires_at': access['expires_at'].isoformat() if access['expires_at'] else None,
             'bypass': user.subscription_bypass,
+            'bypass_expires_at': user.subscription_bypass_expires_at.isoformat() if user.subscription_bypass_expires_at else None,
         },
         'bot': {
             'access': bot_access_status(user),
@@ -1849,6 +2201,8 @@ def admin_user_detail_view(request, user_id):
 def admin_user_access_view(request, user_id):
     from django.contrib.sessions.models import Session
     from trading_app.models import AdminAuditLog
+    from datetime import timedelta
+
     target = get_object_or_404(User, pk=user_id)
     fields = ('is_active', 'subscription_bypass', 'bot_bypass', 'subscription_access_denied', 'revoke_sessions')
     updates = {}
@@ -1858,12 +2212,26 @@ def admin_user_access_view(request, user_id):
             if not isinstance(value, bool):
                 return Response({'error': f'{field} must be a boolean.'}, status=status.HTTP_400_BAD_REQUEST)
             updates[field] = value
-    if not updates:
+    grant_month = request.data.get('grant_subscription_bypass_month', False)
+    if not isinstance(grant_month, bool):
+        return Response({'error': 'grant_subscription_bypass_month must be a boolean.'}, status=status.HTTP_400_BAD_REQUEST)
+    if not updates and not grant_month:
         return Response({'error': 'No supported access changes provided.'}, status=status.HTTP_400_BAD_REQUEST)
-    if target.pk == request.user.pk and any(field != 'revoke_sessions' for field in updates):
+    if target.pk == request.user.pk and (grant_month or any(field != 'revoke_sessions' for field in updates)):
         return Response({'error': 'Administrator access settings cannot be changed through this endpoint.'}, status=status.HTTP_400_BAD_REQUEST)
     if target.pk == request.user.pk and updates.get('is_active') is False:
         return Response({'error': 'The administrator cannot deactivate their own account.'}, status=status.HTTP_400_BAD_REQUEST)
+
+    now = timezone.now()
+    if grant_month:
+        current_expiry = target.subscription_bypass_expires_at
+        updates['subscription_bypass'] = True
+        updates['subscription_bypass_expires_at'] = max(now, current_expiry) + timedelta(days=30) if current_expiry else now + timedelta(days=30)
+    elif updates.get('subscription_bypass') is True and not target.subscription_bypass:
+        updates['subscription_bypass_expires_at'] = now + timedelta(days=30)
+    elif updates.get('subscription_bypass') is False:
+        updates['subscription_bypass_expires_at'] = None
+
     revoke_sessions = updates.pop('revoke_sessions', False)
     previous_state = {field: getattr(target, field) for field in updates}
     for field, value in updates.items():
@@ -1876,8 +2244,8 @@ def admin_user_access_view(request, user_id):
                     administrator=request.user,
                     affected_user=target,
                     action=f'{field}_changed',
-                    previous_state={field: previous_state[field]},
-                    new_state={field: value},
+                    previous_state={field: previous_state[field].isoformat() if hasattr(previous_state[field], 'isoformat') else previous_state[field]},
+                    new_state={field: value.isoformat() if hasattr(value, 'isoformat') else value},
                     ip_address=request.META.get('REMOTE_ADDR') or None,
                     user_agent=request.META.get('HTTP_USER_AGENT', '')[:512],
                 )
@@ -1954,7 +2322,10 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
     return [], 'unavailable'
 
 
-def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
+def _fetch_verification_candles(
+    user, symbol: str, selected_granularity: int, *, deadline: float | None = None,
+    timings: dict[str, float] | None = None,
+):
     """Fetch fresh, uncached Deriv candles for verification over one connection."""
     import threading
     from trading_app.strategies.choch import TIMEFRAME_LABELS
@@ -1964,6 +2335,7 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
     adapter = _resolve_adapter(user)
     raw_by_granularity = {}
     now_epoch = time.time()
+    timing_values = timings if timings is not None else {}
     tick_received = threading.Event()
     tick_subscription_started = False
     requested_deriv_symbol = deriv_symbol_for_market(symbol)
@@ -1976,6 +2348,7 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
         if -5 <= tick_age <= 60:
             tick_received.set()
 
+    connect_started = time.perf_counter()
     try:
         adapter.connect(build_credentials(user))
         connection_deadline = time.monotonic() + 5
@@ -1983,25 +2356,63 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
             if time.monotonic() >= connection_deadline:
                 raise TimeoutError('Deriv WebSocket connection timed out')
             time.sleep(0.05)
-        adapter.subscribe_ticks(
-            requested_deriv_symbol, accept_current_tick,
-        )
+        timing_values['deriv_connect_ms'] = round((time.perf_counter() - connect_started) * 1000, 3)
+        tick_started = time.perf_counter()
+        tick_rpc_timeout = max(0.05, deadline - time.perf_counter()) if deadline else 30.0
+        adapter.subscribe_ticks(requested_deriv_symbol, accept_current_tick, timeout=tick_rpc_timeout)
         tick_subscription_started = True
-        if not tick_received.wait(timeout=8):
+        tick_timeout = min(8.0, max(0.0, deadline - time.perf_counter())) if deadline else 8.0
+        if tick_timeout <= 0 or not tick_received.wait(timeout=tick_timeout):
+            timing_values['tick_ms'] = round((time.perf_counter() - tick_started) * 1000, 3)
             return [], {}, 'Live market data unavailable: no current Deriv tick received.'
+        timing_values['tick_ms'] = round((time.perf_counter() - tick_started) * 1000, 3)
         try:
             adapter.unsubscribe_ticks(requested_deriv_symbol)
             tick_subscription_started = False
         except Exception:
             pass
-        for granularity in granularities:
+        def fetch_one(granularity):
+            started = time.perf_counter()
+            candle_method = adapter.get_candles
+            side_effect = getattr(candle_method, 'side_effect', None)
+            signature_target = side_effect if callable(side_effect) else candle_method
             try:
+                accepts_timeout = 'timeout' in inspect.signature(signature_target).parameters
+            except (TypeError, ValueError):
+                accepts_timeout = False
+            if deadline is None or not accepts_timeout:
                 raw = adapter.get_candles(requested_deriv_symbol, granularity, 200)
-            except Exception as exc:
-                message = str(exc).lower()
-                if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
-                    return [], {}, f'Market closed: {symbol} is not currently trading.'
-                return [], {}, f'Live market data unavailable for {TIMEFRAME_LABELS.get(granularity, granularity)}.'
+            else:
+                remaining = max(0.05, deadline - time.perf_counter())
+                try:
+                    raw = adapter.get_candles(
+                        requested_deriv_symbol, granularity, 200, timeout=remaining,
+                    )
+                except TypeError as exc:
+                    if 'timeout' not in str(exc):
+                        raise
+                    raw = adapter.get_candles(requested_deriv_symbol, granularity, 200)
+            return granularity, raw, round((time.perf_counter() - started) * 1000, 3)
+
+        timeframe_started = time.perf_counter()
+        timeframe_executor = ThreadPoolExecutor(max_workers=len(granularities))
+        futures = [timeframe_executor.submit(fetch_one, granularity) for granularity in granularities]
+        try:
+            fetched = [
+                future.result(timeout=max(0.01, deadline - time.perf_counter()))
+                if deadline else future.result(timeout=30)
+                for future in futures
+            ]
+        except FuturesTimeoutError:
+            for future in futures:
+                future.cancel()
+            timeframe_executor.shutdown(wait=False, cancel_futures=True)
+            raise AnalysisDeadlineExceeded('Deriv timeframe fetch exceeded the analysis deadline.') from None
+        else:
+            timeframe_executor.shutdown(wait=True)
+        timing_values['deriv_timeframes_ms'] = round((time.perf_counter() - timeframe_started) * 1000, 3)
+        for granularity, raw, elapsed_ms in fetched:
+            timing_values[f'{TIMEFRAME_LABELS.get(granularity, granularity).lower()}_ms'] = elapsed_ms
             if not raw:
                 return [], {}, f'Live market data unavailable for {TIMEFRAME_LABELS.get(granularity, granularity)}.'
             newest_epoch = max(int(candle.timestamp.timestamp()) for candle in raw)
@@ -2011,6 +2422,8 @@ def _fetch_verification_candles(user, symbol: str, selected_granularity: int):
             if now_epoch - newest_epoch < -5 or now_epoch - newest_epoch > max_age:
                 return [], {}, f'Live market data unavailable: {TIMEFRAME_LABELS.get(granularity, granularity)} candles are stale.'
             raw_by_granularity[granularity] = raw
+    except AnalysisDeadlineExceeded:
+        raise
     except Exception as exc:
         message = str(exc).lower()
         if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
@@ -2055,7 +2468,7 @@ def _candles_to_dicts(candles):
 
 
 # ---------------------------------------------------------------------------
-# Bot market selection — the bot only trades the market the user selected
+# Bot market selection â€” the bot only trades the market the user selected
 # ---------------------------------------------------------------------------
 
 @api_view(['GET', 'POST'])
@@ -2116,7 +2529,7 @@ def bot_control_view(request):
 
 
 # ---------------------------------------------------------------------------
-# Chart Candles — live Deriv history for the bot chart
+# Chart Candles â€” live Deriv history for the bot chart
 # ---------------------------------------------------------------------------
 
 @api_view(['GET'])
