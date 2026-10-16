@@ -373,11 +373,11 @@ class SymbolMapTests(TestCase):
     def test_to_broker(self) -> None:
         sm = load_symbol_map()
         native = sm.to_broker("EURUSD", "deriv")
-        self.assertEqual(native, "EUR/USD")
+        self.assertEqual(native, "frxEURUSD")
 
     def test_to_canonical(self) -> None:
         sm = load_symbol_map()
-        canonical = sm.to_canonical("EUR/USD", "deriv")
+        canonical = sm.to_canonical("frxEURUSD", "deriv")
         self.assertEqual(canonical, "EURUSD")
 
     def test_invalid_symbol_raises(self) -> None:
@@ -567,7 +567,7 @@ class FullIntegrationTests(TestCase):
     def test_symbol_map_and_paper_broker(self) -> None:
         sm = load_symbol_map()
         deriv_symbol = sm.to_broker("EURUSD", "deriv")
-        self.assertEqual(deriv_symbol, "EUR/USD")
+        self.assertEqual(deriv_symbol, "frxEURUSD")
 
         broker = PaperBrokerAdapter()
         broker.connect({})

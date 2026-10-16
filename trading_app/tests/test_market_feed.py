@@ -2,8 +2,9 @@ import asyncio
 import json
 from decimal import Decimal
 from datetime import datetime, timezone
+from unittest.mock import patch
 from django.test import TestCase, Client
-from django.contrib.auth import get_model, get_user_model
+from django.contrib.auth import get_user_model
 from django.urls import reverse
 from trading_app.trading_bot.symbol_map import load_symbol_map
 from trading_app.ml.symbols import deriv_symbol_for
@@ -28,8 +29,11 @@ class MarketFeedAndAdapterTests(TestCase):
 
     def test_tick_validation_drops_invalid_ticks(self):
         adapter = DerivAdapter(app_id="test")
+        adapter._connected = True
         received = []
-        adapter.subscribe_ticks("frxEURUSD", lambda t: received.append(t))
+        with patch.object(adapter, '_call_api', return_value=object()), \
+             patch.object(adapter, '_await_future', return_value={}):
+            adapter.subscribe_ticks("frxEURUSD", lambda t: received.append(t))
 
         # Valid tick
         asyncio.run(adapter._handle_message(json.dumps({

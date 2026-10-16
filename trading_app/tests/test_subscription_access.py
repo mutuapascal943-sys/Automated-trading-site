@@ -7,7 +7,7 @@ from django.utils import timezone
 from django.core.cache import cache
 from rest_framework.test import APIClient
 
-from trading_app.models import Subscription, TradingSignal, User
+from trading_app.models import PaymentTransaction, Subscription, TradingSignal, User
 from trading_app.services.subscription_access import bot_access_status, subscription_status
 
 
@@ -492,27 +492,18 @@ class SubscriptionAccessTests(TestCase):
         self.assertEqual(response.status_code, 410)
         self.assertFalse(response.json()['execution_enabled'])
 
-    @override_settings(
-        DARAJA_CONSUMER_KEY='test_key',
-        DARAJA_CONSUMER_SECRET='test_secret',
-        DARAJA_SHORTCODE='174379',
-        DARAJA_PASSKEY='test_passkey',
-        DARAJA_CALLBACK_URL='https://example.com/callback/',
-        DARAJA_BASIC_AMOUNT_KES=1000,
-    )
-    @patch('trading_app.payments.daraja.initiate_stk_push', side_effect=__import__('trading_app.payments.daraja', fromlist=['DarajaError']).DarajaError('sandbox unavailable'))
-    def test_checkout_requires_provider_confirmation(self, _stk):
+    def test_checkout_requires_provider_confirmation(self):
         response = self.client.post('/api/subscription/checkout/', {
-            'tier': 'BASIC', 'phone_number': '0712345678',
+            'tier': 'BASIC', 'transaction_reference': 'ABC123XYZ',
         }, format='json')
-        self.assertEqual(response.status_code, 502)
+        self.assertEqual(response.status_code, 202)
         self.assertFalse(response.json()['access_granted'])
         self.assertEqual(Subscription.objects.get(user=self.user).tier, 'FREE')
 
-    def test_checkout_rejects_missing_phone_number(self):
+    def test_checkout_rejects_missing_transaction_reference(self):
         response = self.client.post('/api/subscription/checkout/', {'tier': 'BASIC'}, format='json')
         self.assertEqual(response.status_code, 400)
-        self.assertFalse(Subscription.objects.filter(user=self.user).exists())
+        self.assertFalse(PaymentTransaction.objects.filter(user=self.user).exists())
 
     @patch('trading_app.tasks.build_credentials', return_value={})
     @patch('trading_app.tasks.get_adapter_for_broker')

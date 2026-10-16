@@ -1,5 +1,7 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin
+from django.utils import timezone
+from datetime import timedelta
 from trading_app.admin_site import owner_admin_site
 from .models import User, EmailOTP, Trade, TradingSignal, Subscription, PredictionRecord, PaymentTransaction, AdminAuditLog
 
@@ -73,20 +75,38 @@ class SubscriptionAdmin(admin.ModelAdmin):
 class PaymentTransactionAdmin(admin.ModelAdmin):
     list_display = [
         'id', 'user', 'tier', 'amount_kes', 'status',
-        'checkout_request_id', 'mpesa_receipt_number', 'created_at',
+        'mpesa_receipt_number', 'created_at',
     ]
     list_filter = ['status', 'tier', 'created_at']
     search_fields = ['user__email', 'merchant_request_id', 'checkout_request_id', 'mpesa_receipt_number']
-    readonly_fields = [field.name for field in PaymentTransaction._meta.fields]
+    readonly_fields = ['user', 'subscription', 'tier', 'amount_kes', 'phone_number', 'merchant_request_id', 'checkout_request_id', 'created_at', 'completed_at', 'result_code', 'result_description']
 
     def has_add_permission(self, request):
         return False
 
     def has_change_permission(self, request, obj=None):
-        return False
+        return bool(request.user and request.user.is_authenticated and (request.user.is_staff or request.user.is_superuser))
 
     def has_delete_permission(self, request, obj=None):
         return False
+
+    def save_model(self, request, obj, form, change):
+        if change:
+            old_obj = PaymentTransaction.objects.get(pk=obj.pk)
+            if old_obj.status != PaymentTransaction.STATUS_SUCCESS and obj.status == PaymentTransaction.STATUS_SUCCESS:
+                sub, _ = Subscription.objects.get_or_create(user=obj.user)
+                sub.tier = obj.tier
+                sub.is_active = True
+                sub.started_at = timezone.now()
+                sub.expires_at = timezone.now() + timedelta(days=30)
+                sub.save()
+                obj.completed_at = timezone.now()
+                AdminAuditLog.objects.create(
+                    administrator=request.user,
+                    affected_user=obj.user,
+                    action=f'Approved manual payment #{obj.pk} for {obj.tier} subscription.',
+                )
+        super().save_model(request, obj, form, change)
 
 
 class PredictionRecordAdmin(admin.ModelAdmin):

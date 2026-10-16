@@ -21,6 +21,7 @@ from rest_framework.throttling import AnonRateThrottle, UserRateThrottle
 from .models import (
     Trade, TradingSignal,
     Subscription, EmailOTP, SecurityQuestion, Notification, RiskConfig,
+    PaymentTransaction, AdminAuditLog,
 )
 from .serializers import (
     TradeSerializer, TradeCreateSerializer, TradingSignalSerializer,
@@ -461,7 +462,8 @@ def broker_health_check_view(request):
 @api_view(['GET'])
 @permission_classes([permissions.IsAuthenticated])
 def market_health_view(request):
-    from datetime import datetime, timezone
+    from datetime import datetime
+    from django.utils import timezone
     symbol = request.GET.get('symbol', request.user.selected_market or 'EUR/USD')
     try:
         granularity = int(request.GET.get('granularity', 300))
@@ -577,7 +579,8 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         ),
     )
     if symbol != request.user.selected_market:
-        return Response({'error': 'Analysis is limited to your selected market.'}, status=status.HTTP_400_BAD_REQUEST)
+        request.user.selected_market = symbol
+        request.user.save(update_fields=['selected_market'])
     try:
         granularity = int(request.data.get('granularity', request.query_params.get('granularity', 300)))
     except (TypeError, ValueError):
@@ -1350,26 +1353,14 @@ def subscription_checkout_view(request):
     tier = str(request.data.get('tier', '')).upper()
     if tier != 'BASIC':
         return Response({'error': 'Unsupported subscription product.'}, status=status.HTTP_400_BAD_REQUEST)
-    phone_value = request.data.get('phone_number')
-    if not phone_value:
-        return Response({'error': 'phone_number is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    from trading_app.models import PaymentTransaction
-    from trading_app.payments import daraja
+    tx_ref = str(request.data.get('transaction_reference') or request.data.get('phone_number') or '').strip()
+    if not tx_ref:
+        return Response({'error': 'M-Pesa transaction reference code is required.'}, status=status.HTTP_400_BAD_REQUEST)
 
-    try:
-        config = daraja.DarajaConfig.from_settings()
-        config.validate(require_product_price=True)
-    except daraja.DarajaError as exc:
-        return Response({
-            'status': 'payment_unavailable',
-            'access_granted': False,
-            'message': str(exc),
-        }, status=status.HTTP_503_SERVICE_UNAVAILABLE)
-    try:
-        phone_number = daraja.normalize_phone_number(phone_value)
-    except daraja.DarajaError as exc:
-        return Response({'error': str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+    if PaymentTransaction.objects.filter(mpesa_receipt_number__iexact=tx_ref, status=PaymentTransaction.STATUS_SUCCESS).exists() or \
+       PaymentTransaction.objects.filter(mpesa_receipt_number__iexact=tx_ref, status=PaymentTransaction.STATUS_PENDING).exists():
+        return Response({'error': 'This M-Pesa transaction reference has already been submitted.'}, status=status.HTTP_400_BAD_REQUEST)
 
     subscription, _ = Subscription.objects.get_or_create(
         user=request.user,
@@ -1379,42 +1370,12 @@ def subscription_checkout_view(request):
         user=request.user,
         subscription=subscription,
         tier='BASIC',
-        amount_kes=config.basic_amount_kes,
-        phone_number=phone_number,
-        status=PaymentTransaction.STATUS_INITIATED,
+        amount_kes=settings.DARAJA_BASIC_AMOUNT_KES,
+        phone_number='0705794964',
+        mpesa_receipt_number=tx_ref,
+        status=PaymentTransaction.STATUS_PENDING,
+        result_description='Manual M-Pesa Send Money submission pending administrator verification.',
     )
-    try:
-        stk_response = daraja.initiate_stk_push(
-            phone_number=phone_number,
-            account_reference=f'ATS{payment.pk}',
-            transaction_desc='BASIC subscription',
-        )
-    except daraja.DarajaTimeoutError:
-        payment.status = PaymentTransaction.STATUS_PENDING
-        payment.result_code = 'REQUEST_OUTCOME_UNKNOWN'
-        payment.result_description = 'The request timed out; provider acceptance is unknown. Contact support before retrying.'
-        payment.save(update_fields=['status', 'result_code', 'result_description'])
-        return Response({
-            'status': 'payment_request_unconfirmed',
-            'access_granted': False,
-            'payment_id': payment.pk,
-            'message': 'Payment request status is unknown. Do not retry until it has been checked.',
-        }, status=status.HTTP_202_ACCEPTED)
-    except daraja.DarajaError as exc:
-        payment.status = PaymentTransaction.STATUS_FAILED
-        payment.result_description = str(exc)[:255]
-        payment.completed_at = timezone.now()
-        payment.save(update_fields=['status', 'result_description', 'completed_at'])
-        return Response({
-            'status': 'payment_request_failed',
-            'access_granted': False,
-            'message': str(exc),
-        }, status=status.HTTP_502_BAD_GATEWAY)
-
-    payment.merchant_request_id = stk_response['merchant_request_id']
-    payment.checkout_request_id = stk_response['checkout_request_id']
-    payment.status = PaymentTransaction.STATUS_PENDING
-    payment.save(update_fields=['merchant_request_id', 'checkout_request_id', 'status'])
 
     return Response({
         'status': 'payment_pending',
@@ -1423,7 +1384,7 @@ def subscription_checkout_view(request):
         'duration_days': 30,
         'access_granted': False,
         'payment_id': payment.pk,
-        'message': 'M-Pesa payment prompt sent. Subscription access is granted only after payment verification.',
+        'message': 'Manual M-Pesa payment submitted. Send money via M-Pesa Send Money to 0705794964 and provide your transaction reference. Access will be granted once verified by the administrator.',
     }, status=status.HTTP_202_ACCEPTED)
 
 
@@ -2297,7 +2258,7 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
         adapter = _resolve_adapter(user)
         adapter.connect(build_credentials(user))
         connected = True
-        connection_deadline = time.monotonic() + 5
+        connection_deadline = time.monotonic() + 3
         while not adapter._connected:
             if time.monotonic() >= connection_deadline:
                 raise TimeoutError('Deriv WebSocket connection timed out')
@@ -2351,7 +2312,7 @@ def _fetch_verification_candles(
     connect_started = time.perf_counter()
     try:
         adapter.connect(build_credentials(user))
-        connection_deadline = time.monotonic() + 5
+        connection_deadline = time.monotonic() + 3
         while not adapter._connected:
             if time.monotonic() >= connection_deadline:
                 raise TimeoutError('Deriv WebSocket connection timed out')

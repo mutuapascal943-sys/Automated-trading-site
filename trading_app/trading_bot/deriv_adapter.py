@@ -80,6 +80,8 @@ class DerivAdapter(BrokerAdapter):
         self._tick_subscribers: dict[str, list[TickCallback]] = {}
         self._subscription_ids: dict[str, int] = {}
         self._last_pong: float = 0.0
+        self._last_epoch: dict[str, int] = {}
+        self._last_quote: dict[str, float] = {}
         self._lock = threading.Lock()
 
     def connect(self, credentials: dict[str, str]) -> None:
@@ -344,14 +346,34 @@ class DerivAdapter(BrokerAdapter):
 
         if msg_type == "tick":
             tick_data = data.get("tick", {})
+            symbol = tick_data.get("symbol", "")
+            epoch = int(tick_data.get("epoch", 0))
+            quote_val = tick_data.get("quote") if tick_data.get("quote") is not None else (tick_data.get("bid") or 0)
+            try:
+                numeric_quote = float(quote_val)
+            except (TypeError, ValueError):
+                logger.warning("Dropped invalid non-numeric tick quote for %s (req_id=%s): %s", symbol, req_id, quote_val)
+                return
+
+            last_ep = self._last_epoch.get(symbol, 0)
+            last_q = self._last_quote.get(symbol, None)
+            if epoch > 0 and last_ep > 0 and epoch < last_ep:
+                logger.warning("Dropped out-of-order/decreasing epoch tick for %s (req_id=%s, epoch %d < previous %d)", symbol, req_id, epoch, last_ep)
+                return
+            if epoch > 0 and last_ep > 0 and epoch == last_ep and numeric_quote == last_q:
+                return
+            if epoch > 0:
+                self._last_epoch[symbol] = epoch
+                self._last_quote[symbol] = numeric_quote
+
             tick = Tick(
-                symbol=tick_data.get("symbol", ""),
-                bid=Decimal(str(tick_data.get("bid", 0))),
-                ask=Decimal(str(tick_data.get("ask", 0))),
-                timestamp=datetime.fromtimestamp(tick_data.get("epoch", 0), tz=timezone.utc),
+                symbol=symbol,
+                bid=Decimal(str(tick_data.get("bid", numeric_quote))),
+                ask=Decimal(str(tick_data.get("ask", numeric_quote))),
+                timestamp=datetime.fromtimestamp(epoch, tz=timezone.utc) if epoch > 0 else datetime.now(timezone.utc),
             )
             with self._lock:
-                callbacks = self._tick_subscribers.get(tick.symbol, [])
+                callbacks = self._tick_subscribers.get(symbol, [])
             for cb in callbacks:
                 try:
                     cb(tick)

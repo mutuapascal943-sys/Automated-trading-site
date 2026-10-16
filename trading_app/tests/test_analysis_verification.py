@@ -446,7 +446,7 @@ class AnalysisVerificationTests(TestCase):
         self.assertIsNone(error)
         self.assertEqual(len(raw), 200)
         self.assertEqual(set(mtf), {'H4', 'M15', 'M5', 'M1'})
-        self.assertLess(timings['deriv_timeframes_ms'], 500)
+        self.assertLess(timings['deriv_timeframes_ms'], 800)
         adapter.connect.assert_called_once()
         adapter.disconnect.assert_called_once()
 

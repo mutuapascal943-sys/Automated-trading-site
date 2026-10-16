@@ -14,56 +14,56 @@
   </div>
   <div class="plan-card featured">
     <div class="plan-tag">⭐ MOST POPULAR</div>
-    <div class="plan-name">Basic</div>
+    <div class="plan-name">Basic (Manual M-Pesa)</div>
     <div class="plan-price" id="basic-subscription-price">Checking M-Pesa price...</div>
     <ul class="plan-features">
-      <li>Live market analysis</li><li>Unlimited signals</li><li>TP & SL recommendations</li><li>Full dashboard</li><li>Email notifications</li>
+      <li>Send Money to: <strong>0705794964</strong></li><li>Live market analysis</li><li>Unlimited signals</li><li>TP & SL recommendations</li><li>Full dashboard & email alerts</li>
     </ul>
-    <label for="mpesa-phone-number">M-Pesa phone number</label>
-    <input id="mpesa-phone-number" class="form-input" type="tel" autocomplete="tel" placeholder="07XXXXXXXX" inputmode="tel">
-    <button class="btn-primary" id="checkout-basic-button" type="button" onclick="requestSubscriptionCheckout()">Pay with M-Pesa</button>
+    <label for="mpesa-tx-ref">M-Pesa Transaction Reference Code</label>
+    <input id="mpesa-tx-ref" class="form-input" type="text" placeholder="e.g. QHX892LKP1" autocomplete="off">
+    <button class="btn-primary" id="checkout-basic-button" type="button" onclick="requestSubscriptionCheckout()">Submit Payment Reference</button>
   </div>
   <div class="plan-card">
     <div class="plan-tag">PAYMENT STATUS</div>
-    <div class="plan-name">Payment status</div>
-    <div class="plan-price">M-Pesa<span> STK Push</span></div>
+    <div class="plan-name">Verification status</div>
+    <div class="plan-price">Manual<span> Verification</span></div>
     <ul class="plan-features">
-      <li>30-day subscription term after verified payment</li><li>Access is not granted when a prompt is merely sent</li><li>Keep the phone nearby to approve the M-Pesa prompt</li>
+      <li>30-day subscription term after admin verification</li><li>Payments are reviewed and approved by the authorized administrator</li><li>Keep your M-Pesa confirmation SMS handy</li>
     </ul>
-    <button class="btn-outline" id="mpesa-payment-status" disabled>Payment status will appear here</button>
+    <button class="btn-outline" id="mpesa-payment-status" disabled>Submit reference to check status</button>
   </div>
 </div>
 <script>
 function requestSubscriptionCheckout(){
   var button = document.getElementById('checkout-basic-button');
-  var phoneInput = document.getElementById('mpesa-phone-number');
+  var txInput = document.getElementById('mpesa-tx-ref');
   var statusButton = document.getElementById('mpesa-payment-status');
-  var phone = phoneInput ? phoneInput.value.trim() : '';
-  if(!phone){ showToast('Enter the M-Pesa phone number first.', 'error'); return; }
-  if(button){ button.disabled = true; button.textContent = 'Sending payment prompt...'; }
+  var txRef = txInput ? txInput.value.trim() : '';
+  if(!txRef){ showToast('Enter your M-Pesa transaction reference code first.', 'error'); return; }
+  if(button){ button.disabled = true; button.textContent = 'Submitting reference...'; }
   fetch('/api/subscription/checkout/', {
     method: 'POST',
     headers: {'Content-Type': 'application/json', 'X-CSRFToken': getCSRF()},
-    body: JSON.stringify({tier: 'BASIC', phone_number: phone}),
+    body: JSON.stringify({tier: 'BASIC', transaction_reference: txRef}),
   })
   .then(function(response){
     return response.json().then(function(data){
-      if(!response.ok) throw new Error(data.message || data.error || 'Checkout is unavailable.');
+      if(!response.ok) throw new Error(data.message || data.error || 'Submission failed.');
       return data;
     });
   })
   .then(function(data){
-    showToast(data.message || 'M-Pesa prompt sent. Awaiting verified payment.', 'info');
-    if(statusButton){ statusButton.textContent = 'Awaiting M-Pesa confirmation'; }
-    if(data.payment_id){ pollDarajaPaymentStatus(data.payment_id, statusButton, button); }
+    showToast(data.message || 'Payment reference submitted successfully. Pending administrator verification.', 'info');
+    if(statusButton){ statusButton.textContent = 'Pending administrator verification'; }
+    if(data.payment_id){ pollManualPaymentStatus(data.payment_id, statusButton, button); }
   })
   .catch(function(error){
-    showToast(error.message || 'Checkout is temporarily unavailable.', 'error');
+    showToast(error.message || 'Payment submission failed.', 'error');
   })
   .finally(function(){
     if(button){
       button.disabled = false;
-      button.textContent = 'Pay with M-Pesa';
+      button.textContent = 'Submit Payment Reference';
     }
   });
 }
@@ -83,39 +83,29 @@ fetch('/api/subscription/', {credentials: 'same-origin', headers: {'X-Requested-
     if(price) price.textContent = 'M-Pesa price unavailable';
   });
 
-function pollDarajaPaymentStatus(paymentId, statusButton, checkoutButton){
-  var attempts = 0;
-  var timer = setInterval(function(){
-    attempts += 1;
-    fetch('/api/payments/' + encodeURIComponent(paymentId) + '/status/', {
-      credentials: 'same-origin',
-      headers: {'X-Requested-With': 'XMLHttpRequest'},
-    })
-    .then(function(response){
-      if(!response.ok) throw new Error('Unable to check payment status.');
-      return response.json();
-    })
-    .then(function(data){
-      if(data.status === 'SUCCESS' && data.access_granted){
-        clearInterval(timer);
-        if(statusButton){ statusButton.textContent = 'Payment verified, subscription active'; }
-        if(checkoutButton){ checkoutButton.textContent = 'Basic Active'; checkoutButton.disabled = true; }
-        if(typeof fetchDashboardStats === 'function') fetchDashboardStats();
-      } else if(data.status === 'FAILED' || data.status === 'CANCELLED'){
-        clearInterval(timer);
-        if(statusButton){ statusButton.textContent = 'Payment ' + data.status.toLowerCase(); }
-      } else if(attempts >= 36){
-        clearInterval(timer);
-        if(statusButton){ statusButton.textContent = 'Still awaiting provider confirmation'; }
-      }
-    })
-    .catch(function(){
-      if(attempts >= 36){
-        clearInterval(timer);
-        if(statusButton){ statusButton.textContent = 'Payment status unavailable; check again later'; }
-      }
-    });
-  }, 5000);
+function pollManualPaymentStatus(paymentId, statusButton, checkoutButton){
+  fetch('/api/payments/' + encodeURIComponent(paymentId) + '/status/', {
+    credentials: 'same-origin',
+    headers: {'X-Requested-With': 'XMLHttpRequest'},
+  })
+  .then(function(response){
+    if(!response.ok) throw new Error('Unable to check payment status.');
+    return response.json();
+  })
+  .then(function(data){
+    if(data.status === 'SUCCESS' && data.access_granted){
+      if(statusButton){ statusButton.textContent = 'Payment verified, subscription active'; }
+      if(checkoutButton){ checkoutButton.textContent = 'Basic Active'; checkoutButton.disabled = true; }
+      if(typeof fetchDashboardStats === 'function') fetchDashboardStats();
+    } else if(data.status === 'FAILED' || data.status === 'CANCELLED'){
+      if(statusButton){ statusButton.textContent = 'Payment ' + data.status.toLowerCase(); }
+    } else {
+      if(statusButton){ statusButton.textContent = 'Pending administrator verification'; }
+    }
+  })
+  .catch(function(){
+    if(statusButton){ statusButton.textContent = 'Payment status unavailable'; }
+  });
 }
 </script>
 <div class="risk-warning" style="max-width:900px;margin:24px auto 0">
