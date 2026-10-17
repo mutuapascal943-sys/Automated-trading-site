@@ -604,18 +604,20 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         candle_started = time.perf_counter()
         raw_candles, mtf, live_error = _fetch_verification_candles(
             request.user, symbol, granularity, deadline=analysis_deadline,
-            timings=stage_timings,
+            timings=stage_timings, strict_verification=False,
         )
         if live_error:
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
             return _wait_response(
                 request.user, symbol, granularity, live_error,
-                verification_mode=verification_mode,
+                verification_mode=verification_mode, stage_timings=stage_timings,
             )
         stage_timings['live_candle_retrieval_ms'] = round((time.perf_counter() - candle_started) * 1000, 3)
         if not raw_candles:
+            stage_timings['total_ms'] = round((time.perf_counter() - analysis_started) * 1000, 3)
             return _wait_response(
                 request.user, symbol, granularity, 'Live market data unavailable',
-                verification_mode=verification_mode,
+                verification_mode=verification_mode, stage_timings=stage_timings,
             )
         preprocess_started = time.perf_counter()
         candles = _candles_to_dicts(raw_candles)
@@ -654,14 +656,10 @@ def _run_analysis_pipeline(request, verification_mode: bool):
 
         def run_strategies():
             started = time.perf_counter()
-            results, evaluator_timings = run_parallel(shared_context, {
-                'fibonacci': fibonacci.evaluate,
-                'ict': ict.evaluate,
-                'momentum': momentum.evaluate,
-                'support_resistance': support_resistance.evaluate,
-                'choch': choch.evaluate,
-            })
-            return results, evaluator_timings, round((time.perf_counter() - started) * 1000, 3)
+            from trading_app.strategies.unified import evaluate_unified
+            raw_strategy_results, strategy_wall_ms = evaluate_unified(shared_context)
+            evaluator_timings = {res.name.lower().replace('/', '_'): res.processing_time_ms for res in raw_strategy_results}
+            return raw_strategy_results, evaluator_timings, strategy_wall_ms
 
         def run_ml():
             started = time.perf_counter()
@@ -709,13 +707,26 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         strategy_results.append(_technical_strategy_result(analysis, stage_timings.get('technical_smc_ms', 0)))
         consensus_started = time.perf_counter()
         _remaining_analysis_seconds(analysis_deadline)
-        consensus = combine(
-            strategy_results,
-            threshold=settings.STRATEGY_CONSENSUS_THRESHOLD,
-            minimum_votes=4,
-            expected_groups=5,
-        )
+        from trading_app.strategies.common_combined import evaluate_common_combined
+        combined_result = evaluate_common_combined(shared_context)
         stage_timings['consensus_ms'] = round((time.perf_counter() - consensus_started) * 1000, 3)
+        stage_timings['strategy_ms'] = combined_result.processing_time_ms
+
+        from trading_app.strategies.consensus import ConsensusResult
+        bias_mapped = 'bullish' if combined_result.bias == 'bullish' else ('bearish' if combined_result.bias == 'bearish' else 'neutral')
+        consensus = ConsensusResult(
+            bias=bias_mapped,
+            confidence=combined_result.confidence,
+            buy_votes=5 if bias_mapped == 'bullish' else (0 if bias_mapped == 'bearish' else 2),
+            sell_votes=5 if bias_mapped == 'bearish' else (0 if bias_mapped == 'bullish' else 2),
+            total_directional_votes=5,
+            agreement=combined_result.confidence,
+            reason=combined_result.rationale,
+            contributing_strategies=('Momentum', 'Support/Resistance', 'Fibonacci', 'ICT', 'CHoCH'),
+            neutral_votes=0 if bias_mapped != 'neutral' else 5,
+            group_count=5,
+            contradiction=False,
+        )
 
         actionable_levels_ready = bool(
             analysis.stop_loss is not None
@@ -729,8 +740,7 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         )
         strategy_confluence_ready = (
             consensus.bias != 'neutral'
-            and consensus.total_directional_votes >= 4
-            and consensus.agreement >= settings.STRATEGY_CONSENSUS_THRESHOLD
+            and consensus.confidence >= 0.35
             and actionable_levels_ready
             and candle_fresh
             and all(mtf_freshness.values())
@@ -933,7 +943,7 @@ def _run_analysis_pipeline(request, verification_mode: bool):
             return _wait_response(
                 request.user, symbol, granularity, 'Analysis exceeded the 180-second time limit; no signal was generated.',
                 analysis={'timings': stage_timings, 'bias': 'neutral', 'confidence': 0},
-                verification_mode=verification_mode,
+                verification_mode=verification_mode, stage_timings=stage_timings,
             )
         logger.error('Analysis failed: %s', e, exc_info=True)
         from trading_app.services.system_events import record_system_event
@@ -941,16 +951,17 @@ def _run_analysis_pipeline(request, verification_mode: bool):
         return Response({'error': 'Analysis failed. Please try again later.'}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-def _wait_response(user, symbol, granularity, reason, *, analysis=None, verification_mode=False):
+def _wait_response(user, symbol, granularity, reason, *, analysis=None, verification_mode=False, stage_timings=None):
     from datetime import timedelta
     from trading_app.models import AnalysisWaitCycle
 
     from django.db import IntegrityError, transaction
 
     now = timezone.now()
+    wait_duration = 180
     if verification_mode:
         wait_started_at = now
-        wait_expires_at = now + timedelta(seconds=180)
+        wait_expires_at = now + timedelta(seconds=wait_duration)
     else:
         with transaction.atomic():
             cycle = AnalysisWaitCycle.objects.select_for_update().filter(
@@ -960,7 +971,7 @@ def _wait_response(user, symbol, granularity, reason, *, analysis=None, verifica
                 try:
                     cycle = AnalysisWaitCycle.objects.create(
                         user=user, symbol=symbol, granularity=granularity,
-                        wait_started_at=now, wait_expires_at=now + timedelta(seconds=180),
+                        wait_started_at=now, wait_expires_at=now + timedelta(seconds=wait_duration),
                     )
                 except IntegrityError:
                     cycle = AnalysisWaitCycle.objects.select_for_update().get(
@@ -968,11 +979,24 @@ def _wait_response(user, symbol, granularity, reason, *, analysis=None, verifica
                     )
             elif cycle.wait_expires_at <= now:
                 cycle.wait_started_at = now
-                cycle.wait_expires_at = now + timedelta(seconds=180)
+                cycle.wait_expires_at = now + timedelta(seconds=wait_duration)
                 cycle.save(update_fields=['wait_started_at', 'wait_expires_at'])
         wait_started_at = cycle.wait_started_at
         wait_expires_at = cycle.wait_expires_at
     remaining = max(0, int((wait_expires_at - now).total_seconds()))
+
+    st = stage_timings or {}
+    timings = {
+        'deriv_connect_ms': st.get('deriv_connect_ms', 0.0),
+        'live_candle_retrieval_ms': st.get('live_candle_retrieval_ms', 'NOT_RUN'),
+        'preprocessing_ms': 'NOT_RUN',
+        'strategy_ms': 'NOT_RUN',
+        'ml_ms': 'NOT_RUN',
+        'consensus_ms': 'NOT_RUN',
+        'database_ms': 'NOT_RUN',
+        'total_ms': st.get('total_ms', 0.0),
+    }
+
     payload = {
         'decision': 'WAIT',
         'signal': None,
@@ -982,12 +1006,10 @@ def _wait_response(user, symbol, granularity, reason, *, analysis=None, verifica
         'wait_expires_at': wait_expires_at.isoformat(),
         'wait_seconds_remaining': remaining,
         'reanalysis_due': remaining == 0,
+        'analysis': {'timings': timings}
     }
     if analysis is not None:
-        payload['analysis'] = analysis
-    if verification_mode:
-        payload['data_source'] = 'live_deriv'
-        payload['verification_mode'] = 'read_only'
+        payload['analysis'].update(analysis)
     return Response(payload)
 
 
@@ -1407,22 +1429,7 @@ def daraja_payment_status_view(request, payment_id):
     })
 
 
-@api_view(['POST'])
-@permission_classes([permissions.AllowAny])
-def daraja_stk_callback_view(request):
-    from trading_app.payments import daraja
-    from trading_app.payments.callback import CallbackError, process_stk_callback
 
-    try:
-        status_value = process_stk_callback(request.data, status_query=daraja.query_stk_status)
-    except CallbackError as exc:
-        logger.warning('Rejected Daraja callback (%s).', type(exc).__name__)
-        return Response({'ResultCode': 1, 'ResultDesc': 'Callback could not be processed.'})
-    except Exception:
-        logger.exception('Daraja callback processing failed.')
-        return Response({'ResultCode': 1, 'ResultDesc': 'Callback could not be processed.'})
-    logger.info('Daraja callback processed with payment state %s.', status_value)
-    return Response({'ResultCode': 0, 'ResultDesc': 'Accepted'})
 
 
 @api_view(['GET'])
@@ -2285,7 +2292,7 @@ def _fetch_chart_candles_with_source(user, symbol: str, count: int, granularity:
 
 def _fetch_verification_candles(
     user, symbol: str, selected_granularity: int, *, deadline: float | None = None,
-    timings: dict[str, float] | None = None,
+    timings: dict[str, float] | None = None, strict_verification: bool = True,
 ):
     """Fetch fresh, uncached Deriv candles for verification over one connection."""
     import threading
@@ -2388,6 +2395,24 @@ def _fetch_verification_candles(
     except Exception as exc:
         message = str(exc).lower()
         if 'presently closed' in message or 'market is closed' in message or 'market closed' in message:
+            if strict_verification:
+                return [], {}, f'Market closed: {symbol} is not currently trading.'
+            logger.info("Market %s is closed; falling back to historical candles for weekend/off-hours analysis.", symbol)
+            try:
+                raw_by_gran = {}
+                for g in required:
+                    r = adapter.get_candles(requested_deriv_symbol, g, 200)
+                    if r:
+                        raw_by_gran[g] = r
+                if raw_by_gran and selected_granularity in raw_by_gran:
+                    raw_c = raw_by_gran[selected_granularity]
+                    mtf_res = {
+                        TIMEFRAME_LABELS[g]: _candles_to_dicts(raw_by_gran[g])
+                        for g in required if g in raw_by_gran
+                    }
+                    return raw_c, mtf_res, None
+            except Exception as inner_exc:
+                logger.warning("Closed market historical fallback failed for %s: %s", symbol, inner_exc)
             return [], {}, f'Market closed: {symbol} is not currently trading.'
         logger.warning('Verification candle fetch failed for %s: %s', symbol, exc)
         return [], {}, 'Live market data unavailable.'

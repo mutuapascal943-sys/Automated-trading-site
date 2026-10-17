@@ -128,12 +128,13 @@ function runSignalScan(){
     var timings = (data.analysis && data.analysis.timings) || {};
     var elapsed = timings.total_ms || data.analysis_duration_ms || (Date.now() - searchStarted);
     if(ss){
-      ss.textContent += '> Analysis completed in ' + elapsed.toFixed(0) + ' ms.\n';
-      ss.textContent += '> Deriv ' + (timings.live_candle_retrieval_ms || timings.deriv_timeframes_ms || 0).toFixed(0) +
-        ' ms | Strategies ' + (timings.strategy_ms || 0).toFixed(0) +
-        ' ms | ML ' + (timings.ml_ms || 0).toFixed(0) +
-        ' ms | Consensus ' + (timings.consensus_ms || 0).toFixed(0) +
-        ' ms | Database ' + (timings.database_ms || 0).toFixed(0) + ' ms.\n';
+      var fmt = function(v){ var n = Number(v); return Number.isFinite(n) ? n.toFixed(0) : String(v || 'NOT_RUN'); };
+      ss.textContent += '> Analysis completed in ' + fmt(elapsed) + ' ms.\n';
+      ss.textContent += '> Deriv ' + fmt(timings.live_candle_retrieval_ms || timings.deriv_timeframes_ms) +
+        ' ms | Strategies ' + fmt(timings.strategy_ms) +
+        ' ms | ML ' + fmt(timings.ml_ms) +
+        ' ms | Consensus ' + fmt(timings.consensus_ms) +
+        ' ms | Database ' + fmt(timings.database_ms) + ' ms.\n';
     }
     if(data.decision === 'WAIT' && data.wait_expires_at){
       botWaitExpiresAt = new Date(data.wait_expires_at).getTime();

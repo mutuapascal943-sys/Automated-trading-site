@@ -1,6 +1,6 @@
 # Forex AI Pro
 
-Django/DRF market-analysis platform with a read-only Deriv feed, multi-strategy confluence, server-side subscription and bot access, administrator management, and Daraja STK Push subscriptions. The production analysis decision path fails closed to WAIT when live data or required evidence is missing. Order execution routes are disabled.
+Django/DRF market-analysis platform with a read-only Deriv public WebSocket feed (`wss://api.derivws.com/trading/v1/options/ws/public`), multi-strategy confluence, server-side subscription and bot access, administrator management, and manual M-Pesa Send Money subscription verification (`0705794964`). The production analysis decision path fails closed to WAIT when live data or required evidence is missing. Order execution routes are disabled.
 
 ## Market Data and Decisions
 
@@ -18,7 +18,7 @@ Paper broker and deterministic simulated-market modules remain for isolated lega
 
 ## Payments and Verification
 
-Subscription checkout uses Daraja STK Push. A transaction remains pending until the callback is correlated to its payment and the provider status query and amount, phone, and receipt checks succeed. Local automated tests use isolated provider mocks; they do not represent a real transaction. OTPs are hashed, purpose-bound, expiring, and attempt-limited. A real SMTP provider is required for real email delivery.
+Subscription checkout uses manual M-Pesa Send Money to **0705794964**. Users submit their M-Pesa transaction reference code, and the transaction remains pending until verified and approved by an authorized administrator in the Django admin site. Local automated tests use isolated mock assertions. OTPs are hashed, purpose-bound, expiring, and attempt-limited. A real SMTP provider is required for real email delivery.
 
 The internal analysis verification session is available only when DEBUG and `TRADING_ANALYSIS_VERIFICATION_ENABLED` are explicitly enabled and the request is loopback-only. Never expose those routes publicly.
 
@@ -29,7 +29,5 @@ The internal analysis verification session is available only when DEBUG and `TRA
 .\.venv\Scripts\python.exe manage.py makemigrations --check
 .\.venv\Scripts\python.exe manage.py test
 ```
-
-If running tests in groups, include `trading_app.test_legacy`, `trading_app.tests_trading_bot`, and every module under `trading_app/tests/`.
 
 See [DEPLOYMENT.md](DEPLOYMENT.md) for production setup, HTTPS, PostgreSQL, ASGI, Redis/Celery, static assets, and external-provider actions.

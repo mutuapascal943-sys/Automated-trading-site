@@ -27,14 +27,7 @@ MIN_STRATEGY_VOTES = config('MIN_STRATEGY_VOTES', default=3, cast=int)
 TRADING_ANALYSIS_VERIFICATION_ENABLED = config(
     'TRADING_ANALYSIS_VERIFICATION_ENABLED', default=False, cast=bool,
 )
-DARAJA_CONSUMER_KEY = config('DARAJA_CONSUMER_KEY', default='')
-DARAJA_CONSUMER_SECRET = config('DARAJA_CONSUMER_SECRET', default='')
-DARAJA_SHORTCODE = config('DARAJA_SHORTCODE', default='')
-DARAJA_PASSKEY = config('DARAJA_PASSKEY', default='')
-DARAJA_CALLBACK_URL = config('DARAJA_CALLBACK_URL', default='')
-DARAJA_ENVIRONMENT = config('DARAJA_ENVIRONMENT', default='sandbox').lower()
-DARAJA_BASIC_AMOUNT_KES = config('DARAJA_BASIC_AMOUNT_KES', default=0, cast=int)
-DARAJA_TRANSACTION_TYPE = config('DARAJA_TRANSACTION_TYPE', default='CustomerPayBillOnline')
+DARAJA_BASIC_AMOUNT_KES = config('DARAJA_BASIC_AMOUNT_KES', default=1000, cast=int)
 
 _allowed_hosts_raw = config('DJANGO_ALLOWED_HOSTS', default=config('ALLOWED_HOSTS', default='localhost,127.0.0.1'))
 ALLOWED_HOSTS = [host.strip() for host in _allowed_hosts_raw.split(',') if host.strip()]

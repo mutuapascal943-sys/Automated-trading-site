@@ -57,7 +57,6 @@ urlpatterns = [
     path('api/subscription/activate-trial/', api_views.activate_free_trial_view, name='api_activate_free_trial'),
     path('api/subscription/checkout/', api_views.subscription_checkout_view, name='api_subscription_checkout'),
     path('api/payments/<int:payment_id>/status/', api_views.daraja_payment_status_view, name='api_daraja_payment_status'),
-    path('api/payments/daraja/callback/', api_views.daraja_stk_callback_view, name='api_daraja_stk_callback'),
     path('api/auth/password-reset/', api_views.api_password_reset_request, name='api_password_reset_request'),
     path('api/auth/password-reset/verify/', api_views.api_password_reset_verify, name='api_password_reset_verify'),
     path('api/auth/password-reset/confirm/', api_views.api_password_reset_confirm, name='api_password_reset_confirm'),
