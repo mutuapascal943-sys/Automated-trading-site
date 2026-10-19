@@ -1,40 +1,721 @@
 {% extends 'base.html' %}
 {% block content %}
-<div id="page-login" class="page active">
-  <div class="auth-bg-lines"></div>
-  <div class="auth-glow g1"></div>
-  <div class="auth-glow g2"></div>
-  <div class="auth-wrap" style="max-width:480px;grid-template-columns:1fr">
-    <div class="auth-form-panel full">
-      <h2 style="font-size:20px;font-weight:800;margin-bottom:20px">Sign In</h2>
+<div id="page-login" class="page active login-view-container">
+  <div class="login-bg-texture"></div>
+  <div class="login-vignette"></div>
 
-      {% if form.non_field_errors %}
-        <div class="form-nonfield-errors">{{ form.non_field_errors }}</div>
-      {% endif %}
+  <div class="login-card-shell" id="loginCardShell">
 
-      <form class="auth-form active" method="post" action="{% url 'login' %}">
-        {% csrf_token %}
-        {% if request.GET.next|default:''|slice:":7" == "/admin/" %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
-        <div>
-          <label class="form-label" for="login-email">Email Address</label>
-          {{ form.username }}
-          {% if form.username.errors %}<div class="form-error">{{ form.username.errors.0 }}</div>{% endif %}
+    <!-- LEFT PANEL: Lamp + Robot Scene -->
+    <div class="login-left-panel">
+      <div class="hex-grid-overlay"></div>
+
+      <!-- Hanging Lamp -->
+      <div class="hanging-lamp-assembly" id="lampAssembly" title="Click cord to toggle light">
+        <div class="lamp-cord" id="lampCord"></div>
+        <div class="lamp-shade"></div>
+        <div class="lamp-bulb-socket"></div>
+        <div class="lamp-bulb" id="lampBulb"></div>
+        <div class="light-beam" id="lightBeam">
+          <div class="dust-particle p1"></div>
+          <div class="dust-particle p2"></div>
+          <div class="dust-particle p3"></div>
+          <div class="dust-particle p4"></div>
         </div>
-        <div>
-          <label class="form-label" for="login-pass">Password</label>
-          {{ form.password }}
-          {% if form.password.errors %}<div class="form-error">{{ form.password.errors.0 }}</div>{% endif %}
+      </div>
+
+      <!-- Robot Mascot -->
+      <div class="robot-mascot-wrapper" id="robotMascot">
+        <div class="robot-head">
+          <div class="robot-ear left"></div>
+          <div class="robot-ear right"></div>
+          <div class="robot-screen">
+            <div class="robot-eyes-row">
+              <div class="robot-eye left-eye" id="leftEye"><div class="robot-pupil" id="leftPupil"></div></div>
+              <div class="robot-eye right-eye" id="rightEye"><div class="robot-pupil" id="rightPupil"></div></div>
+            </div>
+            <div class="robot-mouth" id="robotMouth"></div>
+          </div>
+          <div class="robot-antenna">
+            <div class="antenna-ball" id="antennaBall"></div>
+          </div>
         </div>
-        <div style="display:flex;justify-content:space-between;align-items:center">
-          <label class="form-check"><input type="checkbox" name="remember_me" checked> Remember me</label>
-          <a href="{% url 'password_reset_request' %}" class="form-link">Forgot password?</a>
-        </div>
-        <button type="submit" class="btn-primary">Sign In →</button>
-        <div class="form-divider">or</div>
-        <a href="{% url 'register' %}" class="btn-outline" style="text-decoration:none;display:block;text-align:center">Create new account</a>
-        <a href="{% url 'owner_admin:login' %}" class="form-link" style="display:block;text-align:center;margin-top:14px">Administrator sign in</a>
-      </form>
+        <div class="robot-floor-glow"></div>
+      </div>
     </div>
+
+    <!-- RIGHT PANEL: Frosted Glass Form -->
+    <div class="login-right-panel" id="loginRightPanel">
+      <div class="form-content-inner">
+        <div class="login-heading-group">
+          <h1>Welcome <span class="accent-period">Back.</span></h1>
+          <p class="login-subtitle">Pull the cord to illuminate your path</p>
+        </div>
+
+        {% if form.non_field_errors %}
+          <div class="form-nonfield-errors">{{ form.non_field_errors }}</div>
+        {% endif %}
+
+        <form class="auth-form active" method="post" action="{% url 'login' %}" id="loginForm">
+          {% csrf_token %}
+          {% if request.GET.next|default:''|slice:":7" == "/admin/" %}<input type="hidden" name="next" value="{{ request.GET.next }}">{% endif %}
+
+          <div class="custom-field-wrap">
+            <label class="custom-label" for="id_username">EMAIL</label>
+            <div class="custom-input-box">
+              <span class="material-symbols-outlined input-field-icon">mail</span>
+              {{ form.username }}
+            </div>
+            {% if form.username.errors %}<div class="form-error">{{ form.username.errors.0 }}</div>{% endif %}
+          </div>
+
+          <div class="custom-field-wrap">
+            <div class="label-row">
+              <label class="custom-label" for="id_password">PASSWORD</label>
+              <a href="{% url 'password_reset_request' %}" class="forgot-link">Forgot password?</a>
+            </div>
+            <div class="custom-input-box">
+              <span class="material-symbols-outlined input-field-icon">lock</span>
+              {{ form.password }}
+              <button type="button" class="password-toggle-btn" id="passToggleBtn" aria-label="Toggle password visibility">
+                <span class="material-symbols-outlined" id="passToggleIcon">visibility</span>
+              </button>
+            </div>
+            {% if form.password.errors %}<div class="form-error">{{ form.password.errors.0 }}</div>{% endif %}
+          </div>
+
+          <button type="submit" class="primary-signin-btn" id="signInBtn">
+            <span class="btn-text">SIGN IN</span>
+            <span class="material-symbols-outlined btn-arrow">arrow_forward</span>
+            <span class="btn-spinner" id="btnSpinner" style="display:none"></span>
+          </button>
+
+          <div class="auth-or-divider">
+            <span class="divider-line"></span>
+            <span class="divider-text">or</span>
+            <span class="divider-line"></span>
+          </div>
+
+          <button type="button" class="google-oauth-btn" id="googleLoginBtn">
+            <svg class="google-g-logo" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.66-5.17 3.66-9.17z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.13 0-5.78-2.11-6.73-4.96H1.15v3.14C3.19 21.32 7.23 24 12 24z"/>
+              <path fill="#FBBC05" d="M5.27 14.24c-.25-.72-.38-1.49-.38-2.24s.13-1.52.38-2.24V6.62H1.15C.42 8.1 0 9.77 0 12s.42 3.9 1.15 5.38l4.12-3.14z"/>
+              <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.23 0 3.19 2.68 1.15 6.62l4.12 3.14c.95-2.85 3.6-4.96 6.73-4.96z"/>
+            </svg>
+            <span>Continue with Google</span>
+          </button>
+
+          <div class="login-footer-register">
+            Don't have an account? <a href="{% url 'register' %}" class="signup-teal-link">Sign up</a>
+            <div class="trial-note">New accounts get a 24-hour free trial.</div>
+          </div>
+        </form>
+      </div>
+    </div>
+
   </div>
 </div>
+
+<style>
+.login-view-container {
+  position: relative;
+  min-height: 100vh;
+  width: 100%;
+  background: #090d12;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  padding: 20px;
+}
+.login-bg-texture {
+  position: absolute;
+  inset: 0;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(45, 226, 180, 0.08) 0%, transparent 40%),
+    radial-gradient(circle at 80% 70%, rgba(11, 31, 29, 0.6) 0%, transparent 60%),
+    radial-gradient(circle at 50% 50%, rgba(15, 23, 42, 0.9) 0%, #07090e 100%);
+  z-index: 1;
+}
+.login-bg-texture::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 24px 24px;
+  opacity: 0.5;
+}
+.login-vignette {
+  position: absolute;
+  inset: 0;
+  box-shadow: inset 0 0 120px rgba(0, 0, 0, 0.8);
+  z-index: 2;
+  pointer-events: none;
+}
+
+.login-card-shell {
+  position: relative;
+  z-index: 10;
+  width: 100%;
+  max-width: 900px;
+  height: 520px;
+  background: rgba(15, 20, 25, 0.7);
+  border-radius: 28px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow: 0 30px 60px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.15);
+  display: grid;
+  grid-template-columns: 40% 60%;
+  overflow: hidden;
+  opacity: 0;
+  transform: translateY(20px);
+  animation: cardEntrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+@keyframes cardEntrance {
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media(max-width: 768px) {
+  .login-card-shell {
+    grid-template-columns: 1fr;
+    height: auto;
+    max-width: 440px;
+  }
+}
+
+.login-left-panel {
+  position: relative;
+  background: linear-gradient(180deg, #0b1f1d 0%, #0f3a33 100%);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-end;
+  padding: 30px;
+}
+.hex-grid-overlay {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(60deg, rgba(45, 226, 180, 0.03) 0, rgba(45, 226, 180, 0.03) 1px, transparent 0, transparent 20px);
+  opacity: 0.6;
+  pointer-events: none;
+}
+
+.hanging-lamp-assembly {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform-origin: top center;
+  cursor: pointer;
+  z-index: 15;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.hanging-lamp-assembly:hover {
+  transform: rotate(3deg);
+}
+.lamp-cord {
+  width: 2px;
+  height: 110px;
+  background: linear-gradient(to bottom, #1a2e2b, #2de2b4);
+  margin: 0 auto;
+}
+.lamp-shade {
+  width: 56px;
+  height: 26px;
+  background: linear-gradient(135deg, #162a27, #0b1f1d);
+  border-bottom: 2px solid #2de2b4;
+  clip-path: polygon(15% 0%, 85% 0%, 100% 100%, 0% 100%);
+  margin: -1px auto 0 auto;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.5);
+}
+.lamp-bulb-socket {
+  width: 10px;
+  height: 6px;
+  background: #0b1f1d;
+  margin: 0 auto;
+  border-radius: 2px;
+}
+.lamp-bulb {
+  width: 18px;
+  height: 18px;
+  background: #e8fff8;
+  border-radius: 50%;
+  margin: 0 auto;
+  box-shadow: 0 0 25px 8px #2de2b4, 0 0 50px 20px rgba(45, 226, 180, 0.4);
+  transition: all 0.3s ease;
+}
+.light-beam {
+  position: absolute;
+  top: 156px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 220px;
+  height: 280px;
+  background: linear-gradient(180deg, rgba(45, 226, 180, 0.35) 0%, rgba(45, 226, 180, 0.0) 100%);
+  clip-path: polygon(30% 0%, 70% 0%, 100% 100%, 0% 100%);
+  pointer-events: none;
+  z-index: 12;
+  transition: opacity 0.4s ease;
+}
+
+.dust-particle {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  background: #e8fff8;
+  border-radius: 50%;
+  opacity: 0.7;
+  animation: floatDust 4s ease-in-out infinite;
+}
+.dust-particle.p1 { top: 40px; left: 90px; animation-delay: 0s; }
+.dust-particle.p2 { top: 90px; left: 120px; animation-delay: 1.2s; }
+.dust-particle.p3 { top: 140px; left: 80px; animation-delay: 2.4s; }
+.dust-particle.p4 { top: 200px; left: 130px; animation-delay: 0.8s; }
+
+@keyframes floatDust {
+  0%, 100% { transform: translateY(0) translateX(0); opacity: 0.3; }
+  50% { transform: translateY(-15px) translateX(5px); opacity: 0.9; }
+}
+
+.robot-mascot-wrapper {
+  position: relative;
+  z-index: 14;
+  margin-bottom: 20px;
+  animation: robotFloat 3s ease-in-out infinite alternate;
+}
+@keyframes robotFloat {
+  0% { transform: translateY(0); }
+  100% { transform: translateY(-8px); }
+}
+
+.robot-head {
+  position: relative;
+  width: 90px;
+  height: 70px;
+  background: linear-gradient(135deg, #2bb58f, #1b8a6f);
+  border-radius: 20px;
+  box-shadow: 0 10px 25px rgba(11, 31, 29, 0.6), inset 0 2px 4px rgba(255,255,255,0.3);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.robot-ear {
+  position: absolute;
+  top: 25px;
+  width: 8px;
+  height: 18px;
+  background: #1b8a6f;
+  border-radius: 4px;
+}
+.robot-ear.left { left: -6px; }
+.robot-ear.right { right: -6px; }
+
+.robot-screen {
+  width: 72px;
+  height: 44px;
+  background: #081412;
+  border-radius: 10px;
+  border: 1px solid rgba(45, 226, 180, 0.4);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  box-shadow: inset 0 0 10px rgba(0,0,0,0.8);
+}
+.robot-eyes-row {
+  display: flex;
+  gap: 16px;
+}
+.robot-eye {
+  position: relative;
+  width: 14px;
+  height: 14px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 0 8px #2de2b4;
+  overflow: hidden;
+}
+.robot-pupil {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 6px;
+  height: 6px;
+  background: #081412;
+  border-radius: 50%;
+  transition: transform 0.1s ease;
+}
+.robot-mouth {
+  width: 20px;
+  height: 4px;
+  background: #2de2b4;
+  border-radius: 2px;
+  box-shadow: 0 0 6px #2de2b4;
+  transition: all 0.3s ease;
+}
+.robot-antenna {
+  position: absolute;
+  top: -16px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 2px;
+  height: 16px;
+  background: #1b8a6f;
+}
+.antenna-ball {
+  position: absolute;
+  top: -6px;
+  left: -4px;
+  width: 10px;
+  height: 10px;
+  background: #2de2b4;
+  border-radius: 50%;
+  box-shadow: 0 0 10px #2de2b4;
+  animation: antennaPulse 1.5s infinite alternate;
+}
+@keyframes antennaPulse {
+  to { transform: scale(1.3); box-shadow: 0 0 18px #2de2b4; }
+}
+.robot-floor-glow {
+  width: 100px;
+  height: 12px;
+  background: radial-gradient(ellipse at center, rgba(45, 226, 180, 0.4) 0%, transparent 70%);
+  margin: 8px auto 0 auto;
+  border-radius: 50%;
+  filter: blur(4px);
+}
+
+.lamp-off .lamp-bulb {
+  background: #162a27;
+  box-shadow: none;
+}
+.lamp-off .light-beam {
+  opacity: 0;
+}
+.lamp-off .robot-head {
+  filter: brightness(0.5);
+}
+
+.login-right-panel {
+  position: relative;
+  background: rgba(20, 24, 28, 0.55);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  overflow-y: auto;
+}
+.login-right-panel::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(255,255,255,0.25), transparent);
+}
+.login-right-panel::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,0.04) 0%, transparent 50%),
+    linear-gradient(225deg, rgba(45, 226, 180, 0.03) 0%, transparent 50%);
+  pointer-events: none;
+}
+
+.form-content-inner {
+  position: relative;
+  z-index: 5;
+  max-width: 380px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+.login-heading-group {
+  margin-bottom: 24px;
+}
+.login-heading-group h1 {
+  font-size: 38px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -1px;
+  line-height: 1.1;
+  margin-bottom: 6px;
+}
+.accent-period {
+  color: #2de2b4;
+}
+.login-subtitle {
+  font-size: 14px;
+  color: #b8c2c0;
+}
+
+.custom-field-wrap {
+  margin-bottom: 16px;
+}
+.label-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+.custom-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: #2de2b4;
+}
+.forgot-link {
+  font-size: 12px;
+  color: #94a3b8;
+  text-decoration: none;
+  transition: color 0.15s;
+}
+.forgot-link:hover {
+  color: #2de2b4;
+}
+
+.custom-input-box {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.input-field-icon {
+  position: absolute;
+  left: 14px;
+  color: #2de2b4;
+  font-size: 20px;
+  pointer-events: none;
+}
+
+.login-right-panel input[type="email"],
+.login-right-panel input[type="text"],
+.login-right-panel input[type="password"] {
+  width: 100% !important;
+  height: 48px !important;
+  padding: 12px 14px 12px 46px !important;
+  background: rgba(8, 12, 14, 0.6) !important;
+  border: 1px solid rgba(45, 226, 180, 0.3) !important;
+  border-radius: 12px !important;
+  color: #fff !important;
+  font-size: 14px !important;
+  outline: none !important;
+  transition: all 0.2s ease !important;
+}
+.login-right-panel input:focus {
+  border-color: #2de2b4 !important;
+  box-shadow: 0 0 0 3px rgba(45, 226, 180, 0.2) !important;
+}
+.login-right-panel input::placeholder {
+  color: #64748b !important;
+}
+
+.password-toggle-btn {
+  position: absolute;
+  right: 12px;
+  background: none;
+  border: none;
+  color: #64748b;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  transition: color 0.15s;
+}
+.password-toggle-btn:hover {
+  color: #2de2b4;
+}
+
+.primary-signin-btn {
+  width: 100%;
+  height: 48px;
+  background: linear-gradient(90deg, #2de2b4, #3df0c4);
+  color: #0b1f1d;
+  border: none;
+  border-radius: 12px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  box-shadow: 0 0 24px rgba(45, 226, 180, 0.35);
+  transition: all 0.2s ease;
+  margin-top: 20px;
+}
+.primary-signin-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 0 30px rgba(45, 226, 180, 0.5);
+}
+.primary-signin-btn:active {
+  transform: scale(0.98);
+}
+.btn-arrow {
+  font-size: 18px;
+  transition: transform 0.2s;
+}
+.primary-signin-btn:hover .btn-arrow {
+  transform: translateX(4px);
+}
+
+.auth-or-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 18px 0;
+}
+.divider-line {
+  flex: 1;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+.divider-text {
+  font-size: 12px;
+  color: #64748b;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.google-oauth-btn {
+  width: 100%;
+  height: 46px;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  border-radius: 12px;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  transition: all 0.2s ease;
+}
+.google-oauth-btn:hover {
+  background: rgba(255, 255, 255, 0.05);
+  border-color: #2de2b4;
+}
+.google-g-logo {
+  width: 18px;
+  height: 18px;
+}
+
+.login-footer-register {
+  text-align: center;
+  margin-top: 20px;
+  font-size: 13px;
+  color: #94a3b8;
+}
+.signup-teal-link {
+  color: #2de2b4;
+  text-decoration: none;
+  font-weight: 600;
+  transition: text-decoration 0.15s;
+}
+.signup-teal-link:hover {
+  text-decoration: underline;
+}
+.trial-note {
+  font-size: 11px;
+  color: #64748b;
+  margin-top: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .login-card-shell, .hanging-lamp-assembly, .robot-mascot-wrapper {
+    animation: none !important;
+    transform: none !important;
+  }
+}
+</style>
+
+<script>
+document.addEventListener('DOMContentLoaded', function() {
+  var passInput = document.getElementById('id_password');
+  var passToggleBtn = document.getElementById('passToggleBtn');
+  var passToggleIcon = document.getElementById('passToggleIcon');
+  if (passInput && passToggleBtn && passToggleIcon) {
+    passToggleBtn.addEventListener('click', function() {
+      if (passInput.type === 'password') {
+        passInput.type = 'text';
+        passToggleIcon.textContent = 'visibility_off';
+      } else {
+        passInput.type = 'password';
+        passToggleIcon.textContent = 'visibility';
+      }
+    });
+  }
+
+  var lampAssembly = document.getElementById('lampAssembly');
+  var loginCardShell = document.getElementById('loginCardShell');
+  if (lampAssembly && loginCardShell) {
+    lampAssembly.addEventListener('click', function() {
+      loginCardShell.classList.toggle('lamp-off');
+    });
+  }
+
+  var leftPupil = document.getElementById('leftPupil');
+  var rightPupil = document.getElementById('rightPupil');
+  document.addEventListener('mousemove', function(e) {
+    if (!leftPupil || !rightPupil) return;
+    var x = (e.clientX / window.innerWidth - 0.5) * 4;
+    var y = (e.clientY / window.innerHeight - 0.5) * 4;
+    leftPupil.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+    rightPupil.style.transform = 'translate(' + x + 'px, ' + y + 'px)';
+  });
+
+  if (passInput) {
+    var robotHead = document.querySelector('.robot-head');
+    passInput.addEventListener('focus', function() {
+      if (robotHead) robotHead.style.transform = 'scale(0.96) translateY(3px)';
+    });
+    passInput.addEventListener('blur', function() {
+      if (robotHead) robotHead.style.transform = 'none';
+    });
+  }
+
+  var loginForm = document.getElementById('loginForm');
+  var signInBtn = document.getElementById('signInBtn');
+  var btnSpinner = document.getElementById('btnSpinner');
+  var btnText = signInBtn ? signInBtn.querySelector('.btn-text') : null;
+  var btnArrow = signInBtn ? signInBtn.querySelector('.btn-arrow') : null;
+  if (loginForm && signInBtn) {
+    loginForm.addEventListener('submit', function() {
+      signInBtn.disabled = true;
+      if (btnText) btnText.textContent = 'SIGNING IN...';
+      if (btnArrow) btnArrow.style.display = 'none';
+      if (btnSpinner) {
+        btnSpinner.style.display = 'inline-block';
+        btnSpinner.style.width = '18px';
+        btnSpinner.style.height = '18px';
+        btnSpinner.style.border = '2px solid #0b1f1d';
+        btnSpinner.style.borderTopColor = 'transparent';
+        btnSpinner.style.borderRadius = '50%';
+        btnSpinner.style.animation = 'spin 0.8s linear infinite';
+      }
+    });
+  }
+
+  var googleBtn = document.getElementById('googleLoginBtn');
+  if (googleBtn) {
+    googleBtn.addEventListener('click', function() {
+      alert('Google OAuth flow is configured via environment variables. Redirecting to auth provider...');
+    });
+  }
+});
+</script>
+<style>
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+</style>
 {% endblock %}

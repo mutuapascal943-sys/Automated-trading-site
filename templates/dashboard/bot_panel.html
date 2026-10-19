@@ -106,7 +106,13 @@ function runSignalScan(){
   if(signalEmpty) signalEmpty.style.display = 'block';
   if(signalContent) signalContent.style.display = 'none';
   if(signalState){ signalState.textContent = 'SEARCHING'; signalState.className = 'signal-state-badge'; }
-  if(ss) ss.textContent = '> Searching ' + pair + ' for live 4-of-5 analysis...\n';
+  var scanSeconds = 0;
+  var scanTicker = setInterval(function(){
+    scanSeconds++;
+    if(ss && scanSeconds <= 5) ss.textContent += '> Scanning time: ' + scanSeconds + ' sec...\n';
+  }, 1000);
+
+  if(ss) ss.textContent = '> Scanning ' + pair + ' across multiple timeframes for unified strategy consensus (< 5s target)...\n';
   if(typeof AbortController !== 'undefined'){
     window.currentAnalysisController = new AbortController();
     searchTimer = setTimeout(function(){ window.currentAnalysisController.abort(); }, 185000);
@@ -119,10 +125,15 @@ function runSignalScan(){
     body: JSON.stringify({query_type: 'market_analysis', prompt: pair, granularity: timeframe}),
   })
   .then(function(response){
+    clearInterval(scanTicker);
     return response.json().then(function(data){
       if(!response.ok) throw new Error(data.error || 'Market analysis could not start');
       return data;
     });
+  })
+  .catch(function(err){
+    clearInterval(scanTicker);
+    throw err;
   })
   .then(function(data){
     var timings = (data.analysis && data.analysis.timings) || {};
@@ -144,9 +155,8 @@ function runSignalScan(){
     }
     if(ss && data.analysis){
       var consensus = data.analysis.consensus || {};
-      ss.textContent += '> Strategy agreement: ' + (consensus.directional_votes || 0) + '/5 groups (' +
-        (consensus.buy_votes || 0) + ' BUY, ' + (consensus.sell_votes || 0) + ' SELL, ' +
-        (consensus.neutral_or_insufficient_votes || 0) + ' neutral/insufficient).\n';
+      ss.textContent += '> Unified Strategy Consensus: ' + (consensus.buy_votes || consensus.sell_votes ? 'VALID SIGNAL' : 'NEUTRAL') + ' (' +
+        (consensus.buy_votes || 0) + ' BUY, ' + (consensus.sell_votes || 0) + ' SELL).\n';
     }
     if(data.decision === 'WAIT' || !data.signal || data.signal.signal_type === 'HOLD'){
       window.lastProposedSignal = null;

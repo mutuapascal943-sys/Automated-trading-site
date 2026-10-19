@@ -16,7 +16,6 @@ class CustomUserAdmin(UserAdmin):
         'first_name', 'last_name', 'phone', 'broker', 'balance',
         'email_verified', 'two_factor_enabled', 'selected_market', 'is_active', 'is_staff',
         'is_superuser', 'groups', 'user_permissions',
-        'subscription_bypass', 'bot_bypass', 'subscription_access_denied',
     ]
     fieldsets = (
         ('Identity', {'fields': ('email', 'username', 'first_name', 'last_name', 'phone')}),
